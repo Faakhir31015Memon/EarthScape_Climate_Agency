@@ -97,6 +97,220 @@ def wait_for_job(api: Api, job_id: str, timeout: int = 180) -> dict:
     return {"status": "timeout"}
 
 
+def wait_for_task(api: Api, path: str, timeout: int = 300, interval: int = 4) -> dict:
+    """Poll any job-shaped endpoint until the task engine reports a terminal state."""
+    deadline = time.time() + timeout
+    last: dict = {"status": "timeout"}
+    while time.time() < deadline:
+        _code, payload = api.call("GET", path)
+        last = payload.get("data") or {}
+        if last.get("status") in ("completed", "failed", "succeeded", "ready"):
+            return last
+        time.sleep(interval)
+    return last
+
+
+def check_processing(api: Api, analyst: str, viewer: str) -> None:
+    """Phase 4: workflow catalogue, a real processing run, analytics summaries, engines."""
+    api.token = analyst
+    code, payload = api.call("GET", "/processing/workflows")
+    data = payload.get("data") or {}
+    workflows = data.get("workflows") or []
+    runtime = data.get("runtime") or {}
+    record("GET /processing/workflows", code == 200 and len(workflows) >= 8,
+           f"workflows={[w.get('id') for w in workflows]} "
+           f"hadoop={runtime.get('hadoop', {}).get('available')} "
+           f"spark={runtime.get('spark', {}).get('available')}")
+
+    if workflows:
+        first = str(workflows[0].get("id"))
+        code, payload = api.call("GET", f"/processing/workflows/{first}")
+        detail = payload.get("data") or {}
+        record("GET /processing/workflows/{id}", code == 200 and bool(detail.get("parameter_schema")),
+               f"planned_engine={(detail.get('workflow') or {}).get('engine_planned')} "
+               f"last_run={bool(detail.get('last_run_sample'))}")
+
+    code, payload = api.call("POST", "/processing/jobs", token=viewer,
+                             body={"workflow": "profile_missing", "parameters": {}})
+    record("RBAC: viewer cannot start a processing job", code == 403, f"http={code}")
+
+    code, payload = api.call("POST", "/processing/jobs",
+                             body={"workflow": "profile_missing", "parameters": {}})
+    started = payload.get("data") or {}
+    job_id = str(started.get("job_id") or "")
+    record("POST /processing/jobs (analyst)", code == 201 and bool(job_id),
+           f"engine_planned={started.get('engine_planned')} task_engine={started.get('task_engine')}")
+    if job_id:
+        job = wait_for_task(api, f"/processing/jobs/{job_id}", timeout=240)
+        record("processing job reaches a terminal state",
+               job.get("status") in ("completed", "failed"),
+               f"status={job.get('status')} engine_used={job.get('engine_used')} "
+               f"rows_in={job.get('rows_in')} rows_out={job.get('rows_out')} "
+               f"error={str(job.get('error'))[:120]}")
+
+    code, payload = api.call("GET", "/processing/jobs")
+    data = payload.get("data") or []
+    record("GET /processing/jobs", code == 200 and isinstance(data, list) and bool(data),
+           f"jobs={len(data)} totals={(payload.get('meta') or {}).get('status_totals')}"
+           f"{(payload.get('data') if isinstance(data, dict) else '') or ''}")
+
+    code, payload = api.call("GET", "/processing/summaries")
+    summaries = (payload.get("data") or [])
+    engines = sorted({str(s.get("engine_used")) for s in summaries if isinstance(s, dict)})
+    record("GET /processing/summaries", code == 200 and bool(summaries),
+           f"summaries={len(summaries)} engine_used={engines}")
+
+    code, payload = api.call("GET", "/processing/mapreduce")
+    data = payload.get("data") or {}
+    record("GET /processing/mapreduce", code == 200 and bool(data),
+           f"mode={data.get('mode')} hadoop_configured={(data.get('hadoop') or {}).get('configured')}")
+
+    code, payload = api.call("GET", "/processing/stream/status")
+    data = payload.get("data") or {}
+    record("GET /processing/stream/status", code == 200 and bool(data),
+           f"kafka_configured={(data.get('kafka') or {}).get('configured')} "
+           f"fallback={data.get('fallback_engine') or data.get('mode')}")
+
+    code, payload = api.call("POST", "/processing/sweep", token=viewer, body={})
+    record("RBAC: viewer blocked from the stale-job sweep", code == 403, f"http={code}")
+
+
+def check_machine_learning(api: Api, analyst: str, viewer: str, admin: str) -> None:
+    """Phase 6: registry, gates, a real training run, a forecast, anomaly detection, RBAC."""
+    api.token = analyst
+    code, payload = api.call("GET", "/models/capabilities")
+    data = payload.get("data") or {}
+    record("GET /models/capabilities", code == 200 and bool(data.get("ladder")),
+           f"tiers={ {k: v for k, v in (data.get('runtimes') or {}).items() if isinstance(v, (bool, str))} }"
+           if data.get("runtimes") else f"keys={sorted(data)}")
+
+    code, payload = api.call("GET", "/models/available-data")
+    data = payload.get("data") or {}
+    gate = data.get("gate") or {}
+    trainable = [s for s in (data.get("slices") or []) if s.get("trainable")]
+    record("GET /models/available-data (row gate)", code == 200 and bool(gate.get("min_training_rows")),
+           f"min_training_rows={gate.get('min_training_rows')} trainable_slices={len(trainable)} "
+           f"blocked={len(data.get('regions_blocked') or [])}")
+
+    code, payload = api.call("GET", "/models/")
+    rows = payload.get("data") or []
+    scored = [r for r in rows if isinstance(r, dict) and r.get("metrics")]
+    record("GET /models/ (registry)", code == 200 and bool(scored),
+           f"models={len(rows)} with_recorded_metrics={len(scored)} "
+           f"statuses={(payload.get('meta') or {}).get('status_totals') or (payload.get('meta') or {}).get('status_counts')}")
+    if not rows:
+        record("registry has a model usable for forecasting", False, "registry is empty")
+        return
+    temperature = next((r for r in rows if str(r.get("model_ref", "")).startswith("temperature-")
+                        and r.get("status") == "active"), rows[0])
+    model_ref = str(temperature.get("model_ref"))
+    target = str(temperature.get("target_variable") or "temperature")
+    region = str(temperature.get("region") or "")
+
+    code, payload = api.call("GET", f"/models/{model_ref}")
+    detail = payload.get("data") or {}
+    record("GET /models/{ref}", code == 200 and bool((detail.get("model") or {}).get("metrics")),
+           f"algorithm={(detail.get('model') or {}).get('algorithm')} "
+           f"artifact_on_disk={detail.get('artifact_on_disk')} "
+           f"registry_vs_disk={(detail.get('registry_vs_disk') or {}).get('agrees')}")
+
+    code, payload = api.call("GET", "/models/jobs")
+    data = payload.get("data") or []
+    record("GET /models/jobs", code == 200 and isinstance(data, list),
+           f"jobs={len(data)} counts={(payload.get('meta') or {}).get('job_counts')}")
+
+    code, payload = api.call("POST", "/models/train", token=viewer,
+                             body={"target_variable": "temperature", "region": region or "Lahore",
+                                   "granularity": "daily", "horizon_steps": 30})
+    record("RBAC: viewer cannot start training", code == 403, f"http={code}")
+
+    code, payload = api.call("POST", "/models/promote", token=analyst, body={})
+    record("RBAC: promotion to active is administrator-only", code in (403, 404), f"http={code}")
+
+    code, payload = api.call("POST", "/models/train",
+                             body={"target_variable": target, "region": region,
+                                   "granularity": str(temperature.get("granularity") or "daily"),
+                                   "horizon_steps": int(temperature.get("horizon_steps") or 30),
+                                   "models": ["baseline", "linear"], "register_as_candidate": True})
+    job = (payload.get("data") or {}).get("job") or {}
+    job_id = str(job.get("id") or "")
+    record("POST /models/train (analyst)", code == 201 and bool(job_id),
+           f"ladder_submitted={['baseline', 'linear']} poll={(payload.get('data') or {}).get('poll')}")
+    if job_id:
+        trained = wait_for_task(api, f"/models/jobs/{job_id}", timeout=300)
+        record("training job runs the ladder to a terminal state",
+               trained.get("status") == "completed",
+               f"status={trained.get('status')} error={str(trained.get('error'))[:140]}")
+
+    code, payload = api.call("POST", "/predictions/forecast", token=viewer,
+                             body={"model_ref": model_ref, "target_variable": target,
+                                   "region": region, "horizon_steps": 3})
+    record("RBAC: viewer cannot run a forecast", code == 403, f"http={code}")
+
+    code, payload = api.call("POST", "/predictions/forecast",
+                             body={"model_ref": model_ref, "target_variable": target,
+                                   "region": region, "horizon_steps": 3})
+    data = payload.get("data") or {}
+    prediction = data.get("prediction") or {}
+    values = prediction.get("series") or prediction.get("values") or []
+    record("POST /predictions/forecast (inline horizon)", code == 201 and bool(prediction),
+           f"mode={data.get('mode')} steps={len(values) if isinstance(values, list) else values} "
+           f"uncertainty={prediction.get('has_uncertainty')} "
+           f"error={str(payload.get('error', {}).get('message'))[:120]}")
+
+    mismatch = next((str(r.get("model_ref")) for r in rows
+                     if str(r.get("model_ref", "")).startswith("precipitation-")), "")
+    if mismatch:
+        code, payload = api.call("POST", "/predictions/forecast",
+                                 body={"model_ref": mismatch, "target_variable": "temperature",
+                                       "region": region, "horizon_steps": 3})
+        record("forecast refuses a target the model was not trained on (no silent fallback)",
+               code == 422 and "precipitation" in str(payload.get("error", {}).get("message")),
+               f"http={code} {str(payload.get('error', {}).get('message'))[:110]}")
+
+    code, payload = api.call("GET", "/predictions/")
+    data = payload.get("data") or []
+    record("GET /predictions/", code == 200 and isinstance(data, list), f"predictions={len(data)}")
+
+    code, payload = api.call("GET", "/predictions/latest")
+    data = payload.get("data") or {}
+    record("GET /predictions/latest", code == 200 and bool(data.get("model_ref")),
+           f"model_ref={data.get('model_ref')} horizon={data.get('horizon_steps')}")
+
+    code, payload = api.call("GET", "/anomaly/")
+    record("GET /anomaly/", code == 200, f"keys={sorted((payload.get('data') or {}))}")
+
+    code, payload = api.call("GET", "/anomaly/methods")
+    data = payload.get("data") or {}
+    methods = data.get("methods") if isinstance(data, dict) else data
+    record("GET /anomaly/methods", code == 200 and bool(methods), f"methods={methods}")
+
+    code, payload = api.call("POST", "/anomaly/scan", token=viewer, body={"variable": "temperature"})
+    record("RBAC: viewer cannot run an anomaly scan", code == 403, f"http={code}")
+
+    code, payload = api.call("POST", "/anomaly/scan",
+                             body={"variable": "temperature", "method": "statistical",
+                                   "region": region, "window_days": 365})
+    scan = (payload.get("data") or {}).get("scan") or {}
+    record("POST /anomaly/scan (statistical, leave-one-out baseline)",
+           code == 200 and scan.get("status") == "ok",
+           f"checked_slots={scan.get('checked_slots')} flagged={scan.get('flagged')} "
+           f"severity_counts={scan.get('count_by_severity')}")
+
+    code, payload = api.call("GET", "/anomaly/baselines")
+    data = payload.get("data") or {}
+    record("GET /anomaly/baselines", code == 200 and bool(data),
+           f"summaries={len(data.get('summaries') or []) if isinstance(data, dict) else len(data)}")
+
+    code, payload = api.call("GET", "/anomaly/events")
+    data = payload.get("data") or []
+    record("GET /anomaly/events", code == 200 and isinstance(data, list), f"events={len(data)}")
+
+    api.token = admin
+    code, payload = api.call("GET", "/models/")
+    record("GET /models/ (administrator)", code == 200, f"models={item_count(payload)}")
+
+
 def item_count(payload: dict):
     data = payload.get("data")
     if isinstance(data, list):
