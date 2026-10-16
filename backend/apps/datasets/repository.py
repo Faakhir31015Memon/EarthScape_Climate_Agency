@@ -71,6 +71,11 @@ def create(*, name: str, source_type: str, source_name: str, fmt: str, uploaded_
     return document
 
 
+def find_by_name(name: str, source_name: str) -> Optional[dict]:
+    return find_one("datasets", {"name": sanitize_text(name, max_length=160),
+                                 "source_name": sanitize_text(source_name, max_length=120)})
+
+
 def get(dataset_id: str) -> dict:
     parsed = oid(dataset_id)
     if not parsed:

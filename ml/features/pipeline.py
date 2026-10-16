@@ -41,7 +41,8 @@ def build_prep_pipeline(feature_names: list[str], scale: bool = False) -> Pipeli
                                                      fill_value=0.0), calendar))
     prep = ColumnTransformer(transforms, remainder="drop")
     return Pipeline([
-        ("select", FunctionTransformer(_identity, validate=True)),
+        # validate=False: NaN features must reach the imputer (fit on train only) unblocked
+        ("select", FunctionTransformer(_identity, validate=False)),
         ("prep", prep),
     ])
 
@@ -52,10 +53,14 @@ class ClimateFeaturePipeline:
     def __init__(self, feature_names: Optional[list[str]] = None,
                  lags: Optional[list[int]] = None, windows: Optional[list[int]] = None,
                  statics: Optional[dict[str, float]] = None, scale: bool = False) -> None:
-        self.feature_names = list(feature_names or DEFAULT_FEATURES)
+        self.statics = {k: v for k, v in (statics or {}).items() if v is not None}
+        requested = list(feature_names or DEFAULT_FEATURES)
+        # prune site attributes the slice cannot provide (e.g. no elevation in source data)
+        self.feature_names = [n for n in requested
+                              if n not in ("latitude", "longitude", "elevation_m")
+                              or n in self.statics]
         self.lags = lags
         self.windows = windows
-        self.statics = statics or {}
         self.scale = scale
         self.pipeline_: Optional[Pipeline] = None
         self.spec_: Optional[dict[str, Any]] = None

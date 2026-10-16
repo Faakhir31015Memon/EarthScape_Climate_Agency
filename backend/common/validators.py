@@ -114,6 +114,7 @@ class IngestionJobRequest(Strict):
     station_id: Optional[str] = Field(default=None, max_length=64)
     dataset_code: Optional[str] = Field(default=None, max_length=64)
     location_code: Optional[str] = Field(default=None, max_length=64)
+    location_name: Optional[str] = Field(default=None, max_length=80)
 
     @field_validator("coordinates")
     @classmethod

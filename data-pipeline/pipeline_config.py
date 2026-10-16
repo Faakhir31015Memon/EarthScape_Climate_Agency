@@ -169,17 +169,23 @@ def write_tabular(rows: list, directory: Path, base_name: str,
     directory.mkdir(parents=True, exist_ok=True)
     used = None
     out_path = None
+    cols = columns or _union_columns(rows)
     if parquet_available():
         import pyarrow as pa
         import pyarrow.parquet as pq
 
-        cols = columns or _union_columns(rows)
-        table = pa.table({c: _coerce_column(rows, c) for c in cols}, schema=pa.schema([(c, pa.string()) for c in cols]))
+        data = {c: _coerce_column(rows, c) for c in cols}
+        if not rows:
+            table = pa.table({c: pa.array([], type=pa.string()) for c in cols})
+        else:
+            try:
+                table = pa.Table.from_pylist([{c: data[c][i] for c in cols} for i in range(len(rows))])
+            except Exception:
+                table = pa.table({c: [str(v) if v is not None else None for v in data[c]] for c in cols})
         out_path = directory / f"{base_name}.parquet"
         pq.write_table(table, str(out_path))
         used = "parquet"
     else:
-        cols = columns or _union_columns(rows)
         out_path = directory / f"{base_name}.csv.gz"
         with gzip.open(out_path, "wt", encoding="utf-8", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
@@ -217,12 +223,21 @@ def _coerce_column(rows: list, col: str) -> list:
 
 
 def _scalar(value: Any):
+    """Reduce exotic scalars (numpy, Decimal) to JSON-native values."""
     if value is None:
         return None
-    if isinstance(value, bool):
-        return str(value).lower()
+    if isinstance(value, (bool, int, float, str)) and type(value).__module__ == "builtins":
+        return value
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            native = item()
+            if isinstance(native, (bool, int, float, str)):
+                return native
+        except Exception:
+            pass
     if isinstance(value, (int, float, str)):
-        return str(value)
+        return value
     import json as _json
 
     return _json.dumps(value, sort_keys=True, default=str)

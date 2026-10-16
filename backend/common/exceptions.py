@@ -13,7 +13,6 @@ from django.http import Http404
 from pymongo.errors import PyMongoError
 from rest_framework import status
 from rest_framework.exceptions import APIException, ValidationError as DRFValidationError
-from rest_framework.views import exception_handler as drf_exception_handler
 
 from common.logging_config import redact
 
@@ -88,6 +87,11 @@ def _payload(code: str, message: str, details, correlation_id: str) -> dict:
 
 
 def api_exception_handler(exc, context):
+    # Imported here: `rest_framework.views` is only fully initialised after Django
+    # settings load, and this module is on the authentication import path.
+    from rest_framework.response import Response
+    from rest_framework.views import exception_handler as drf_exception_handler
+
     request = context.get("request")
     correlation_id = getattr(request, "correlation_id", "") if request else ""
 
@@ -96,8 +100,6 @@ def api_exception_handler(exc, context):
     if isinstance(exc, (PyMongoError, ImproperlyConfigured)):
         logger.error("database/config failure: %s", exc, exc_info=True,
                      extra={"correlation_id": correlation_id})
-        from rest_framework.response import Response
-
         return Response(
             _payload("dependency_unavailable",
                      "The application database is unavailable. Check MONGODB_URI and network access.",
@@ -112,8 +114,6 @@ def api_exception_handler(exc, context):
         exc = Forbidden("You do not have permission to perform this action.")
 
     if isinstance(exc, DRFValidationError):
-        from rest_framework.response import Response
-
         details = exc.detail
         message = "Request validation failed."
         if isinstance(details, dict):
@@ -123,15 +123,21 @@ def api_exception_handler(exc, context):
                     flat.extend(f"{field}: {item}" for item in value)
                 else:
                     flat.append(f"{field}: {value}")
+            non_field = details.get("non_field_errors")
+            if non_field:
+                message = "; ".join(str(item) for item in non_field)
             details = flat
-            if "non_field_errors" in str(list(exc.detail)[:1]):
-                message = "; ".join(str(v) for v in exc.detail.get("non_field_errors", [])) or message
         return Response(_payload("validation_failed", message, details, correlation_id),
                         status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    if isinstance(exc, DomainError):
-        from rest_framework.response import Response
+    if isinstance(exc, Throttled):
+        return Response(
+            _payload("rate_limited", str(exc),
+                     exc.details or [f"retry after {exc.wait_seconds}s"], correlation_id),
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
 
+    if isinstance(exc, DomainError):
         return Response(_payload(exc.default_code, str(exc), exc.details, correlation_id),
                         status=exc.status_code)
 
@@ -141,13 +147,10 @@ def api_exception_handler(exc, context):
         if isinstance(response.data, dict) and "detail" in response.data:
             message = str(response.data["detail"])
             code = str(response.data.get("code", code))
-        from rest_framework.response import Response as _R
-
-        return _R(_payload(code, message, response.data, correlation_id), status=response.status_code)
+        return Response(_payload(code, message, response.data, correlation_id),
+                        status=response.status_code)
 
     logger.exception("unhandled server error", extra={"correlation_id": correlation_id})
-    from rest_framework.response import Response
-
     return Response(
         _payload("internal_error", "An unexpected server error occurred.", None, correlation_id),
         status=status.HTTP_500_INTERNAL_SERVER_ERROR,

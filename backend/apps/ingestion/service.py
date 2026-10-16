@@ -8,14 +8,14 @@ detection relies on the unique `dedupe_key` index, so re-running an import is sa
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Any, Callable, Iterable, Iterator
 
 from pymongo.errors import BulkWriteError, DuplicateKeyError
 
 from apps.datasets import repository as datasets
 from common.canonical import SCHEMA_VERSION, build_observation, validate_document
-from common.db import collection, find_one, insert_one, now_utc, oid, update_one
+from common.db import collection, find, find_one, insert_one, now_utc, oid, update_one
 from common.exceptions import NotFound, ValidationError
 from common.logging_config import get_logger
 from common.security import sanitize_text
@@ -255,3 +255,150 @@ def apply_job_counts_to_dataset(dataset_id: str, *, records_added: int, coverage
                                 status: str, storage_uri: str | None = None) -> None:
     datasets.record_ingestion_result(dataset_id, records_added=records_added, coverage=coverage,
                                      status=status, storage_uri=storage_uri)
+
+
+def recent_jobs(*, dataset_id: str | None = None, limit: int = 10) -> list[dict]:
+    query = {"dataset_id": dataset_id} if dataset_id else {}
+    rows = find("ingestion_jobs", query, sort=[("created_at", -1)], limit=min(limit, 50),
+                projection={"parameters": 0, "validation_errors": 0})
+    return [_job_summary(row) for row in rows]
+
+
+def _job_summary(job: dict) -> dict:
+    return {
+        "id": str(job.get("_id")),
+        "job_ref": job.get("job_ref"),
+        "kind": job.get("kind"),
+        "label": job.get("label"),
+        "source": job.get("source"),
+        "dataset_id": job.get("dataset_id"),
+        "status": job.get("status"),
+        "records_fetched": job.get("records_fetched", 0),
+        "records_accepted": job.get("records_accepted", 0),
+        "records_rejected": job.get("records_rejected", 0),
+        "records_duplicate": job.get("records_duplicate", 0),
+        "started_at": job["started_at"].isoformat() if job.get("started_at") else None,
+        "completed_at": job["completed_at"].isoformat() if job.get("completed_at") else None,
+        "duration_seconds": job.get("duration_seconds"),
+        "retry_count": job.get("retry_count", 0),
+        "error": job.get("error"),
+    }
+
+
+def list_jobs(*, status: str = "", source: str = "", dataset_id: str = "", kind: str = "",
+              page: int = 1, page_size: int = 25, date_from: str = "", date_to: str = "") -> tuple[list[dict], int]:
+    query: dict[str, Any] = {}
+    if status:
+        query["status"] = status
+    if source:
+        query["source"] = {"$regex": sanitize_text(source, max_length=40), "$options": "i"}
+    if dataset_id:
+        query["dataset_id"] = dataset_id
+    if kind:
+        query["kind"] = kind
+    window: dict[str, Any] = {}
+    if date_from:
+        parsed = _parse_iso(date_from)
+        if parsed:
+            window["$gte"] = parsed
+    if date_to:
+        parsed = _parse_iso(date_to)
+        if parsed:
+            window["$lte"] = parsed
+    if window:
+        query["started_at"] = window
+    total = collection("ingestion_jobs").count_documents(query)
+    rows = find("ingestion_jobs", query, sort=[("created_at", -1)], skip=(page - 1) * page_size,
+                limit=page_size)
+    return [_job_summary(row) for row in rows], total
+
+
+def _parse_iso(value: str) -> datetime | None:
+    from common.serialization import parse_datetime
+
+    return parse_datetime(value)
+
+
+def job_detail(job_id: str) -> dict:
+    parsed = oid(job_id)
+    if not parsed:
+        raise NotFound("Ingestion job not found.")
+    job = find_one("ingestion_jobs", {"_id": parsed})
+    if not job:
+        raise NotFound("Ingestion job not found.")
+    summary = _job_summary(job)
+    summary["parameters"] = job.get("parameters", {})
+    summary["validation_errors"] = job.get("validation_errors", [])
+    summary["coverage"] = job.get("coverage", {})
+    summary["created_by"] = job.get("created_by")
+    return summary
+
+
+def status_totals() -> dict:
+    rows = list(collection("ingestion_jobs").aggregate([
+        {"$group": {"_id": "$status", "count": {"$sum": 1},
+                    "accepted": {"$sum": {"$ifNull": ["$records_accepted", 0]}},
+                    "rejected": {"$sum": {"$ifNull": ["$records_rejected", 0]}},
+                    "avg_duration": {"$avg": "$duration_seconds"}}},
+    ]))
+    return {
+        "by_status": {row["_id"] or "unknown": row["count"] for row in rows},
+        "accepted_total": sum(row.get("accepted", 0) for row in rows),
+        "rejected_total": sum(row.get("rejected", 0) for row in rows),
+        "average_duration_seconds": round(
+            sum((row.get("avg_duration") or 0) * row["count"] for row in rows) /
+            max(sum(row["count"] for row in rows), 1), 2),
+    }
+
+
+def retry_job(job_id: str) -> dict:
+    """Re-run a failed provider ingestion; file imports retry from the stored upload."""
+    parsed = oid(job_id)
+    job = find_one("ingestion_jobs", {"_id": parsed}) if parsed else None
+    if not job:
+        raise NotFound("Ingestion job not found.")
+    if job.get("status") not in ("failed", "cancelled"):
+        raise ValidationError(f"A job with status '{job.get('status')}' cannot be retried.")
+    attempts = int(job.get("retry_count", 0))
+    if attempts >= 3:
+        raise ValidationError("Retry limit reached for this job; create a new ingestion instead.")
+    collection("ingestion_jobs").update_one({"_id": parsed},
+                                            {"$set": {"status": "queued", "error": None,
+                                                      "updated_at": now_utc()}})
+    params = job.get("parameters") or {}
+    if job.get("kind") == "provider_pull":
+        from apps.ingestion.jobs import run_provider_ingest
+
+        submit_kind = "provider_pull"
+        func = run_provider_ingest
+        kwargs = {
+            "provider": job.get("source"), "dataset_id": job.get("dataset_id"),
+            "job_id_str": str(parsed), "coordinates": params.get("coordinates", {}),
+            "start": (params.get("date_range") or {}).get("start", ""),
+            "end": (params.get("date_range") or {}).get("end", ""),
+            "variables": params.get("variables", []), "granularity": params.get("granularity", "daily"),
+            "station_id": params.get("station_id", ""), "dataset_code": params.get("dataset_code", ""),
+            "location_code": params.get("location_code", ""),
+            "location_name": params.get("location_name", ""),
+        }
+    else:
+        from apps.datasets.jobs import run_file_import
+
+        submit_kind = "file_import"
+        func = run_file_import
+        kwargs = {
+            "upload_ref": params.get("file_ref", ""), "dataset_id": job.get("dataset_id") or "",
+            "job_id_str": str(parsed), "column_map": params.get("column_map", {}),
+            "units_hint": params.get("units_hint", {}),
+            "granularity": params.get("granularity", "daily"),
+            "timezone_name": params.get("timezone"), "duplicate_policy": "skip",
+        }
+    if not kwargs.get("dataset_id") or not any(kwargs.get(k) for k in ("upload_ref", "coordinates", "provider")):
+        raise ValidationError("This job is missing the parameters needed to retry it.")
+
+    from common.tasks import submit
+
+    submit(submit_kind, func, kwargs=kwargs, created_by=job.get("created_by"),
+           payload={"retried_from": str(parsed)}, label=f"Retry {job.get('label') or job.get('kind')}")
+    collection("ingestion_jobs").update_one({"_id": parsed}, {"$inc": {"retry_count": 1}})
+    return {"retried": True, "job_id": str(parsed), "attempts": attempts + 1}

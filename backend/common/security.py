@@ -36,7 +36,7 @@ def hash_password(password: str) -> str:
     encoded = (password or "").encode("utf-8")
     if len(encoded) > 72:
         raise ValueError("Password must not exceed 72 bytes.")
-    return bcrypt.hashpw(encoded, bcrypt.gensalt(rounds=min(max(rounds, 10), 15])).decode("utf-8")
+    return bcrypt.hashpw(encoded, bcrypt.gensalt(rounds=min(max(rounds, 10), 15))).decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str | None) -> bool:

@@ -86,7 +86,7 @@ class SeriesAssembler:
                                      variable, region, granularity)
             return AssembledSeries(empty, avail, None, None, None)
 
-        subset = self.tidy[(self.tidy["region"] == region)
+        subset = self.tidy[((self.tidy["region"] == region) | (self.tidy["station"] == region))
                            & (self.tidy["variable"] == variable)
                            & (self.tidy["granularity"] == granularity)]
         if subset.empty:

@@ -52,7 +52,7 @@ def pandas_reference(input_path: Path) -> list:
         return []
     df = pd.DataFrame(rows)
     agg = df.groupby(["region", "year"])["t"].agg(["count", "mean"]).reset_index()
-    return [{"region": r.region, "year": r.year, "count": int(r.count), "mean_c": float(r["mean"])}
+    return [{"region": r.region, "year": r.year, "count": int(r.count), "mean_c": float(getattr(r, "mean"))}
             for r in agg.itertuples(index=False)]
 
 

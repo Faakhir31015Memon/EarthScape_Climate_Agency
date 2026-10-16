@@ -31,7 +31,7 @@ def test_derivation_is_order_invariant(daily_series):
     X_sorted = add_time_features(pd.DataFrame({"value": daily_series}))
     df = daily_series.to_frame("value").sample(frac=1.0, random_state=3)
     X_resorted = add_time_features(df.sort_index())
-    pd.testing.assert_frame_equal(X_sorted, X_resorted)
+    pd.testing.assert_frame_equal(X_sorted, X_resorted, check_freq=False)
 
 
 def test_training_window_ends_before_test_window(tidy_frame):

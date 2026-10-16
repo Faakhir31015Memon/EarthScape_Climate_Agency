@@ -26,7 +26,7 @@ def main():
         except ValueError:
             continue
         if current_key is not None and key != current_key:
-            print(f"{key}\t{total}")
+            print(f"{current_key}\t{total}")
             total = 0
         current_key = key
         total += n

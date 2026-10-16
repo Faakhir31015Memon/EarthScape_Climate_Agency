@@ -25,9 +25,11 @@ def _collection_counts() -> dict[str, int]:
 
 
 def data_lake_state() -> dict:
+    from common import datalake
+
     root = storage_root()
-    layout = ["raw", "validated", "processed", "analytics", "ml-features", "exports"]
-    present = {layer: (root / layer).is_dir() for layer in layout}
+    datalake.ensure_layout()
+    present = {layer: (root / layer).is_dir() for layer in datalake.LAYERS}
     total_bytes = 0
     file_count = 0
     for dirpath, _dirs, files in os.walk(root):
@@ -40,12 +42,24 @@ def data_lake_state() -> dict:
     usage = shutil.disk_usage(str(root))
     return {
         "root": str(root),
+        "engine": datalake.engine(),
+        "hdfs_configured": bool(ENV.exists("HDFS_WEBHDFS_URL")),
         "layers_present": present,
+        "writable": _writable(root),
         "files": file_count,
         "bytes": total_bytes,
         "free_disk_gb": round(usage.free / 1e9, 2),
-        "engine": "webhdfs" if ENV.exists("HDFS_WEBHDFS_URL") else "local",
     }
+
+
+def _writable(root) -> bool:
+    probe = root / ".write-probe"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
 
 
 def last_sync() -> dict:
@@ -93,7 +107,7 @@ def snapshot() -> dict:
             "uptime_seconds": int(time.time() - BOOT_TIME),
             "debug": settings.DEBUG,
             "signing_key_persisted": not settings.SIGNING_KEY_IS_EPHEMERAL,
-            "background_engine": ENV.raw("CELERY_ENABLED") and ENV.raw("REDIS_URL") and "celery" or "threaded",
+            "background_engine": ENGINE_LABEL,
             "self_registration": settings.APP["ALLOW_SELF_REGISTRATION"],
         },
     }

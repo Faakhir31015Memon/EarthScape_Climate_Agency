@@ -196,6 +196,15 @@ def validate_record(raw: dict, transformations_sink: Optional[list] = None) -> V
     conversions: list = []
     record = json.loads(json.dumps(raw, default=str))  # deep copy, JSON-safe
 
+    # 0. a measurement carrying an explicit null is *missing*: drop it before
+    # the schema check (omission rule; it must not fail the schema, and it is
+    # never rewritten as 0).
+    metrics_in = record.get("metrics") or {}
+    dropped_null = [k for k, v in metrics_in.items() if isinstance(v, dict) and v.get("value") is None]
+    if dropped_null:
+        record["metrics"] = {k: v for k, v in metrics_in.items() if k not in dropped_null}
+        flags.append("omitted_null_measurement:" + ",".join(sorted(dropped_null)))
+
     # 1. schema
     if SCHEMA_ENGINE == "subset":
         schema_errors = _subset_check(record)

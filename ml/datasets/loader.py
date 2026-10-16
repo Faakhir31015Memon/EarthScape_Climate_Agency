@@ -50,16 +50,24 @@ DEFAULT_COLUMN_ALIASES: dict[str, list[str]] = {
     "granularity": ["granularity", "freq", "interval", "resolution"],
     "dataset_id": ["dataset_id", "dataset", "source_id"],
     "temperature": ["temperature", "temp", "t2m", "temperature_2m", "air_temperature",
-                    "avg_temperature_2m", "tavg", "temp_mean", "meantemp"],
-    "temperature_max": ["temperature_max", "t2m_max", "temperature_2m_max", "max_temperature_2m", "tmax"],
-    "temperature_min": ["temperature_min", "t2m_min", "temperature_2m_min", "min_temperature_2m", "tmin"],
-    "precipitation": ["precipitation", "precip", "prcp", "rain", "rainfall", "precipitation_total"],
-    "humidity": ["humidity", "relative_humidity", "relative_humidity_2m", "rh2m"],
-    "wind_speed": ["wind_speed", "windspeed", "wind_speed_10m", "wind_speed_10m_max"],
+                    "avg_temperature_2m", "tavg", "temp_mean", "meantemp",
+                    "temperature_mean_c", "temperature_c", "temperature_mean"],
+    "temperature_max": ["temperature_max", "t2m_max", "temperature_2m_max", "max_temperature_2m", "tmax",
+                        "temperature_max_c"],
+    "temperature_min": ["temperature_min", "t2m_min", "temperature_2m_min", "min_temperature_2m", "tmin",
+                        "temperature_min_c"],
+    "precipitation": ["precipitation", "precip", "prcp", "rain", "rainfall", "precipitation_total",
+                      "precipitation_mm", "precipitation_sum"],
+    "humidity": ["humidity", "relative_humidity", "relative_humidity_2m", "rh2m",
+                 "humidity_pct", "relative_humidity_2m_mean"],
+    "wind_speed": ["wind_speed", "windspeed", "wind_speed_10m", "wind_speed_10m_max",
+                   "wind_speed_ms", "wind_speed_kmh"],
     "wind_direction": ["wind_direction", "wind_dir", "wind_direction_10m"],
-    "pressure": ["pressure", "surface_pressure", "pressure_msl", "mslp"],
+    "pressure": ["pressure", "surface_pressure", "pressure_msl", "mslp", "pressure_hpa",
+                 "pressure_msl_mean"],
     "cloud_cover": ["cloud_cover", "total_cloud_cover", "clouds", "avg_cloudcover"],
-    "solar_radiation": ["solar_radiation", "shortwave_radiation", "sunshine_duration", "ghi"],
+    "solar_radiation": ["solar_radiation", "shortwave_radiation", "sunshine_duration", "ghi",
+                        "solar_radiation_mj_m2", "shortwave_radiation_sum"],
 }
 
 UNIT_DEFAULTS = {
@@ -207,7 +215,6 @@ def _flatten_csv_frame(frame: pd.DataFrame, provenance_file: str,
         raise ValueError(f"{provenance_file}: no recognisable timestamp column "
                          f"(columns: {list(frame.columns)[:12]})")
     ts = pd.to_datetime(frame[ts_col], errors="coerce", utc=True)
-    naive = frame[ts_col][ts.dt.tz.isna() if hasattr(ts.dt, "tz") else slice(None)]
     granularity_col = pick("granularity")
     if granularity_col is not None:
         granularity = frame[granularity_col].astype(str)
@@ -216,6 +223,8 @@ def _flatten_csv_frame(frame: pd.DataFrame, provenance_file: str,
         granularity = pd.Series([inferred] * len(frame))
     region_col = pick("region")
     station_col = pick("station")
+    if station_col is None and "city" in lookup:
+        station_col = lookup["city"]  # pipeline CSVs carry city as the station identity
     lat_col, lon_col = pick("latitude"), pick("longitude")
     dataset_col = pick("dataset_id")
     fallback_region = Path(provenance_file).stem
@@ -280,11 +289,20 @@ def load_parquet(path: Path) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------- discovery
+def _is_synthetic(path: Path) -> bool:
+    """Files whose name advertises synthesis (e.g. SYNTHETIC_high_volume.csv) are
+    volume-test data and must never enter climate truth."""
+    return "synthetic" in path.name.lower()
+
+
 def discover_files(root: Optional[Path] = None) -> dict[str, list[Path]]:
     root = Path(root) if root else mlconfig.storage_root()
-    processed = sorted((root / "processed").glob("**/*.parquet")) if (root / "processed").is_dir() else []
-    raw = sorted((root / "raw").glob("**/*.jsonl")) if (root / "raw").is_dir() else []
-    sample = sorted(mlconfig.sample_data_root().glob("*.csv")) if mlconfig.sample_data_root().is_dir() else []
+    processed = sorted(p for p in (root / "processed").glob("**/*.parquet") if not _is_synthetic(p)) \
+        if (root / "processed").is_dir() else []
+    raw = sorted(p for p in (root / "raw").glob("**/*.jsonl") if not _is_synthetic(p)) \
+        if (root / "raw").is_dir() else []
+    sample = sorted(p for p in mlconfig.sample_data_root().glob("*.csv") if not _is_synthetic(p)) \
+        if mlconfig.sample_data_root().is_dir() else []
     return {"processed_parquet": processed, "raw_jsonl": raw, "sample_csv": sample}
 
 

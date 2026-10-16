@@ -44,7 +44,8 @@ def _compare(df: pd.DataFrame, variables: list, baseline_from, baseline_to) -> l
 
 def run_pandas(params: dict) -> dict:
     summary = new_summary("historical_compare", params, "pandas")
-    rows = load_rows(dataset=params.get("dataset"), region=params.get("region"),
+    rows = load_rows(dataset=params.get("dataset"), paths=params.get("paths") or None,
+                     region=params.get("region"),
                      year_from=params.get("year_from"), year_to=params.get("year_to"))
     if not rows:
         summary.update(status="unavailable", reason="no input rows")

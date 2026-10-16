@@ -93,40 +93,45 @@ def cmd_availability(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ml/cli.py",
                                      description="EarthScape ML CLI (JSON on stdout)")
-    parser.add_argument("--csv", nargs="*", help="explicit source files instead of auto-discovery")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    def add_common(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--csv", nargs="*", default=None,
+                       help="explicit source files instead of auto-discovery")
+        p.add_argument("--json", help="also write output to this file")
+
     p = sub.add_parser("train", help="train the model ladder and save artifacts")
+    add_common(p)
     p.add_argument("--target", required=True, help="canonical variable, e.g. temperature")
     p.add_argument("--region", help="omit to train every region available on disk")
     p.add_argument("--granularity", default="daily")
     p.add_argument("--horizon", type=int, default=30)
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--no-save", action="store_true")
-    p.add_argument("--json", help="also write output to this file")
     p.set_defaults(func=cmd_train)
 
     p = sub.add_parser("evaluate", help="walk-forward ladder evaluation (no artifacts saved) "
                                         "or stored metrics via --model")
+    add_common(p)
     p.add_argument("--target")
     p.add_argument("--region")
     p.add_argument("--model", help="name@version of a saved model")
     p.add_argument("--granularity", default="daily")
     p.add_argument("--horizon", type=int, default=30)
     p.add_argument("--folds", type=int, default=5)
-    p.add_argument("--json")
     p.set_defaults(func=cmd_evaluate)
 
     p = sub.add_parser("forecast", help="forecast from a saved model")
+    add_common(p)
     p.add_argument("--model", required=True, help="name or name@version")
     p.add_argument("--region", required=True)
     p.add_argument("--target", required=True)
     p.add_argument("--horizon", type=int, default=30)
     p.add_argument("--origin-date", dest="origin_date")
-    p.add_argument("--json")
     p.set_defaults(func=cmd_forecast)
 
     p = sub.add_parser("anomalies", help="run anomaly detection")
+    add_common(p)
     p.add_argument("--region", required=True)
     p.add_argument("--variable", required=True)
     p.add_argument("--method", default="statistical",
@@ -135,7 +140,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--origin")
     p.add_argument("--window-days", dest="window_days", type=int)
     p.add_argument("--min-baseline", dest="min_baseline", type=int)
-    p.add_argument("--json")
     p.set_defaults(func=cmd_anomalies)
 
     p = sub.add_parser("registry", help="print model_registry-ready JSON documents")
