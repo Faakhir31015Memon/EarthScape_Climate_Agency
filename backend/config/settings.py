@@ -177,7 +177,25 @@ APP = {
     "LOGIN_LOCKOUT_MINUTES": ENV.integer("LOGIN_LOCKOUT_MINUTES", 15),
     "BCRYPT_ROUNDS": ENV.integer("BCRYPT_ROUNDS", 12),
     "OBSERVATIONS_RETENTION_DAYS": ENV.integer("OBSERVATIONS_RETENTION_DAYS", 0),
+    "PASSWORD_RESET_MINUTES": ENV.integer("PASSWORD_RESET_MINUTES", 30),
+    "PUBLIC_BASE_URL": ENV.raw("PUBLIC_BASE_URL", "http://localhost:5173"),
 }
+
+# Email is disabled until a real provider is configured; no notification path pretends
+# to deliver mail without it.
+EMAIL_ENABLED = bool(ENV.raw("EMAIL_HOST")) and bool(ENV.raw("DEFAULT_FROM_EMAIL"))
+if EMAIL_ENABLED:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = ENV.raw("EMAIL_HOST")
+    EMAIL_PORT = ENV.integer("EMAIL_PORT", 587)
+    EMAIL_HOST_USER = ENV.raw("EMAIL_HOST_USER")
+    EMAIL_HOST_PASSWORD = ENV.raw("EMAIL_HOST_PASSWORD")
+    EMAIL_USE_TLS = ENV.flag("EMAIL_USE_TLS", True)
+    DEFAULT_FROM_EMAIL = ENV.raw("DEFAULT_FROM_EMAIL")
+    EMAIL_TIMEOUT = ENV.integer("EMAIL_TIMEOUT", 15)
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    DEFAULT_FROM_EMAIL = ENV.raw("DEFAULT_FROM_EMAIL", "no-reply@earthscape.local")
 
 if not MONGODB["URI"]:
     # Boot is still allowed so the interface and health checks work; every data route

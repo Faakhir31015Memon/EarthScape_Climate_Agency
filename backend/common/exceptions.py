@@ -66,6 +66,18 @@ class ValidationError(DomainError):
     default_code = "validation_failed"
 
 
+class Throttled(APIException):
+    """Rate limited or temporarily locked; clients read `wait_seconds` from details."""
+
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_code = "rate_limited"
+
+    def __init__(self, message: str, *, wait_seconds: int | None = None, details=None):
+        super().__init__(message)
+        self.details = details or ([f"retry after {wait_seconds}s"] if wait_seconds else [])
+        self.wait_seconds = wait_seconds
+
+
 def _payload(code: str, message: str, details, correlation_id: str) -> dict:
     return {
         "success": False,

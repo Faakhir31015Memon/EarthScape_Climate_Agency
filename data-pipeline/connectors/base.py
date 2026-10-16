@@ -179,6 +179,7 @@ class SourceConnector(abc.ABC):
                 if rec is None:
                     result.skipped += 1
                     continue
+                ts_source = rec.pop("_timestamp_source", None)
                 validated, issues = validator(rec)
                 if validated is None:
                     result.rejected += 1
@@ -186,6 +187,8 @@ class SourceConnector(abc.ABC):
                                          for i in issues)
                     continue
                 validated["provenance"] = self.provenance()
+                if ts_source:
+                    validated["provenance"]["timestamp_source"] = ts_source
                 result.records.append(validated)
                 result.accepted += 1
 

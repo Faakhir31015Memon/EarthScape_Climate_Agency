@@ -21,6 +21,7 @@ from common.env import ENV
 COLLECTIONS: dict[str, str] = {
     "users": "users",
     "refresh_tokens": "refresh_tokens",
+    "password_resets": "password_resets",
     "datasets": "datasets",
     "ingestion_jobs": "ingestion_jobs",
     "climate_observations": "climate_observations",
