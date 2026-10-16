@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://earthscape.example/schemas/observation-1.0.0.json",
+  "title": "EarthScape canonical climate observation",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["timestamp", "granularity", "location", "metrics", "dataset_id", "source", "dedupe_key"],
+  "additionalProperties": false,
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Observation time in UTC. Never inferred."
+    },
+    "granularity": { "enum": ["instantaneous", "hourly", "daily", "monthly"] },
+    "dedupe_key": {
+      "type": "string",
+      "description": "sha1 of dataset_id|timestamp|granularity|station_or_cell. Unique per dataset."
+    },
+    "dataset_id": { "type": "string" },
+    "ingestion_job_id": { "type": "string" },
+    "source": {
+      "type": "object",
+      "required": ["provider", "kind"],
+      "properties": {
+        "provider": { "enum": ["nasa_power", "noaa_cdc", "open_meteo", "university_upload", "sample"] },
+        "kind": { "enum": ["api", "file", "stream", "sample"] },
+        "endpoint": { "type": "string" },
+        "station_id": { "type": "string" },
+        "dataset_code": { "type": "string" },
+        "retrieved_at": { "type": "string", "format": "date-time" },
+        "source_file": { "type": "string" },
+        "row_number": { "type": "integer" },
+        "request_params": { "type": "object" }
+      }
+    },
+    "location": {
+      "type": "object",
+      "required": ["latitude", "longitude"],
+      "properties": {
+        "name": { "type": "string" },
+        "country": { "type": "string" },
+        "region": { "type": "string" },
+        "station_id": { "type": "string" },
+        "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+        "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+        "elevation_m": { "type": "number" },
+        "coordinate_precision": { "type": "integer" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "description": "Absent measurements are omitted entirely; never stored as zero.",
+      "properties": {
+        "temperature": { "$ref": "#/definitions/measurement" },
+        "temperature_max": { "$ref": "#/definitions/measurement" },
+        "temperature_min": { "$ref": "#/definitions/measurement" },
+        "precipitation": { "$ref": "#/definitions/measurement" },
+        "humidity": { "$ref": "#/definitions/measurement" },
+        "wind_speed": { "$ref": "#/definitions/measurement" },
+        "wind_direction": { "$ref": "#/definitions/measurement" },
+        "pressure": { "$ref": "#/definitions/measurement" },
+        "cloud_cover": { "$ref": "#/definitions/measurement" },
+        "solar_radiation": { "$ref": "#/definitions/measurement" }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "properties": {
+        "status": { "enum": ["valid", "suspect", "rejected"] },
+        "flags": { "type": "array", "items": { "type": "string" } },
+        "missing_fields": { "type": "array", "items": { "type": "string" } },
+        "validated_at": { "type": "string", "format": "date-time" },
+        "validator_version": { "type": "string" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "ingested_at": { "type": "string", "format": "date-time" },
+        "schema_version": { "type": "string" },
+        "unit_source": { "type": "string" },
+        "transformations": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "definitions": {
+    "measurement": {
+      "type": "object",
+      "required": ["value", "unit"],
+      "additionalProperties": false,
+      "properties": {
+        "value": { "type": "number" },
+        "unit": { "type": "string" }
+      }
+    }
+  }
+}
