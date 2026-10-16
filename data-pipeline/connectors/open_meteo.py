@@ -141,7 +141,6 @@ class OpenMeteoConnector(SourceConnector):
         om_to_metric = {v: k for k, v in self._om_variables().items()}
         times = values["time"]
         records = []
-        missing_skipped = 0
         for idx, ts_raw in enumerate(times):
             ts, ts_source = self._timestamp(ts_raw)
             metrics = {}
@@ -151,14 +150,13 @@ class OpenMeteoConnector(SourceConnector):
                     continue
                 value = series[idx] if idx < len(series) else None
                 if value is None:
-                    missing_skipped += 1  # omitted, never written as 0
-                    continue
+                    continue  # omitted: null is absence, never a fabricated 0
                 unit = units.get(om_name, DAILY_VARIABLES.get(metric, (None, None, "?"))[2]
                                  if self.granularity == "daily" else HOURLY_VARIABLES.get(metric, (None, "?"))[2])
                 value, unit = self._convert(metric, value, unit)
                 metrics[metric] = {"value": round(float(value), 4), "unit": unit}
             if not metrics:
-                missing_skipped += 1
+                records.append(None)  # fully-empty day: counted as skipped, not accepted
                 continue
             lat = float(raw_payload.get("latitude", self.latitude))
             lon = float(raw_payload.get("longitude", self.longitude))
@@ -187,7 +185,6 @@ class OpenMeteoConnector(SourceConnector):
             rec["location"] = {k: v for k, v in rec["location"].items() if v is not None}
             rec["_timestamp_source"] = ts_source
             rec["dedupe_key"] = make_dedupe_key(rec)
-            self._skipped = getattr(self, "_skipped", 0) + missing_skipped
             records.append(rec)
         return records
 

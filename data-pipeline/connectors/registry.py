@@ -38,7 +38,9 @@ def provider_info(name: str) -> dict:
 
 
 def build_connector(name: str, config: Optional[dict] = None):
-    entry = provider_info(name)
+    entry = _REGISTRY.get(name)
+    if entry is None:
+        raise KeyError(f"no connector registered under {name!r}; available: {sorted(_REGISTRY)}")
     return entry["class"](config or {})
 
 

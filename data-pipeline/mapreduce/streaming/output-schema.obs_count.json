@@ -1,0 +1,12 @@
+{
+  "job": "obs_count",
+  "delimiter": "\t",
+  "engine": "hadoop-streaming",
+  "columns": [
+    {"name": "dataset_id", "type": "string"},
+    {"name": "month", "type": "string", "format": "YYYY-MM", "source": "timestamp UTC month"},
+    {"name": "count", "type": "integer", "note": "canonical observations received for that dataset in that month (all metrics counted once per record)"}
+  ],
+  "combiner_partial_format": "same as map output (counting is trivially combiner-friendly)",
+  "missing_policy": "counts whole observation records; metric absence does not affect this job"
+}

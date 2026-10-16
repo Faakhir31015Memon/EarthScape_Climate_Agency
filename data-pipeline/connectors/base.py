@@ -186,7 +186,10 @@ class SourceConnector(abc.ABC):
                     result.errors.extend({"where": "validate", "error": i["rule"], "message": i["detail"]}
                                          for i in issues)
                     continue
-                validated["provenance"] = self.provenance()
+                prov = self.provenance()
+                validator_notes = (validated.get("provenance") or {}).get("transformations", [])
+                prov["transformations"] = sorted(set(prov["transformations"]) | set(validator_notes))
+                validated["provenance"] = prov
                 if ts_source:
                     validated["provenance"]["timestamp_source"] = ts_source
                 result.records.append(validated)

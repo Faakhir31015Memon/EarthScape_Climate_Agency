@@ -13,7 +13,7 @@ from typing import Any, Iterable, Optional
 
 from bson import ObjectId
 from bson.errors import InvalidId
-from pymongo import MongoClient, ReadPreference
+from pymongo import MongoClient
 from pymongo.errors import ConfigurationError, ConnectionFailure, OperationFailure, PyMongoError
 
 from common.env import ENV
@@ -77,7 +77,7 @@ def client() -> MongoClient:
                 connectTimeoutMS=int(ENV.integer("MONGODB_CONNECT_TIMEOUT_MS", 5000)),
                 tz_aware=True,
                 uuidRepresentation="standard",
-                readPreference=ReadPreference.PRIMARY_PREFERRED,
+                readPreference="primaryPreferred",
                 appname="earthscape-climate-agency",
             )
             _state["failure"] = None

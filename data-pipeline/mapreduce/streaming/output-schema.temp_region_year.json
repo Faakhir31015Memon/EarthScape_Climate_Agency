@@ -1,0 +1,15 @@
+{
+  "job": "temp_region_year",
+  "delimiter": "\t",
+  "engine": "hadoop-streaming",
+  "columns": [
+    {"name": "region", "type": "string", "source": "location.region|name|station_id else 'unassigned'"},
+    {"name": "year", "type": "integer", "source": "timestamp UTC year"},
+    {"name": "count", "type": "integer", "note": "number of observations contributing a temperature"},
+    {"name": "mean_c", "type": "number", "note": "arithmetic mean of temperature (C); mean metric preferred, else midpoint of max/min"},
+    {"name": "min_c", "type": "number"},
+    {"name": "max_c", "type": "number"}
+  ],
+  "combiner_partial_format": "region<TAB>year<TAB>n|sum|min|max",
+  "missing_policy": "observations without any temperature are omitted by the mapper, never counted as 0"
+}

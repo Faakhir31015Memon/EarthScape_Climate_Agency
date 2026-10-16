@@ -1,0 +1,14 @@
+{
+  "job": "precip_region",
+  "delimiter": "\t",
+  "engine": "hadoop-streaming",
+  "columns": [
+    {"name": "region", "type": "string"},
+    {"name": "month", "type": "string", "format": "YYYY-MM", "source": "timestamp UTC month"},
+    {"name": "count", "type": "integer", "note": "observations contributing precipitation (needed for the mean)"},
+    {"name": "sum_mm", "type": "number"},
+    {"name": "mean_mm", "type": "number"}
+  ],
+  "combiner_partial_format": "region<TAB>month<TAB>n|sum",
+  "missing_policy": "observations without precipitation are omitted by the mapper, never counted as 0"
+}

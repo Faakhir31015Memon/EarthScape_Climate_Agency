@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+artifacts/.dev-signing-key
+
+# Django
+backend/staticfiles/
+media/
+
+# Run-time artifacts (never commit generated data or credentials)
+artifacts/datalake/
+artifacts/models/
+artifacts/reports/
+artifacts/uploads/
+artifacts/checkpoints/
+artifacts/backups/
+artifacts/logs/
+sample-data/*.csv
+sample-data/*.json
+sample-data/*.meta.json
+!sample-data/README.md
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+coverage/
+*.tsbuildinfo
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store
+
+# Notebooks / tooling caches
+.ipynb_checkpoints/
+spark-warehouse/
+metastore_db/
+derby.log
