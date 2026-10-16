@@ -48,8 +48,8 @@ def _build(df: pd.DataFrame, var: str) -> list:
         g["month_cos"] = np.cos(2 * np.pi * g["month"] / 12.0)
         g["doy_sin"] = np.sin(2 * np.pi * doy / 365.25)
         g["doy_cos"] = np.cos(2 * np.pi * doy / 365.25)
-        g = g.assign(variable=var)
-        for r in g[feature_columns(var)].dropna(axis=0, how=None).itertuples(index=False):
+        g = g.assign(variable=var, value=s)
+        for r in g[feature_columns(var)].itertuples(index=False):
             row = r._asdict()
             out.append({k: (round_or_none(v) if isinstance(v, (int, float, np.floating)) and k not in
                             ("year", "month", "day") else v) for k, v in row.items()})
@@ -80,6 +80,7 @@ def run_spark(params: dict) -> dict:
     from spark.aggregate_regions import _resolve_files
     from pyspark.sql import functions as F
     from pyspark.sql import Window
+    from spark.common import safe_col
 
     summary = new_summary("ml_features", params, "pyspark")
     session = get_session()
@@ -88,15 +89,18 @@ def run_spark(params: dict) -> dict:
         summary.update(status="unavailable", reason="no input JSONL files found")
         return finish_summary(summary)
     var = params.get("variable") if params.get("variable") in VARIABLES else "temperature"
-    df = session.read.json([str(f) for f in files]).select(
+    raw = session.read.json([str(f) for f in files]).dropDuplicates(["dedupe_key"])
+    df = raw.select(
         F.col("dedupe_key"), F.col("dataset_id"),
-        F.coalesce(F.col("location.region"), F.col("location.name"), F.lit("unassigned")).alias("region"),
-        F.coalesce(F.col("location.station_id"), F.lit("")).alias("station_id"),
-        F.col("timestamp"), F.col("quality.status").alias("quality_status"),
+        F.coalesce(safe_col(raw, "location.region"), safe_col(raw, "location.name"),
+                   F.lit("unassigned")).alias("region"),
+        F.coalesce(safe_col(raw, "location.station_id"), F.lit("")).alias("station_id"),
+        F.col("timestamp"),
+        safe_col(raw, "quality.status").alias("quality_status"),
         F.substring("timestamp", 1, 4).cast("int").alias("year"),
         F.substring("timestamp", 6, 2).cast("int").alias("month"),
         F.substring("timestamp", 9, 2).cast("int").alias("day"),
-        F.col(f"metrics.{var}.value").alias("value")).filter("value IS NOT NULL")
+        safe_col(raw, f"metrics.{var}.value").alias("value")).filter("value IS NOT NULL")
     w = Window.partitionBy("dataset_id", "region", "station_id").orderBy("timestamp")
     df = (df
           .withColumn(f"{var}_lag1", F.lag("value", 1).over(w))

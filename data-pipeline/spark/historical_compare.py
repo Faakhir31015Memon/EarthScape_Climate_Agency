@@ -64,6 +64,7 @@ def run_spark(params: dict) -> dict:
     from spark.common import get_session
     from spark.aggregate_regions import _resolve_files
     from pyspark.sql import functions as F
+    from spark.common import safe_col
 
     summary = new_summary("historical_compare", params, "pyspark")
     session = get_session()
@@ -72,11 +73,13 @@ def run_spark(params: dict) -> dict:
         summary.update(status="unavailable", reason="no input JSONL files found")
         return finish_summary(summary)
     var = params.get("variable") if params.get("variable") in VARIABLES else "temperature"
-    df = session.read.json([str(f) for f in files]).select(
+    raw = session.read.json([str(f) for f in files]).dropDuplicates(["dedupe_key"])
+    df = raw.select(
         F.col("dataset_id"),
-        F.coalesce(F.col("location.region"), F.col("location.name"), F.lit("unassigned")).alias("region"),
+        F.coalesce(safe_col(raw, "location.region"), safe_col(raw, "location.name"),
+                   F.lit("unassigned")).alias("region"),
         F.substring("timestamp", 1, 4).cast("int").alias("year"),
-        F.col(f"metrics.{var}.value").alias("value")).filter("value IS NOT NULL AND year IS NOT NULL")
+        safe_col(raw, f"metrics.{var}.value").alias("value")).filter("value IS NOT NULL AND year IS NOT NULL")
     b_from = int(params.get("baseline_from") or df.agg(F.min("year")).first()[0])
     b_to = int(params.get("baseline_to") or (b_from + 9))
     annual = df.groupBy("dataset_id", "region", "year").agg(F.mean("value").alias("annual_mean"))

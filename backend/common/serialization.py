@@ -65,6 +65,22 @@ def documents_to_api(docs) -> list[dict]:
     return [document_to_api(d) for d in docs]
 
 
+def api_payload(value: Any, *, depth: int = 0) -> Any:
+    """Serialise anything for the wire and present Mongo ids as a stable string `id`."""
+    if depth > 12:
+        return None
+    if isinstance(value, dict):
+        converted = {str(key): api_payload(item, depth=depth + 1)
+                     for key, item in value.items()}
+        raw_id = converted.pop("_id", None)
+        if raw_id is not None and "id" not in converted:
+            converted["id"] = str(raw_id)
+        return converted
+    if isinstance(value, (list, tuple)):
+        return [api_payload(item, depth=depth + 1) for item in value]
+    return jsonable(value)
+
+
 def parse_datetime(value: Any) -> datetime | None:
     """Accept ISO strings, epoch numbers and datetimes; always return aware UTC."""
     if value in (None, ""):

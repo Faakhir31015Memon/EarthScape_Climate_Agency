@@ -69,6 +69,7 @@ def run_spark(params: dict) -> dict:
     from spark.common import get_session
     from spark.aggregate_regions import _resolve_files
     from pyspark.sql import functions as F
+    from spark.common import safe_col
 
     summary = new_summary("anomaly_features", params, "pyspark")
     session = get_session()
@@ -77,14 +78,16 @@ def run_spark(params: dict) -> dict:
         summary.update(status="unavailable", reason="no input JSONL files found")
         return finish_summary(summary)
     var = params.get("variable") if params.get("variable") in VARIABLES else "temperature"
-    df = session.read.json([str(f) for f in files]).select(
+    raw = session.read.json([str(f) for f in files]).dropDuplicates(["dedupe_key"])
+    df = raw.select(
         F.col("dedupe_key"), F.col("dataset_id"),
-        F.coalesce(F.col("location.region"), F.col("location.name"), F.lit("unassigned")).alias("region"),
+        F.coalesce(safe_col(raw, "location.region"), safe_col(raw, "location.name"),
+                   F.lit("unassigned")).alias("region"),
         F.col("timestamp"),
         F.substring("timestamp", 1, 4).cast("int").alias("year"),
         F.substring("timestamp", 6, 2).cast("int").alias("month"),
-        F.col("quality.status").alias("quality_status"),
-        F.col(f"metrics.{var}.value").alias("value")).filter("value IS NOT NULL")
+        safe_col(raw, "quality.status").alias("quality_status"),
+        safe_col(raw, f"metrics.{var}.value").alias("value")).filter("value IS NOT NULL")
     clim = df.groupBy("dataset_id", "region", "month").agg(
         F.mean("value").alias("climatology_mean"), F.stddev("value").alias("climatology_std"))
     joined = df.join(clim, ["dataset_id", "region", "month"], "left") \

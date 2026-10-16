@@ -7,11 +7,13 @@ from typing import Any
 from rest_framework.response import Response
 from rest_framework import status
 
+from common.serialization import api_payload
+
 
 def ok(data: Any = None, *, meta: dict | None = None, http_status: int = status.HTTP_200_OK,
        request=None) -> Response:
-    payload: dict[str, Any] = {"success": True, "data": data, "error": None}
-    merged_meta = dict(meta or {})
+    payload: dict[str, Any] = {"success": True, "data": api_payload(data), "error": None}
+    merged_meta = api_payload(meta or {})
     if request is not None:
         merged_meta.setdefault("correlation_id", getattr(request, "correlation_id", ""))
     payload["meta"] = merged_meta

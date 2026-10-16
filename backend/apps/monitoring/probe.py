@@ -13,6 +13,7 @@ from django.conf import settings
 from common.db import COLLECTIONS, count, db, ping
 from common.env import ENV, startup_status, storage_root
 from common.paths import ensure_paths
+from common.tasks import engine as task_engine
 
 BOOT_TIME = time.time()
 
@@ -107,7 +108,7 @@ def snapshot() -> dict:
             "uptime_seconds": int(time.time() - BOOT_TIME),
             "debug": settings.DEBUG,
             "signing_key_persisted": not settings.SIGNING_KEY_IS_EPHEMERAL,
-            "background_engine": ENGINE_LABEL,
+            "background_engine": task_engine(),
             "self_registration": settings.APP["ALLOW_SELF_REGISTRATION"],
         },
     }

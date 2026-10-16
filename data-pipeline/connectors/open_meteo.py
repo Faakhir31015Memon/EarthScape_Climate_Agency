@@ -142,6 +142,9 @@ class OpenMeteoConnector(SourceConnector):
         times = values["time"]
         records = []
         for idx, ts_raw in enumerate(times):
+            if ts_raw is None:
+                records.append(None)  # provider returned a null timestamp slot
+                continue
             ts, ts_source = self._timestamp(ts_raw)
             metrics = {}
             for om_name, metric in om_to_metric.items():
@@ -151,8 +154,14 @@ class OpenMeteoConnector(SourceConnector):
                 value = series[idx] if idx < len(series) else None
                 if value is None:
                     continue  # omitted: null is absence, never a fabricated 0
-                unit = units.get(om_name, DAILY_VARIABLES.get(metric, (None, None, "?"))[2]
-                                 if self.granularity == "daily" else HOURLY_VARIABLES.get(metric, (None, "?"))[2])
+                # Daily table rows are 3-tuples (daily, hourly, unit); hourly rows
+                # are 2-tuples (hourly, unit). Resolve the fallback unit safely
+                # for either granularity (never index a tuple out of range).
+                if self.granularity == "daily":
+                    default_unit = DAILY_VARIABLES.get(metric, (None, None, "?"))[2]
+                else:
+                    default_unit = HOURLY_VARIABLES.get(metric, (None, "?"))[1]
+                unit = units.get(om_name, default_unit)
                 value, unit = self._convert(metric, value, unit)
                 metrics[metric] = {"value": round(float(value), 4), "unit": unit}
             if not metrics:

@@ -61,14 +61,16 @@ def run_spark(params: dict) -> dict:
         summary.update(status="unavailable", reason="no input JSONL files found")
         return finish_summary(summary)
     from pyspark.sql import functions as F
+    from spark.common import safe_col
 
-    df = session.read.json([str(f) for f in files])
+    df = session.read.json([str(f) for f in files]).dropDuplicates(["dedupe_key"])
     df = (df.select(
         F.col("dataset_id"),
-        F.coalesce(F.col("location.region"), F.col("location.name"), F.lit("unassigned")).alias("region"),
+        F.coalesce(safe_col(df, "location.region"), safe_col(df, "location.name"),
+                   F.lit("unassigned")).alias("region"),
         F.year(F.substring("timestamp", 1, 10).cast("date")).alias("year"),
         F.month(F.substring("timestamp", 1, 10).cast("date")).alias("month"),
-        *[F.col(f"metrics.{v}.value").alias(v) for v in VARIABLES])
+        *[safe_col(df, f"metrics.{v}.value").alias(v) for v in VARIABLES])
         .filter("year IS NOT NULL"))
     if params.get("region"):
         df = df.filter(F.col("region") == params["region"])

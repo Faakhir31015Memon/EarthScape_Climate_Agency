@@ -160,8 +160,12 @@ def forecast(model_ref: str, target_variable: str, region: str, horizon_steps: i
         estimator = loaded.payload.get("estimator")
         if algorithm == "random_forest" and estimator is not None:
             try:
+                import warnings as _w
+                prep_transform = estimator[:-1].transform(X_origins[spec_names])
                 rf = estimator[-1]
-                per_tree = np.stack([tree.predict(X_origins[spec_names]) for tree in rf.estimators_])
+                with _w.catch_warnings():
+                    _w.simplefilter("ignore")
+                    per_tree = np.stack([tree.predict(prep_transform) for tree in rf.estimators_])
                 tree_spread = per_tree.std(axis=0, ddof=1)
             except Exception as exc:
                 warnings.append(f"per-tree spread unavailable: {exc}")

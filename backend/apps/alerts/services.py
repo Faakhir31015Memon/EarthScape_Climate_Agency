@@ -37,7 +37,7 @@ def list_rules(*, enabled: str = "", condition: str = "", variable: str = "", se
     if variable:
         query["target_variable"] = variable
     if search:
-        query["name"] = {"$regex": sanitize_text(search, 60), "$options": "i"}
+        query["name"] = {"$regex": sanitize_text(search, max_length=60), "$options": "i"}
     total = collection("alert_rules").count_documents(query)
     rows = find("alert_rules", query, sort=[("created_at", -1)],
                 skip=(page - 1) * page_size, limit=page_size)
@@ -179,7 +179,7 @@ def _transition(event_id: str, identity, *, to_status: str, note: str | None,
         {"_id": event["_id"]},
         {"$set": update, "$push": {"audit": {
             "at": moment, "actor": str(identity.user_id), "actor_role": identity.role,
-            "action": to_status, "reason": sanitize_text(note or "", 400) or None}}},
+            "action": to_status, "reason": sanitize_text(note or "", max_length=400) or None}}},
     )
     collection("notifications").update_many(
         {"alert_event_id": str(event["_id"])},

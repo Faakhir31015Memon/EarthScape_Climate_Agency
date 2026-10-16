@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 from apps.authentication.permissions import role_allows
-from apps.datasets import repository as datasets
 from apps.ingestion import jobs as ingestion_jobs
 from apps.ingestion import service as ingestion
 from apps.ingestion import source_clients
+from apps.ingestion.jobs import PROVIDER_LABELS
 from common.audit import audit
-from common.exceptions import ValidationError
+from common.exceptions import Forbidden, ValidationError
 from common.pagination import normalize_pagination
 from common.responses import paginated
 from common.tasks import submit
 from common.validators import IngestionJobRequest, parse
 from common.views import ApiView
-
-PROVIDER_LABELS = {"nasa_power": "NASA POWER", "noaa_cdc": "NOAA Climate Data Online",
-                   "open_meteo": "Open-Meteo"}
 
 
 class ProviderCatalogueView(ApiView):
@@ -51,7 +48,7 @@ class IngestionJobListView(ApiView):
 
     def post(self, request):
         if not role_allows(request.auth_identity.role, "ingestion.run"):
-            raise ValidationError("Your role cannot run ingestion jobs.", code="permission_denied")
+            raise Forbidden("Your role cannot run ingestion jobs.", code="permission_denied")
         payload: IngestionJobRequest = parse(IngestionJobRequest, self.body(request))
         option = source_clients.provider_options().get(payload.provider)
         if not option or not option.get("available"):
@@ -61,31 +58,14 @@ class IngestionJobListView(ApiView):
                 f"available in this deployment.",
                 details=[f"Set {missing} in the backend environment to enable this source."])
 
-        dataset = _dataset_for_pull(payload, request.auth_identity.user_id)
-        job = ingestion.create_job(
-            kind="provider_pull", source=payload.provider, dataset_id=str(dataset["_id"]),
-            params={"coordinates": payload.coordinates, "date_range": payload.date_range,
-                    "variables": payload.variables, "granularity": payload.granularity,
-                    "station_id": payload.station_id or "", "dataset_code": payload.dataset_code or "",
-                    "location_code": payload.location_code or "",
-                    "location_name": payload.location_name or ""},
-            created_by=request.auth_identity.user_id,
-            label=f"{PROVIDER_LABELS.get(payload.provider)} pull ({payload.coordinates['latitude']:.2f}, "
-                  f"{payload.coordinates['longitude']:.2f})",
-        )
+        dataset = ingestion_jobs.dataset_for_pull(payload, request.auth_identity.user_id)
+        job = ingestion_jobs.create_pull_job(payload, str(dataset["_id"]),
+                                            request.auth_identity.user_id)
         submit(
             "provider_pull",
             ingestion_jobs.run_provider_ingest,
-            kwargs={
-                "provider": payload.provider, "dataset_id": str(dataset["_id"]),
-                "job_id_str": str(job["_id"]), "coordinates": payload.coordinates,
-                "start": (payload.date_range or {}).get("start", ""),
-                "end": (payload.date_range or {}).get("end", ""),
-                "variables": payload.variables, "granularity": payload.granularity,
-                "station_id": payload.station_id or "", "dataset_code": payload.dataset_code or "",
-                "location_code": payload.location_code or "",
-                "location_name": payload.location_name or _coord_label(payload),
-            },
+            kwargs=ingestion_jobs.pull_kwargs(payload=payload, dataset_id=str(dataset["_id"]),
+                                              job_id=str(job["_id"])),
             created_by=request.auth_identity.user_id,
             payload={"dataset_id": str(dataset["_id"]), "provider": payload.provider},
             label=job["label"],
@@ -131,26 +111,3 @@ class IngestionStatusView(ApiView):
             "recent_jobs": ingestion.recent_jobs(limit=min(limit, 30)),
             "providers": source_clients.provider_options(),
         })
-
-
-def _dataset_for_pull(payload: IngestionJobRequest, user_id: str) -> dict:
-    """Reuse an identical provider dataset so repeated pulls accumulate into one dataset."""
-    label = PROVIDER_LABELS.get(payload.provider, payload.provider)
-    found = datasets.find_by_name(payload.dataset_name, label)
-    if found:
-        return found
-    return datasets.create(
-        name=payload.dataset_name, description=f"Pulled from {label} for "
-        f"({payload.coordinates['latitude']:.2f}, {payload.coordinates['longitude']:.2f}).",
-        source_type="api", source_name=label, fmt="api", uploaded_by=user_id,
-        geographic_coverage={"bounding_box": {"min_lat": payload.coordinates["latitude"],
-                                              "max_lat": payload.coordinates["latitude"],
-                                              "min_lon": payload.coordinates["longitude"],
-                                              "max_lon": payload.coordinates["longitude"]}},
-        temporal_coverage=payload.date_range or {},
-        tags=[payload.provider, payload.granularity],
-    )
-
-
-def _coord_label(payload: IngestionJobRequest) -> str:
-    return f"({payload.coordinates['latitude']:.2f}, {payload.coordinates['longitude']:.2f})"

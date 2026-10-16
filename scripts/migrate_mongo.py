@@ -215,6 +215,27 @@ def seed_settings(database) -> list[str]:
             upsert=True,
         )
         written.append(key)
+    # Insert-only: administrators edit the ingestion schedule from the admin settings page,
+    # so re-running the migration must never discard those edits.
+    insert_only = {
+        "ingestion_schedule": {
+            "enabled": False,
+            "sources": [
+                {"provider": "open_meteo", "dataset_name": "Lahore daily climate",
+                 "coordinates": {"latitude": 31.5204, "longitude": 74.3587},
+                 "location_name": "Lahore", "variables": ["temperature", "precipitation"],
+                 "granularity": "daily", "interval_minutes": 1440, "lookback_days": 3},
+            ],
+        },
+    }
+    for key, value in insert_only.items():
+        database["platform_settings"].update_one(
+            {"key": key},
+            {"$setOnInsert": {"key": key, "value": value, "created_at": now_utc(),
+                              "updated_at": now_utc()}},
+            upsert=True,
+        )
+        written.append(f"{key} (disabled by default)")
     return written
 
 

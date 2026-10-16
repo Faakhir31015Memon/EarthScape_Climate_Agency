@@ -190,6 +190,7 @@ def observation_pipeline(match: dict[str, Any], variable: str, limit: int) -> li
             "granularity": 1,
             "dataset_id": 1,
             "dedupe_key": 1,
+            "metrics": 1,
             "location.region": 1,
             "location.station_id": 1,
             "location.latitude": 1,
@@ -226,10 +227,11 @@ def event_document(*, rule: dict, rule_id: str, dedupe: str, observation: dict,
     """`source_kind` is ``observation`` or ``prediction``; reference holds real ids/values."""
     scope = rule.get("geographic_scope") or {}
     location = observation.get("location") if isinstance(observation.get("location"), dict) else {}
+    reference_id = _clean_str(str(observation.get("_id", "")), 40) or None
     reference = {
         "kind": source_kind,
-        "observation_id": _clean_str(str(observation.get("_id", "")), 40) or None,
-        "prediction_id": _clean_str(str(observation.get("_id", "")), 40) or None,
+        "observation_id": reference_id if source_kind == "observation" else None,
+        "prediction_id": reference_id if source_kind == "prediction" else None,
         "dataset_id": _clean_str(observation.get("dataset_id"), 64),
         "dedupe_key": _clean_str(observation.get("dedupe_key"), 128),
         "timestamp": observation.get("timestamp"),
@@ -247,6 +249,8 @@ def event_document(*, rule: dict, rule_id: str, dedupe: str, observation: dict,
         ),
         "model_ref": _clean_str(observation.get("model_ref"), 120),
     }
+    # `detected_at` is when the condition was observed; `recorded` is when we wrote it.
+    recorded = now_utc()
     return {
         "rule_id": rule_id,
         "rule_name": rule.get("name", ""),
@@ -273,10 +277,10 @@ def event_document(*, rule: dict, rule_id: str, dedupe: str, observation: dict,
         "resolved_by": None,
         "resolved_at": None,
         "notification_ids": [],
-        "audit": [{"at": detected_at, "actor": "system", "action": "created",
+        "audit": [{"at": recorded, "actor": "system", "action": "created",
                    "reason": "alert evaluation matched the rule condition"}],
-        "created_at": detected_at,
-        "updated_at": detected_at,
+        "created_at": recorded,
+        "updated_at": recorded,
     }
 
 

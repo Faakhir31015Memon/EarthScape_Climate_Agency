@@ -11,7 +11,7 @@ from apps.datasets import storage as uploads
 from apps.ingestion import service as ingestion
 from common.audit import audit
 from common.db import oid
-from common.exceptions import NotFound, ValidationError
+from common.exceptions import Forbidden, ValidationError
 from common.pagination import normalize_pagination
 from common.responses import paginated
 from common.tasks import submit
@@ -75,8 +75,8 @@ class DatasetDetailView(ApiView):
         params = self.params(request)
         include = params.get("include_observations", "").lower() == "true"
         if request.auth_identity.role != "administrator":
-            raise ValidationError("Only an administrator can delete a dataset.",
-                                  code="permission_denied")
+            raise Forbidden("Only an administrator can delete a dataset.",
+                            code="permission_denied")
         result = datasets.delete(dataset_id, include_observations=include)
         audit(request, "dataset.delete", resource_type="datasets", resource_id=dataset_id,
               metadata=result)

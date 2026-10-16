@@ -92,7 +92,7 @@ def normalize_filters(raw: Any) -> dict[str, Any]:
         if value in (None, ""):
             continue
         if kind is str:
-            clean[key] = sanitize_text(value, 80)
+            clean[key] = sanitize_text(value, max_length=80)
         elif kind is float:
             clean[key] = max(1.0, min(float(value), 12.0))
         else:
@@ -545,7 +545,7 @@ def _anomalies(filters: dict[str, Any], now: datetime) -> dict[str, Any]:
             "variable": summary.get("variable"),
             "method": summary.get("method"),
             "detail": sanitize_text(str({key: value for key, value in summary.items()
-                                         if key not in ("_id",)}), 600),
+                                         if key not in ("_id",)}), max_length=600),
         })
 
     cols = columns(("timestamp", "Timestamp"), ("scope", "Scope"), ("value", "Value"),
@@ -906,7 +906,7 @@ def _ingestion_history(filters: dict[str, Any], now: datetime) -> dict[str, Any]
             "records_rejected": _int_value(_pick(doc, "records_rejected", "rejected")),
             "created_at": _iso(created), "started_at": _iso(doc.get("started_at")),
             "finished_at": _iso(doc.get("finished_at")),
-            "error": sanitize_text(doc.get("error"), 200) if doc.get("error") else None,
+            "error": sanitize_text(doc.get("error"), max_length=200) if doc.get("error") else None,
         })
 
     grouped = sorted(buckets.values(), key=lambda item: (item["day"], item["provider"]),
@@ -1010,7 +1010,7 @@ def write_outputs(report_id: str, payload: dict[str, Any], formats: Iterable[str
 
 def _safe_relative(entry: Any) -> Path:
     relative = entry.get("path") if isinstance(entry, dict) else str(entry)
-    text = sanitize_text(relative, 300)
+    text = sanitize_text(relative, max_length=300)
     path = Path(text)
     if path.is_absolute() or ".." in path.parts:
         raise Forbidden("The stored report path is not a safe relative path.")
@@ -1051,7 +1051,7 @@ def create_report(payload: Any, identity) -> dict[str, Any]:
     now = now_utc()
     document: dict[str, Any] = {
         "report_type": report_type,
-        "title": sanitize_text(payload.title, 160) or f"{report_type.replace('_', ' ').title()} report",
+        "title": sanitize_text(payload.title, max_length=160) or f"{report_type.replace('_', ' ').title()} report",
         "filters": filters,
         "formats": formats,
         "status": "queued",

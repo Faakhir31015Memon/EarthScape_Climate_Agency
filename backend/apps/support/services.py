@@ -25,7 +25,8 @@ from pymongo.errors import DuplicateKeyError
 from apps.alerts import notifier
 from apps.authentication.permissions import role_allows
 from apps.users import repository as users
-from common.db import collection, find, find_one, insert_one, now_utc, oid, update_one
+from common.db import (aggregate, collection, count, find, find_one, insert_one, now_utc, oid,
+                       update_one)
 from common.exceptions import Conflict, Forbidden, NotFound, ValidationError
 from common.security import sanitize_text
 from common.serialization import document_to_api, parse_datetime
@@ -90,8 +91,8 @@ def create_ticket(payload: Any, identity) -> dict[str, Any]:
     moment = now_utc()
     document = {
         "ticket_number": next_ticket_number(),
-        "subject": sanitize_text(payload.subject, 160),
-        "body": sanitize_text(payload.body, 6000),
+        "subject": sanitize_text(payload.subject, max_length=160),
+        "body": sanitize_text(payload.body, max_length=6000),
         "category": payload.category,
         "priority": payload.priority,
         "status": "open",
@@ -120,18 +121,17 @@ def _require_ticket(ticket_id: str) -> dict:
     parsed = oid(ticket_id)
     ticket = find_one("support_tickets", {"_id": parsed}) if parsed else None
     if not ticket:
-        ticket = find_one("support_tickets", {"ticket_number": sanitize_text(ticket_id, 40)})
+        ticket = find_one("support_tickets", {"ticket_number": sanitize_text(ticket_id, max_length=40)})
     if not ticket:
         raise NotFound("Support ticket not found.")
     return ticket
 
 
-def _assert_access(ticket: dict, identity, *, manage: bool = False) -> None:
-    owner = str(ticket.get("created_by")) == str(identity.user_id)
-    if owner:
+def _assert_access(ticket: dict, identity) -> None:
+    """Requester or ``support.manage`` — there is no third category of reader."""
+    if str(ticket.get("created_by")) == str(identity.user_id):
         return
-    needed = "support.manage" if manage else "support.manage"
-    if not role_allows(identity.role, needed):
+    if not role_allows(identity.role, "support.manage"):
         raise Forbidden("Support staff access is required for this ticket.")
 
 
@@ -155,8 +155,8 @@ def list_tickets(identity, params: dict[str, str], *, page: int = 1,
     if params.get("unassigned") in ("true", "1"):
         query["assigned_to"] = None
     if params.get("search"):
-        query["subject"] = {"$regex": sanitize_text(params["search"], 60), "$options": "i"}
-    total = collection("support_tickets").count_documents(query)
+        query["subject"] = {"$regex": sanitize_text(params["search"], max_length=60), "$options": "i"}
+    total = count("support_tickets", query)
     rows = find("support_tickets", query, sort=[("last_activity_at", -1)],
                 skip=(page - 1) * page_size, limit=page_size, projection=_ticket_columns())
     return [document_to_api(row) for row in rows], total
@@ -164,8 +164,8 @@ def list_tickets(identity, params: dict[str, str], *, page: int = 1,
 
 def queue_counts(identity) -> dict[str, Any]:
     match: dict[str, Any] = {} if is_staff(identity) else {"created_by": str(identity.user_id)}
-    rows = collection("support_tickets").aggregate(
-        [{"$match": match}, {"$group": {"_id": "$status", "count": {"$sum": 1}}}], maxTimeMS=10000)
+    rows = aggregate("support_tickets",
+                     [{"$match": match}, {"$group": {"_id": "$status", "count": {"$sum": 1}}}])
     counts = {status: 0 for status in STATUSES}
     for row in rows:
         counts[str(row["_id"] or "unknown")] = row["count"]
@@ -193,20 +193,21 @@ def add_message(ticket: dict, author, body: str, *, system: bool = False) -> dic
         "author": str(author.user_id),
         "author_name": author.full_name,
         "author_role": author.role,
-        "body": sanitize_text(body, 6000),
+        "body": sanitize_text(body, max_length=6000),
         "is_staff": bool(staff),
         "system": bool(system),
         "created_at": moment,
     }
     document["_id"] = oid(insert_one("ticket_messages", document))
-    update = {"updated_at": moment, "last_activity_at": moment, "message_count": 1}
+    update: dict[str, Any] = {"updated_at": moment, "last_activity_at": moment}
     if staff:
         update["first_response_at"] = ticket.get("first_response_at") or moment
         update["unread_for_user"] = int(ticket.get("unread_for_user") or 0) + 1
     else:
         update["unread_for_staff"] = int(ticket.get("unread_for_staff") or 0) + 1
-    collection("support_tickets").update_one({"_id": ticket["_id"]},
-                                            {"$set": update, "$inc": {"message_count": 1}})
+    update_one("support_tickets", {"_id": ticket["_id"]},
+               {"$set": update, "$inc": {"message_count": 1}})
+    ticket["message_count"] = int(ticket.get("message_count") or 0) + 1
     return document_to_api(document)
 
 
@@ -219,13 +220,42 @@ def notify_requester(ticket: dict, author, body: str) -> Optional[dict[str, Any]
         recipient,
         f"Re: ticket {ticket.get('ticket_number')}",
         f"{author.full_name} ({author.role}) replied to your support ticket "
-        f"'{ticket.get('subject')}':\n\n{sanitize_text(body, 1200)}",
+        f"'{ticket.get('subject')}':\n\n{sanitize_text(body, max_length=1200)}",
         kind="support_reply", severity="info", channels=["in_app"],
         link=f"/support/tickets/{ticket.get('_id')}",
         metadata={"ticket_id": str(ticket.get("_id")), "ticket_number": ticket.get("ticket_number"),
                   "author": str(author.user_id), "author_role": author.role},
     )
     return created[0] if created else None
+
+
+def reply(ticket_id: str, identity, body: str) -> dict[str, Any]:
+    """Append a reply to the thread.
+
+    A staff reply also auto-assigns the ticket when it is unassigned and resets the
+    requester's unread counter; a requester reply on an agent-held ticket moves it back
+    to ``in_progress``. Only staff replies raise a notification.
+    """
+    ticket = _require_ticket(ticket_id)
+    _assert_access(ticket, identity)
+    staff = is_staff(identity)
+    message = add_message(ticket, identity, body)
+    notification = notify_requester(ticket, identity, body) if staff else None
+    changes: dict[str, Any] = {}
+    if staff:
+        changes["unread_for_user"] = 0
+        if not ticket.get("assigned_to"):
+            changes["assigned_to"] = str(identity.user_id)
+            changes["assigned_to_email"] = identity.email
+    elif ticket.get("status") == "waiting_user":
+        changes["status"] = "in_progress"
+    changes["updated_at"] = now_utc()
+    changes["last_activity_at"] = now_utc()
+    update_one("support_tickets", {"_id": ticket["_id"]}, {"$set": changes})
+    return {"message": message,
+            "ticket": document_to_api(_require_ticket(str(ticket["_id"]))),
+            "staff": staff,
+            "notification": document_to_api(notification) if notification else None}
 
 
 def _validate_assignee(assigned_to: str) -> dict:
@@ -314,9 +344,9 @@ def patch_ticket(ticket_id: str, identity, payload: Any) -> dict[str, Any]:
 def create_feedback(payload: Any, identity) -> dict[str, Any]:
     document = {
         "rating": int(payload.rating),
-        "message": sanitize_text(payload.message, 4000),
-        "page": sanitize_text(payload.page, 200) if payload.page else None,
-        "module": sanitize_text(payload.module, 80) if payload.module else None,
+        "message": sanitize_text(payload.message, max_length=4000),
+        "page": sanitize_text(payload.page, max_length=200) if payload.page else None,
+        "module": sanitize_text(payload.module, max_length=80) if payload.module else None,
         "created_by": str(identity.user_id),
         "created_by_email": identity.email,
         "created_by_role": identity.role,
@@ -326,50 +356,55 @@ def create_feedback(payload: Any, identity) -> dict[str, Any]:
     return document_to_api(document)
 
 
-def list_feedback(params: dict[str, str], *, page: int = 1,
-                  page_size: int = 25) -> tuple[list[dict], int]:
+def _feedback_query(params: dict[str, str]) -> dict[str, Any]:
+    """Translate the shared feedback filter dict into a Mongo query."""
     query: dict[str, Any] = {}
+    if params.get("created_by"):
+        query["created_by"] = str(params["created_by"])
     if params.get("module"):
         query["module"] = params["module"]
-    if params.get("page_path"):
-        query["page"] = {"$regex": sanitize_text(params["page_path"], 80), "$options": "i"}
+    if params.get("page"):
+        query["page"] = {"$regex": sanitize_text(params["page"], max_length=80), "$options": "i"}
     if params.get("rating"):
         try:
             query["rating"] = int(params["rating"])
         except ValueError:
             raise ValidationError("rating must be a whole number.") from None
+    window: dict[str, Any] = {}
     _from = parse_datetime(params.get("from"))
     _to = parse_datetime(params.get("to"))
-    window: dict[str, Any] = {}
     if _from:
         window["$gte"] = _from
     if _to:
         window["$lte"] = _to
     if window:
         query["created_at"] = window
-    total = collection("feedback").count_documents(query)
+    return query
+
+
+def list_feedback(params: dict[str, str], *, page: int = 1,
+                  page_size: int = 25) -> tuple[list[dict], int]:
+    query = _feedback_query(params)
+    total = count("feedback", query)
     rows = find("feedback", query, sort=[("created_at", -1)], skip=(page - 1) * page_size,
                 limit=page_size)
     return [document_to_api(row) for row in rows], total
 
 
 def feedback_summary(params: dict[str, str]) -> dict[str, Any]:
-    query: dict[str, Any] = {}
-    if params.get("module"):
-        query["module"] = params["module"]
-    pipeline = [{"$match": query}, {"$group": {
+    query = _feedback_query(params)
+    overall = aggregate("feedback", [{"$match": query}, {"$group": {
         "_id": None, "total": {"$sum": 1}, "average_rating": {"$avg": "$rating"},
-        "first": {"$min": "$created_at"}, "last": {"$max": "$created_at"}}}]
-    overall = collection("feedback").aggregate(pipeline, maxTimeMS=10000)
-    distribution = collection("feedback").aggregate(
-        [{"$match": query}, {"$group": {"_id": "$rating", "count": {"$sum": 1}}},
-         {"$sort": {"_id": 1}}], maxTimeMS=10000)
-    by_module = collection("feedback").aggregate([
+        "first": {"$min": "$created_at"}, "last": {"$max": "$created_at"}}}])
+    distribution = aggregate("feedback", [
+        {"$match": query}, {"$group": {"_id": "$rating", "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}}])
+    by_module = aggregate("feedback", [
         {"$match": query},
         {"$group": {"_id": {"$ifNull": ["$module", "unspecified"]},
                     "total": {"$sum": 1}, "average_rating": {"$avg": "$rating"}}},
         {"$sort": {"total": -1}}, {"$limit": 30},
-    ], maxTimeMS=10000)
+    ])
     row = overall[0] if overall else {"total": 0, "average_rating": None}
     return {
         "total": row.get("total", 0),

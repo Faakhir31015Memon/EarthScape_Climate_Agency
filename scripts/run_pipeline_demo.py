@@ -87,7 +87,7 @@ def main() -> int:
 
     xcheck = crosscheck(vcombined, "demo_cities")
     stage("4.cross-engine", "PASS" if xcheck["verdict"] == "PASS" else "FAIL",
-          f"groups={xcheck['groups_pandas']} max|Δmean|={xcheck['max_abs_mean_diff_c']}°C "
+          f"groups={xcheck['groups_pandas']} max-mean-diff={xcheck['max_abs_mean_diff_c']}C "
           f"mismatches={len(xcheck['mismatches'])}")
 
     # 5. Spark-or-pandas jobs

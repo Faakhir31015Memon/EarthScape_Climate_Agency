@@ -29,17 +29,21 @@ class ReadinessView(PublicView):
     def get(self, request):
         data = probe.snapshot()
         database = data["database"]
-        ready = bool(database.get("reachable")) and all(data["data_lake"]["layers_present"].values())
+        lake = data["data_lake"]
+        layers_ok = all(lake["layers_present"].values()) and lake["writable"]
+        ready = bool(database.get("reachable")) and layers_ok
         payload = {
             "status": "ready" if ready else "not_ready",
             "checks": {
                 "database": {"ok": bool(database.get("reachable")),
                              "detail": "connected" if database.get("reachable")
                                        else database.get("error", "unreachable")},
-                "data_lake": {"ok": all(data["data_lake"]["layers_present"].values()),
-                              "missing_layers": [k for k, v in data["data_lake"]["layers_present"].items()
-                                                 if not v],
-                              "engine": data["data_lake"]["engine"]},
+                "data_lake": {"ok": layers_ok,
+                              "engine": lake["engine"],
+                              "hdfs_configured": lake["hdfs_configured"],
+                              "writable": lake["writable"],
+                              "missing_layers": [name for name, present
+                                                 in lake["layers_present"].items() if not present]},
             },
             "observations": data["collection_counts"].get("climate_observations", 0),
         }

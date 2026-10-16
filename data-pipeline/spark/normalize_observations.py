@@ -49,7 +49,7 @@ def run(params: dict) -> dict:
                         validator.report.total_input += 1
                         validator.report.rejected += 1
                         validator.report.bump("unparsable_line")
-    report = validator.report.finish()
+    report = validator.finish()
 
     out_files = []
     grouped: dict = {}
@@ -63,7 +63,9 @@ def run(params: dict) -> dict:
             for rec in bucket:
                 fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
         out_files.append(str(path))
-    report_path = partition_dir("analytics", dataset, 1970, 1) / f"validation_report.json"
+    from pipeline_config import layer_path
+
+    report_path = layer_path("analytics", f"dataset={dataset}", "validation") / "validation_report.json"
     report_path.write_text(report.to_json(), encoding="utf-8")
 
     summary.update(

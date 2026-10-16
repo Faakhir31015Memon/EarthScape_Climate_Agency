@@ -169,9 +169,14 @@ def load_rows(dataset: Optional[str] = None, paths: Optional[list] = None,
               year_to: Optional[int] = None) -> list:
     files = [Path(p) for p in paths] if paths else find_input(dataset)
     rows = []
+    seen_keys: set = set()
     for f in files:
         for rec in iter_jsonl(f):
             row = rec if _is_flat(rec) else flatten_record(rec)
+            key = row.get("dedupe_key")
+            if key and key in seen_keys:
+                continue  # idempotent read: same record reached via two layouts
+            seen_keys.add(key)
             if region and row.get("region") != region:
                 continue
             y = row.get("year")
@@ -233,6 +238,38 @@ def layer_path(layer: str, *parts) -> Path:
 
 def safe_div(a, b):
     return None if not b else a / b
+
+
+def safe_col(df, dotted: str):
+    """DataFrame column expression that tolerates absent nested struct fields.
+
+    ``spark.read.json`` unifies schemas per input set; a field that no record
+    carried (e.g. ``location.station_id``) simply does not exist. Returning
+    ``lit(None)`` for those keeps jobs running and leaves the value missing —
+    never fabricated.
+    """
+    from pyspark.sql import functions as F
+
+    parts = dotted.split(".")
+    field_names = set(df.schema.names)
+    node = df.schema
+    ok = True
+    for i, part in enumerate(parts):
+        if part not in field_names:
+            ok = False
+            break
+        typ = node[part].dataType
+        if i < len(parts) - 1:
+            from pyspark.sql.types import StructType
+
+            if not isinstance(typ, StructType):
+                ok = False
+                break
+            node = typ
+            field_names = set(typ.names)
+    if not ok:
+        return F.lit(None)
+    return F.col(dotted)
 
 
 def round_or_none(v, nd=4):

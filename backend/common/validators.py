@@ -277,3 +277,9 @@ class SavedAnalysisRequest(Strict):
 class SettingsPatchRequest(Strict):
     key: str = Field(min_length=2, max_length=80)
     value: Any
+
+
+class SavedAnalysisPatchRequest(Strict):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=140)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    view_state: Optional[dict[str, Any]] = None

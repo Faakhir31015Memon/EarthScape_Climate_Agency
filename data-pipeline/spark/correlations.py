@@ -52,6 +52,7 @@ def run_spark(params: dict) -> dict:
     from spark.common import get_session
     from spark.aggregate_regions import _resolve_files
     from pyspark.sql import functions as F
+    from spark.common import safe_col
 
     summary = new_summary("correlations", params, "pyspark")
     session = get_session()
@@ -59,18 +60,20 @@ def run_spark(params: dict) -> dict:
     if not files:
         summary.update(status="unavailable", reason="no input JSONL files found")
         return finish_summary(summary)
-    df = session.read.json([str(f) for f in files]).select(
-        F.col("dataset_id"),
-        *[F.col(f"metrics.{v}.value").alias(v) for v in VARIABLES])
+    raw = session.read.json([str(f) for f in files]).dropDuplicates(["dedupe_key"])
+    df = raw.select(F.col("dataset_id"),
+                    *[safe_col(raw, f"metrics.{v}.value").alias(v) for v in VARIABLES])
     out = []
-    for ds, grp in df.groupby("dataset_id"):
+    datasets = [row[0] for row in df.select("dataset_id").distinct().collect()]  # low cardinality
+    for ds in datasets:
+        sub = df.filter(F.col("dataset_id") == ds)
         for a, b in itertools.combinations(VARIABLES, 2):
-            sub = grp.select(a, b).dropna()
-            n = sub.count()
+            pair = sub.select(a, b).na.drop()
+            n = pair.count()
             if n < 3:
                 continue
             out.append({"dataset_id": ds, "variable_a": a, "variable_b": b,
-                        "pearson_r": round_or_none(sub.stat.corr(a, b)), "n_pairs": int(n)})
+                        "pearson_r": round_or_none(pair.stat.corr(a, b)), "n_pairs": int(n)})
     manifests = write_partitioned_rows(out, params.get("dataset") or "mixed",
                                        "correlations", COLUMNS, layer="analytics")
     summary.update(rows_out=len(out), outputs=[x["path"] for x in manifests],

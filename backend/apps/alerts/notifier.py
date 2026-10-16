@@ -48,7 +48,7 @@ def _recipient_email(user_id: str) -> Optional[str]:
 
 def _recipient_name(user_id: str) -> Optional[str]:
     user = find_one("users", {"_id": oid(user_id)}, {"full_name": 1})
-    return sanitize_text(user.get("full_name"), 120) if user else None
+    return sanitize_text(user.get("full_name"), max_length=120) if user else None
 
 
 def build_document(*, recipient: str, channel: str, title: str, body: str, kind: str,
@@ -57,16 +57,16 @@ def build_document(*, recipient: str, channel: str, title: str, body: str, kind:
                    delivery_reason: str = "") -> dict[str, Any]:
     now = now_utc()
     return {
-        "recipient": sanitize_text(recipient, 40),
+        "recipient": sanitize_text(recipient, max_length=40),
         "channel": channel,
-        "kind": sanitize_text(kind, 32) or "system",
+        "kind": sanitize_text(kind, max_length=32) or "system",
         "severity": severity if severity in ("info", "warning", "severe") else "info",
-        "title": sanitize_text(title, 200),
-        "body": sanitize_text(body, 2000),
-        "link": sanitize_text(link, 300),
+        "title": sanitize_text(title, max_length=200),
+        "body": sanitize_text(body, max_length=2000),
+        "link": sanitize_text(link, max_length=300),
         "alert_event_id": alert_event_id,
         "delivery_status": delivery_status,
-        "delivery_reason": sanitize_text(delivery_reason, 400),
+        "delivery_reason": sanitize_text(delivery_reason, max_length=400),
         "delivered_at": now if delivery_status == DELIVERED else None,
         "read_at": None,
         "acknowledged_at": None,

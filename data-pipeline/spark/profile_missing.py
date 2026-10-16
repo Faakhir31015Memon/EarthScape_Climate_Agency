@@ -61,12 +61,13 @@ def run_spark(params: dict) -> dict:
         summary.update(status="unavailable", reason="no input JSONL files found")
         return finish_summary(summary)
     schema = StructType([
+        StructField("dedupe_key", StringType()),
         StructField("dataset_id", StringType()),
         StructField("timestamp", StringType()),
         StructField("metrics", StructType([
             StructField(name, StructType([StructField("value", DoubleType())])) for name in FLAT_METRIC_FIELDS])),
     ])
-    df = session.read.schema(schema).json([str(f) for f in files])
+    df = session.read.schema(schema).json([str(f) for f in files]).dropDuplicates(["dedupe_key"])
     df = df.withColumn("year", F.substring("timestamp", 1, 4).cast("int")) \
            .withColumn("month", F.substring("timestamp", 6, 2).cast("int"))
     if params.get("year_from"):

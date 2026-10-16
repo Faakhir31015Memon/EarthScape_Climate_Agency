@@ -72,7 +72,10 @@ def run_provider_ingest(*, provider: str, dataset_id: str, job_id_str: str, coor
 
     outcomes = ingestion.write_observations(documents)
     accepted = int(outcomes["records_accepted"])
-    fetched = len(documents) + int(meta.get("omitted_cells", 0) or 0) + int(meta.get("omitted_points", 0) or 0)
+    duplicates = int(outcomes["records_duplicate"])
+    rejected = int(outcomes["records_rejected"])
+    # A pull that re-fetches rows already stored is a successful, idempotent sync.
+    status = "completed" if (accepted or duplicates) else "failed"
     coverage = {
         "temporal_start": min((d["timestamp"] for d in documents), default=None),
         "temporal_end": max((d["timestamp"] for d in documents), default=None),
@@ -84,29 +87,85 @@ def run_provider_ingest(*, provider: str, dataset_id: str, job_id_str: str, coor
         coverage["temporal_start"] = coverage["temporal_start"].isoformat()
         coverage["temporal_end"] = coverage["temporal_end"].isoformat()
 
-    status = "completed" if accepted else "failed"
     ingestion.finish_job(
         job["_id"], status=status,
         counts={"records_fetched": int(meta.get("requested_rows") or meta.get("requested_points")
                                        or meta.get("fetched") or len(documents)),
                 "records_accepted": accepted,
-                "records_rejected": int(outcomes["records_rejected"]),
-                "records_duplicate": int(outcomes["records_duplicate"])},
+                "records_rejected": rejected,
+                "records_duplicate": duplicates},
         errors=outcomes["errors"], coverage=coverage,
-        error_message=None if accepted else "The provider returned no usable observations for this request.",
+        error_message=None if accepted or duplicates
+        else "The provider returned no usable observations for this request.",
     )
     datasets.record_ingestion_result(
         dataset_id, records_added=accepted, coverage=coverage,
-        status="ready" if accepted else "failed",
-        rejected=int(outcomes["records_rejected"]), duplicates=int(outcomes["records_duplicate"]),
+        status="ready" if (accepted or duplicates) else "failed",
+        rejected=rejected, duplicates=duplicates,
     )
     return {
         "dataset_id": dataset_id,
         "provider": provider,
         "records_accepted": accepted,
-        "records_duplicate": outcomes["records_duplicate"],
-        "records_rejected": outcomes["records_rejected"],
+        "records_duplicate": duplicates,
+        "records_rejected": rejected,
         "provider_meta": {k: v for k, v in meta.items() if k != "unit_map"},
         "coverage": coverage,
         "status": status,
     }
+
+
+PROVIDER_LABELS = {"nasa_power": "NASA POWER", "noaa_cdc": "NOAA Climate Data Online",
+                   "open_meteo": "Open-Meteo"}
+
+
+def coord_label(payload) -> str:
+    return f"({payload.coordinates['latitude']:.2f}, {payload.coordinates['longitude']:.2f})"
+
+
+def dataset_for_pull(payload, user_id: str) -> dict:
+    """Reuse an identical provider dataset so repeated pulls accumulate into one dataset."""
+    label = PROVIDER_LABELS.get(payload.provider, payload.provider)
+    found = datasets.find_by_name(payload.dataset_name, label)
+    if found:
+        return found
+    return datasets.create(
+        name=payload.dataset_name,
+        description=f"Pulled from {label} for "
+                    f"({payload.coordinates['latitude']:.2f}, {payload.coordinates['longitude']:.2f}).",
+        source_type="api", source_name=label, fmt="api", uploaded_by=user_id,
+        geographic_coverage={"bounding_box": {"min_lat": payload.coordinates["latitude"],
+                                              "max_lat": payload.coordinates["latitude"],
+                                              "min_lon": payload.coordinates["longitude"],
+                                              "max_lon": payload.coordinates["longitude"]}},
+        temporal_coverage=payload.date_range or {},
+        tags=[payload.provider, payload.granularity],
+    )
+
+
+def pull_kwargs(*, payload, dataset_id: str, job_id: str) -> dict:
+    """The single argument set both the API and the scheduler pass to run_provider_ingest."""
+    return {
+        "provider": payload.provider, "dataset_id": dataset_id, "job_id_str": job_id,
+        "coordinates": payload.coordinates,
+        "start": (payload.date_range or {}).get("start", ""),
+        "end": (payload.date_range or {}).get("end", ""),
+        "variables": payload.variables, "granularity": payload.granularity,
+        "station_id": payload.station_id or "", "dataset_code": payload.dataset_code or "",
+        "location_code": payload.location_code or "",
+        "location_name": payload.location_name or coord_label(payload),
+    }
+
+
+def create_pull_job(payload, dataset_id: str, user_id: str) -> dict:
+    return ingestion.create_job(
+        kind="provider_pull", source=payload.provider, dataset_id=dataset_id,
+        params={"coordinates": payload.coordinates, "date_range": payload.date_range,
+                "variables": payload.variables, "granularity": payload.granularity,
+                "station_id": payload.station_id or "", "dataset_code": payload.dataset_code or "",
+                "location_code": payload.location_code or "",
+                "location_name": payload.location_name or ""},
+        created_by=user_id,
+        label=f"{PROVIDER_LABELS.get(payload.provider)} pull ({payload.coordinates['latitude']:.2f}, "
+              f"{payload.coordinates['longitude']:.2f})",
+    )
