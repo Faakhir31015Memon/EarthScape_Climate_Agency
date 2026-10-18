@@ -1,11 +1,10 @@
-"""Dashboard routes. Mount under ``dashboard/`` (see ``config/urls.py``)."""
-
-from __future__ import annotations
-
+"""Dashboard routing (mounted at ``/api/v1/dashboard/``)."""
 from django.urls import path
 
-from apps.climate import views
+from apps.climate import dashboard_views
 
 urlpatterns = [
-    path("summary", views.DashboardSummaryView.as_view(), name="dashboard-summary"),
+    path("summary", dashboard_views.DashboardSummaryView.as_view(), name="dashboard-summary"),
+    path("activity", dashboard_views.DashboardActivityView.as_view(), name="dashboard-activity"),
+    path("widgets", dashboard_views.DashboardWidgetsView.as_view(), name="dashboard-widgets"),
 ]

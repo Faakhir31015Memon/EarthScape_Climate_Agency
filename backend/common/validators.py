@@ -1,285 +1,279 @@
-"""Pydantic request-body models: the validation layer used instead of DRF serializers."""
+"""Canonical data-quality primitives shared by every ingestion path.
 
+Design rules (from the EarthScape specification):
+
+* a measurement the source did not supply stays ``None`` - it is never coerced to 0;
+* every rejected or suspicious value produces a recorded issue instead of being
+  silently dropped;
+* units are converted to one canonical unit set and the original unit is retained
+  in provenance so an import is reproducible.
+"""
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Literal, Optional
+import math
+import re
+from datetime import date, datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, field_validator, model_validator
+from dateutil import parser as date_parser
 
-from common.exceptions import ValidationError as ApiValidationError
+SCHEMA_VERSION = 3
 
-RoleName = Literal["administrator", "climate_analyst", "viewer", "admin", "analyst", "stakeholder"]
-Variable = Literal["temperature", "precipitation", "humidity", "wind_speed", "pressure",
-                   "cloud_cover", "solar_radiation", "temperature_max", "temperature_min"]
-Granularity = Literal["instantaneous", "hourly", "daily", "monthly"]
+MISSING_TOKENS = {"", "-", "--", "na", "n/a", "nan", "null", "none", "nil", "-999", "-999.0", "-9999"}
+
+# Canonical numeric limits. A value outside these bounds is stored but flagged so a
+# human can review it - it is never silently discarded.
+RANGE_LIMITS: Dict[str, Tuple[float, float]] = {
+    "temperature_c": (-90.0, 60.0),
+    "temperature_min_c": (-90.0, 60.0),
+    "temperature_max_c": (-90.0, 60.0),
+    "precipitation_mm": (0.0, 2000.0),
+    "relative_humidity_pct": (0.0, 100.0),
+    "wind_speed_ms": (0.0, 120.0),
+    "wind_direction_deg": (0.0, 360.0),
+    "surface_pressure_hpa": (500.0, 1100.0),
+    "cloud_coverage_pct": (0.0, 100.0),
+    "solar_radiation_kwh_m2": (0.0, 15.0),
+}
+
+CANONICAL_FIELDS = list(RANGE_LIMITS) + ["observation_date", "latitude", "longitude"]
+
+# field -> accepted source units -> multiplier to reach the canonical unit
+UNIT_CONVERSIONS: Dict[str, Dict[str, float]] = {
+    "temperature_c": {"c": 1.0, "celsius": 1.0, "degc": 1.0, "f": "F", "fahrenheit": "F",
+                      "k": "K", "kelvin": "K"},
+    "temperature_min_c": {"c": 1.0, "celsius": 1.0, "degc": 1.0, "f": "F", "fahrenheit": "F", "k": "K"},
+    "temperature_max_c": {"c": 1.0, "celsius": 1.0, "degc": 1.0, "f": "F", "fahrenheit": "F", "k": "K"},
+    "precipitation_mm": {"mm": 1.0, "millimeter": 1.0, "millimeters": 1.0, "millimetre": 1.0,
+                         "cm": 10.0, "inch": 25.4, "inches": 25.4, "in": 25.4, "kg/m2": 1.0,
+                         "mm/day": 1.0, "kg/m2/day": 1.0},
+    "relative_humidity_pct": {"%": 1.0, "percent": 1.0, "pct": 1.0, "fraction": 100.0},
+    "wind_speed_ms": {"m/s": 1.0, "ms": 1.0, "mps": 1.0, "km/h": 1 / 3.6, "kmh": 1 / 3.6,
+                      "kph": 1 / 3.6, "mph": 0.44704, "kt": 0.514444, "knots": 0.514444},
+    "wind_direction_deg": {"deg": 1.0, "degrees": 1.0, "direction": 1.0},
+    "surface_pressure_hpa": {"hpa": 1.0, "mb": 1.0, "millibar": 1.0, "millibars": 1.0,
+                             "kpa": 10.0, "pa": 0.01},
+    "cloud_coverage_pct": {"%": 1.0, "percent": 1.0, "fraction": 100.0},
+    "solar_radiation_kwh_m2": {"kwh/m2": 1.0, "kwh/m2/day": 1.0, "mj/m2": 1 / 3.6,
+                               "w/m2": 1 / 1000.0, "mj/m2/day": 1 / 3.6},
+}
 
 
-def parse(model: type[BaseModel], payload: Any) -> BaseModel:
+class Issue:
+    __slots__ = ("code", "severity", "field", "message", "row")
+
+    def __init__(self, code: str, severity: str, field: Optional[str], message: str,
+                 row: Optional[int] = None):
+        self.code = code
+        self.severity = severity
+        self.field = field
+        self.message = message
+        self.row = row
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"code": self.code, "severity": self.severity, "field": self.field,
+                "message": self.message, "row": self.row}
+
+
+def is_missing(raw: Any) -> bool:
+    if raw is None:
+        return True
+    if isinstance(raw, float) and math.isnan(raw):
+        return True
+    text = str(raw).strip().lower()
+    return text in MISSING_TOKENS
+
+
+def to_float(raw: Any) -> Optional[float]:
+    if is_missing(raw):
+        return None
+    text = str(raw).strip().replace(",", ".") if isinstance(raw, str) else raw
     try:
-        return model.model_validate(payload or {})
-    except ValidationError as exc:
-        details = [f"{'.'.join(str(p) for p in err['loc']) or 'body'}: {err['msg']}" for err in exc.errors()]
-        raise ApiValidationError("Request body failed validation.", details=details) from exc
+        value = float(text)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(value) or math.isinf(value):
+        return None
+    return value
 
 
-class Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+def parse_timestamp(raw: Any) -> Tuple[Optional[datetime], List[Issue]]:
+    """Return a UTC datetime plus any issues found while parsing."""
+    issues: List[Issue] = []
+    if is_missing(raw):
+        return None, [Issue("timestamp_missing", "error", "observation_date",
+                            "No observation timestamp was supplied.")]
+    if isinstance(raw, datetime):
+        moment = raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
+        return moment.astimezone(timezone.utc), issues
+    if isinstance(raw, date):
+        return datetime(raw.year, raw.month, raw.day, tzinfo=timezone.utc), issues
+    if isinstance(raw, (int, float)):
+        # Excel serial date or POSIX epoch - both are handled explicitly.
+        try:
+            if 20000 < raw < 60000:
+                from datetime import timedelta
+
+                return datetime(1899, 12, 30, tzinfo=timezone.utc) + timedelta(days=float(raw)), issues
+            if raw > 10 ** 9:
+                return datetime.fromtimestamp(float(raw), tz=timezone.utc), issues
+        except (OverflowError, OSError, ValueError):
+            pass
+    text = str(raw).strip()
+    compact = re.fullmatch(r"(\d{4})[-/]?(\d{2})[-/]?(\d{2})", text)
+    if compact:
+        try:
+            parsed = datetime(int(compact.group(1)), int(compact.group(2)), int(compact.group(3)),
+                              tzinfo=timezone.utc)
+            return parsed, issues
+        except ValueError:
+            pass
+    try:
+        parsed = date_parser.parse(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc), issues
+    except (ValueError, TypeError, OverflowError):
+        return None, [Issue("timestamp_unparsable", "error", "observation_date",
+                            f"Could not interpret the timestamp '{text[:40]}'.")]
 
 
-class LoginRequest(Strict):
-    email: str = Field(min_length=3, max_length=254)
-    password: str = Field(min_length=1, max_length=200)
-    device_hint: Optional[str] = Field(default=None, max_length=120)
+def parse_coordinate(raw: Any, *, kind: str) -> Tuple[Optional[float], List[Issue]]:
+    value = to_float(raw)
+    if value is None:
+        return None, [Issue(f"{kind}_missing", "error", kind, f"A {kind} value is required.")]
+    limit = 90.0 if kind == "latitude" else 180.0
+    if abs(value) > limit:
+        return None, [Issue(f"{kind}_out_of_range", "error", kind,
+                            f"{kind} {value} is outside -{limit}..{limit}.")]
+    return round(value, 6), issues_for_precision(value, kind)
 
 
-class RegisterRequest(Strict):
-    full_name: str = Field(min_length=2, max_length=120)
-    email: str = Field(min_length=5, max_length=254)
-    password: str = Field(min_length=8, max_length=128)
-    organisation: Optional[str] = Field(default=None, max_length=140)
-
-    @field_validator("email")
-    @classmethod
-    def _email_shape(cls, value: str) -> str:
-        if "@" not in value or "." not in value.split("@")[-1]:
-            raise ValueError("enter a valid email address")
-        return value
+def issues_for_precision(value: float, kind: str) -> List[Issue]:
+    if value == 0.0:
+        return [Issue(f"{kind}_zero", "warning", kind,
+                      f"{kind} is exactly 0.0 - confirm this is a real location and not a default.")]
+    return []
 
 
-class RefreshRequest(Strict):
-    refresh_token: str = Field(min_length=16, max_length=400)
+def convert_measurement(field: str, value: float, source_unit: Optional[str]) -> Tuple[float, Optional[str]]:
+    """Convert to the canonical unit. Returns (value, flag) where flag may be set."""
+    unit = (source_unit or "").strip().lower()
+    table = UNIT_CONVERSIONS.get(field, {})
+    if not unit or unit not in table:
+        return value, ("unit_unknown" if unit else None)
+    factor = table[unit]
+    if isinstance(factor, str):
+        if factor == "F":
+            return (value - 32.0) * 5.0 / 9.0, None
+        if factor == "K":
+            return value - 273.15, None
+        return value, "unit_unhandled"
+    return value * factor, None
 
 
-class LogoutRequest(Strict):
-    refresh_token: Optional[str] = Field(default=None, max_length=400)
-    all_sessions: bool = False
+def validate_measurement(field: str, raw: Any, source_unit: Optional[str] = None,
+                         row: Optional[int] = None) -> Tuple[Optional[float], List[Issue]]:
+    issues: List[Issue] = []
+    if is_missing(raw):
+        return None, [Issue(f"{field}_absent", "info", field,
+                            f"{field} was not supplied by this source.", row)]
+    value = to_float(raw)
+    if value is None:
+        return None, [Issue(f"{field}_non_numeric", "error", field,
+                            f"{field} value '{str(raw)[:24]}' is not numeric.", row)]
+    converted, unit_flag = convert_measurement(field, value, source_unit)
+    if unit_flag == "unit_unknown":
+        issues.append(Issue(f"{field}_unit_unknown", "warning", field,
+                            f"Unrecognised unit '{source_unit}' for {field}; stored as supplied.", row))
+    low, high = RANGE_LIMITS[field]
+    if converted < low or converted > high:
+        issues.append(Issue(f"{field}_out_of_range", "error", field,
+                            f"{field}={round(converted, 3)} is outside the physically plausible "
+                            f"range {low}..{high}.", row))
+        return None, issues
+    if abs(converted) > 0 and abs(converted) < 1e-6:
+        issues.append(Issue(f"{field}_suspiciously_small", "warning", field,
+                            f"{field} is near zero after conversion.", row))
+    return round(converted, 4), issues
 
 
-class PasswordChangeRequest(Strict):
-    current_password: str = Field(min_length=1, max_length=200)
-    new_password: str = Field(min_length=8, max_length=128)
+def normalize_header(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(name).strip().lower()).strip("_")
 
 
-class PasswordResetRequestRequest(Strict):
-    email: str = Field(min_length=5, max_length=254)
-    redirect_origin: Optional[str] = Field(default=None, max_length=200)
+COLUMN_SYNONYMS: Dict[str, List[str]] = {
+    "observation_date": ["date", "datetime", "timestamp", "time", "day", "obs_date", "date_utc",
+                         "observation_date", "validdate_gmt", "vtime", "year_month_day", "date_gmt"],
+    "latitude": ["lat", "latitude", "site_latitude", "latitude_dd", "y", "decimal_latitude",
+                 "latitude_deg", "lat_dd"],
+    "longitude": ["lon", "long", "lng", "longitude", "site_longitude", "longitude_dd", "x",
+                  "long_dd", "lon_dd"],
+    "location_name": ["site", "site_name", "station", "station_name", "location", "name",
+                      "city", "place", "location_name", "stn_name"],
+    "location_code": ["station_id", "station_code", "id", "site_id", "location_code", "usaf",
+                      "wmo", "stn_id", "plotid"],
+    "region_code": ["region", "state", "province", "admin1", "district", "region_code", "zone"],
+    "country": ["country", "nation", "cntry", "country_code"],
+    "temperature_c": ["t2m", "temp", "temperature", "air_temperature", "tavg", "mean_temp",
+                      "temp_c", "temperature_c", "t_2_m", "tmax_mean"],
+    "temperature_min_c": ["tmin", "t2m_min", "temperature_min", "min_temp", "mintemp",
+                          "temperature_min_c"],
+    "temperature_max_c": ["tmax", "t2m_max", "temperature_max", "max_temp", "maxtemp",
+                          "temperature_max_c"],
+    "precipitation_mm": ["prcp", "precip", "rainfall", "precipitation", "rain", "allsky_precip",
+                         "prectotcorr", "precipitation_mm", "daily_precip"],
+    "relative_humidity_pct": ["rh", "humidity", "relative_humidity", "rh2m", "avgrh",
+                              "relative_humidity_pct"],
+    "wind_speed_ms": ["wspd", "wind", "wind_speed", "ws", "ave_wspd", "wind_speed_ms", "gust",
+                      "vndrt"],
+    "wind_direction_deg": ["wind_direction", "wdir", "wd", "vndr", "wind_direction_deg"],
+    "surface_pressure_hpa": ["pressure", "slp", "stp", "surface_pressure", "ps",
+                             "pressure_msl", "surface_pressure_hpa"],
+    "cloud_coverage_pct": ["cloud", "cloud_cover", "cloud_coverage", "clouds", "n_eff",
+                           "cloud_coverage_pct"],
+    "solar_radiation_kwh_m2": ["solar", "solar_radiation", "ghi", "rs", "swdwn",
+                               "allsky_sfc_sw_dwn", "solar_radiation_kwh_m2"],
+}
+
+UNIT_COLUMN_PATTERN = re.compile(r"^(?P<base>[a-z0-9_]+?)_(?P<unit>degc|c|f|k|mm|cm|in|inch|"
+                                 r"kmh|kph|ms|mph|kt|hpa|mb|kpa|pct|percent)$")
 
 
-class PasswordResetConfirm(Strict):
-    token: str = Field(min_length=16, max_length=200)
-    new_password: str = Field(min_length=8, max_length=128)
+def guess_canonical_field(header: str) -> Optional[str]:
+    normalized = normalize_header(header)
+    match = UNIT_COLUMN_PATTERN.match(normalized)
+    candidate = match.group("base") if match else normalized
+    for field, synonyms in COLUMN_SYNONYMS.items():
+        if candidate == field or candidate in synonyms:
+            return field
+    for field, synonyms in COLUMN_SYNONYMS.items():
+        if any(synonym in candidate for synonym in synonyms if len(synonym) > 4):
+            return field
+    return None
 
 
-class ProfileUpdate(Strict):
-    full_name: Optional[str] = Field(default=None, min_length=2, max_length=120)
-    preferences: Optional[dict[str, Any]] = None
+def guess_unit(header: str) -> Optional[str]:
+    normalized = normalize_header(header)
+    match = UNIT_COLUMN_PATTERN.match(normalized)
+    if match:
+        return match.group("unit")
+    if "fahrenheit" in normalized or normalized.endswith("_f"):
+        return "f"
+    if "celsius" in normalized or normalized.endswith("_c"):
+        return "c"
+    return None
 
 
-class UserCreate(Strict):
-    full_name: str = Field(min_length=2, max_length=120)
-    email: str = Field(min_length=5, max_length=254)
-    password: str = Field(min_length=8, max_length=128)
-    role: RoleName = "viewer"
-    must_change_password: bool = True
-    email_verified: bool = False
+def auto_map_columns(headers: List[str]) -> Dict[str, str]:
+    """Return a {canonical_field: source_header} suggestion for a file."""
+    mapping: Dict[str, str] = {}
+    for header in headers:
+        field = guess_canonical_field(header)
+        if field and field not in mapping:
+            mapping[field] = header
+    return mapping
 
 
-class UserPatch(Strict):
-    role: Optional[RoleName] = None
-    is_active: Optional[bool] = None
-    full_name: Optional[str] = Field(default=None, min_length=2, max_length=120)
-    reset_password: Optional[str] = Field(default=None, min_length=8, max_length=128)
-
-
-class DatasetCreate(Strict):
-    name: str = Field(min_length=2, max_length=160)
-    description: Optional[str] = Field(default=None, max_length=2000)
-    source_type: Literal["api", "file", "stream", "sample"] = "file"
-    source_name: str = Field(min_length=2, max_length=120)
-    source_url: Optional[str] = Field(default=None, max_length=500)
-    format: Literal["csv", "excel", "json", "jsonl", "netcdf", "parquet", "api"] = "csv"
-    geographic_coverage: Optional[dict[str, Any]] = None
-    temporal_coverage: Optional[dict[str, Any]] = None
-    tags: list[str] = Field(default_factory=list, max_length=20)
-
-
-class IngestionJobRequest(Strict):
-    provider: Literal["nasa_power", "noaa_cdc", "open_meteo"]
-    dataset_name: str = Field(min_length=2, max_length=160)
-    coordinates: dict[str, float] = Field(description="{'latitude': .., 'longitude': ..}")
-    date_range: Optional[dict[str, str]] = None
-    variables: list[str] = Field(default_factory=list, max_length=12)
-    granularity: Granularity = "daily"
-    station_id: Optional[str] = Field(default=None, max_length=64)
-    dataset_code: Optional[str] = Field(default=None, max_length=64)
-    location_code: Optional[str] = Field(default=None, max_length=64)
-    location_name: Optional[str] = Field(default=None, max_length=80)
-
-    @field_validator("coordinates")
-    @classmethod
-    def _coords(cls, value: dict[str, float]) -> dict[str, float]:
-        lat = float(value.get("latitude", 91))
-        lon = float(value.get("longitude", 181))
-        if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
-            raise ValueError("latitude must be -90..90 and longitude -180..180")
-        return {"latitude": lat, "longitude": lon}
-
-    @model_validator(mode="after")
-    def _window(self):
-        if self.date_range:
-            start = self.date_range.get("start")
-            end = self.date_range.get("end")
-            if not start or not end:
-                raise ValueError("date_range requires 'start' and 'end' (YYYY-MM-DD)")
-            try:
-                s = datetime.strptime(start, "%Y-%m-%d")
-                e = datetime.strptime(end, "%Y-%m-%d")
-            except ValueError as exc:
-                raise ValueError("dates must use YYYY-MM-DD (NASA POWER) or ISO format") from exc
-            if s > e:
-                raise ValueError("date_range.start must be before date_range.end")
-            if (e - s).days > 3 * 366:
-                raise ValueError("date range exceeds the 3-year limit per ingestion job")
-        return self
-
-
-class UploadValidateRequest(Strict):
-    file_ref: str = Field(min_length=4, max_length=120)
-    column_map: dict[str, str] = Field(default_factory=dict)
-    units_hint: dict[str, str] = Field(default_factory=dict)
-    timezone: Optional[str] = Field(default=None, max_length=60)
-    granularity: Granularity = "daily"
-    dry_run_limit: int = Field(default=5000, ge=1, le=200_000)
-
-
-class UploadCommitRequest(UploadValidateRequest):
-    dataset_id: Optional[str] = Field(default=None, max_length=40)
-    dataset: Optional[DatasetCreate] = None
-    overwrite_duplicates: Literal["skip", "replace", "fail"] = "skip"
-
-
-class ProcessingJobRequest(Strict):
-    workflow: str = Field(min_length=3, max_length=80)
-    dataset_id: Optional[str] = Field(default=None, max_length=40)
-    parameters: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("parameters")
-    @classmethod
-    def _bounded(cls, value: dict[str, Any]) -> dict[str, Any]:
-        if len(value) > 12:
-            raise ValueError("too many parameters; workflows accept at most 12")
-        for key, item in value.items():
-            if isinstance(item, str) and len(item) > 300:
-                raise ValueError(f"parameter '{key}' is too long")
-            if isinstance(item, (list, dict)) and len(str(item)) > 2000:
-                raise ValueError(f"parameter '{key}' is too large")
-        return value
-
-
-class TrainingRequest(Strict):
-    target_variable: Variable
-    granularity: Granularity = "daily"
-    horizon_steps: int = Field(ge=1, le=365)
-    region: Optional[str] = Field(default=None, max_length=80)
-    station_id: Optional[str] = Field(default=None, max_length=64)
-    date_range: Optional[dict[str, str]] = None
-    models: list[str] = Field(default_factory=lambda: ["baseline", "linear", "random_forest"], max_length=6)
-    register_as_candidate: bool = True
-    auto_promote: bool = False
-
-
-class ForecastRequest(Strict):
-    model_ref: str = Field(min_length=3, max_length=120)
-    target_variable: Variable
-    region: Optional[str] = Field(default=None, max_length=80)
-    station_id: Optional[str] = Field(default=None, max_length=64)
-    horizon_steps: int = Field(ge=1, le=365)
-    origin_date: Optional[str] = Field(default=None, max_length=40)
-
-
-class AnomalyScanRequest(Strict):
-    variable: Variable = "temperature"
-    method: Literal["threshold", "statistical", "isolation_forest"] = "statistical"
-    region: Optional[str] = Field(default=None, max_length=80)
-    window_days: int = Field(default=90, ge=7, le=1500)
-    sigma: float = Field(default=3.0, ge=1.5, le=8.0)
-
-
-class AlertRuleRequest(Strict):
-    name: str = Field(min_length=2, max_length=120)
-    description: Optional[str] = Field(default=None, max_length=1000)
-    enabled: bool = True
-    target_variable: Variable
-    condition: Literal["above", "below", "anomaly", "trend_change", "forecast_above", "forecast_below"]
-    threshold: Optional[float] = None
-    geographic_scope: dict[str, Any] = Field(default_factory=dict)
-    data_source: Optional[str] = Field(default=None, max_length=60)
-    severity: Literal["info", "warning", "severe"] = "warning"
-    cooldown_minutes: int = Field(default=180, ge=5, le=10080)
-    recipients: list[str] = Field(default_factory=list, max_length=25)
-    notify_channels: list[Literal["in_app", "email"]] = Field(default_factory=lambda: ["in_app"])
-
-    @model_validator(mode="after")
-    def _needs_threshold(self):
-        if self.condition in ("above", "below", "forecast_above", "forecast_below") and self.threshold is None:
-            raise ValueError("threshold is required for comparison conditions")
-        return self
-
-
-class ReportRequest(Strict):
-    report_type: Literal["climate_trends", "regional_comparison", "dataset_quality",
-                         "anomalies", "forecast_results", "processing_performance",
-                         "ingestion_history"]
-    title: Optional[str] = Field(default=None, max_length=160)
-    filters: dict[str, Any] = Field(default_factory=dict)
-    formats: list[Literal["csv", "pdf", "json"]] = Field(default_factory=lambda: ["csv"])
-
-    @field_validator("filters")
-    @classmethod
-    def _bounded(cls, value: dict[str, Any]) -> dict[str, Any]:
-        if len(value) > 16:
-            raise ValueError("too many filters")
-        return value
-
-
-class TicketRequest(Strict):
-    subject: str = Field(min_length=4, max_length=160)
-    body: str = Field(min_length=10, max_length=6000)
-    category: Literal["technical", "data_quality", "access", "feature_request", "billing", "other"] = "other"
-    priority: Literal["low", "medium", "high"] = "medium"
-
-
-class TicketMessageRequest(Strict):
-    body: str = Field(min_length=2, max_length=6000)
-
-
-class TicketPatchRequest(Strict):
-    status: Optional[Literal["open", "in_progress", "waiting_user", "resolved", "closed"]] = None
-    assigned_to: Optional[str] = Field(default=None, max_length=40)
-    priority: Optional[Literal["low", "medium", "high"]] = None
-    reply: Optional[str] = Field(default=None, max_length=6000)
-
-
-class FeedbackRequest(Strict):
-    rating: int = Field(ge=1, le=5)
-    message: str = Field(min_length=5, max_length=4000)
-    page: Optional[str] = Field(default=None, max_length=200)
-    module: Optional[str] = Field(default=None, max_length=80)
-
-
-class SavedAnalysisRequest(Strict):
-    name: str = Field(min_length=2, max_length=140)
-    description: Optional[str] = Field(default=None, max_length=1000)
-    view_state: dict[str, Any] = Field(default_factory=dict)
-
-
-class SettingsPatchRequest(Strict):
-    key: str = Field(min_length=2, max_length=80)
-    value: Any
-
-
-class SavedAnalysisPatchRequest(Strict):
-    name: Optional[str] = Field(default=None, min_length=2, max_length=140)
-    description: Optional[str] = Field(default=None, max_length=1000)
-    view_state: Optional[dict[str, Any]] = None
+def quality_flags_for_row(issues: List[Issue]) -> List[str]:
+    return sorted({issue.code for issue in issues if issue.severity in ("error", "warning")})

@@ -1,169 +1,144 @@
-"""Background task execution with an honest engine choice.
+"""Background execution.
 
-Celery+Redis is used when `CELERY_ENABLED=true` and a broker is reachable; otherwise a
-bounded in-process thread pool runs the same task functions. Task status is always
-written to MongoDB so a restart never loses the record of what was attempted.
+Celery + Redis are used when ``REDIS_URL`` points at a reachable broker.
+Otherwise an in-process bounded thread pool runs the same registered callables so
+that ingestion, processing and report generation remain functional in development.
+
+Only callables registered by name in :data:`REGISTRY` can be executed - the API
+never accepts shell commands or arbitrary code.
 """
-
 from __future__ import annotations
 
+import logging
 import threading
 import traceback
-import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
-from typing import Any, Callable
+from typing import Any, Callable, Dict, Optional
 
-from common.db import collection, find_one, now_utc, update_one
-from common.env import ENV
-from common.logging_config import get_logger
-from common.serialization import jsonable
+from config import env
 
-logger = get_logger("earthscape.tasks")
+logger = logging.getLogger(__name__)
 
-_POOL: ThreadPoolExecutor | None = None
-_POOL_LOCK = threading.Lock()
-MAX_WORKERS = ENV.integer("BACKGROUND_WORKERS", 4)
-
-TASK_COLLECTION = "processing_jobs"
+REGISTRY: Dict[str, Callable[..., Dict[str, Any]]] = {}
+_pool: Optional[ThreadPoolExecutor] = None
+_pool_lock = threading.Lock()
+_ACTIVE: Dict[str, Dict[str, Any]] = {}
+_ACTIVE_LOCK = threading.Lock()
 
 
-def engine() -> str:
-    if ENV.flag("CELERY_ENABLED", False) and ENV.exists("REDIS_URL"):
-        try:  # pragma: no cover - exercised only when a broker exists
-            from celery import Celery  # noqa: F401
+class BackendUnavailable(RuntimeError):
+    pass
 
-            return "celery"
-        except Exception:
-            return "threaded"
-    return "threaded"
+
+def register(name: str):
+    def decorator(func: Callable[..., Dict[str, Any]]):
+        REGISTRY[name] = func
+        return func
+    return decorator
 
 
 def pool() -> ThreadPoolExecutor:
-    global _POOL
-    with _POOL_LOCK:
-        if _POOL is None:
-            _POOL = ThreadPoolExecutor(max_workers=max(1, int(MAX_WORKERS)), thread_name_prefix="task")
-        return _POOL
-
-
-def create_job(kind: str, *, payload: dict | None, created_by: str | None,
-               label: str | None = None, collection_name: str = TASK_COLLECTION) -> dict:
-    document = {
-        "job_ref": f"job_{uuid.uuid4().hex[:12]}",
-        "kind": kind,
-        "label": label or kind,
-        "status": "queued",
-        "engine": engine(),
-        "payload": payload or {},
-        "result": None,
-        "logs": [],
-        "metrics": {},
-        "attempt": 0,
-        "max_attempts": 3,
-        "created_by": created_by,
-        "queued_at": now_utc(),
-        "started_at": None,
-        "finished_at": None,
-        "created_at": now_utc(),
-        "updated_at": now_utc(),
-    }
-    result = collection(collection_name).insert_one(document)
-    document["_id"] = result.inserted_id
-    return document
-
-
-def append_log(job_id: Any, level: str, message: str, *, collection_name: str = TASK_COLLECTION) -> None:
-    entry = {"at": now_utc(), "level": level, "message": str(message)[:2000]}
-    collection(collection_name).update_one(
-        {"_id": job_id},
-        {"$push": {"logs": {"$each": [entry], "$slice": -200}}, "$set": {"updated_at": now_utc()}},
-    )
-
-
-def set_status(job_id: Any, status: str, *, result: Any = None, metrics: dict | None = None,
-               error: str | None = None, collection_name: str = TASK_COLLECTION) -> None:
-    update: dict[str, Any] = {"status": status, "updated_at": now_utc()}
-    if status == "running":
-        update["started_at"] = now_utc()
-    if status in ("completed", "failed", "cancelled"):
-        update["finished_at"] = now_utc()
-        update["duration_seconds"] = None
-    if result is not None:
-        update["result"] = result
-    if metrics is not None:
-        update["metrics"] = metrics
-    if error is not None:
-        update["error"] = error[:500]
-    collection(collection_name).update_one({"_id": job_id}, {"$set": update})
-
-
-def _sanitise_failure(text: str) -> str:
-    """Keep the exception type and a short message; never expose a full traceback."""
-    lines = [line for line in text.strip().splitlines() if line.strip()]
-    if not lines:
-        return "Unknown failure"
-    return f"{lines[-1][:300]}"
-
-
-def submit(kind: str, func: Callable[..., dict], *, args: tuple = (), kwargs: dict | None = None,
-            created_by: str | None = None, payload: dict | None = None, label: str | None = None,
-            collection_name: str = TASK_COLLECTION) -> dict:
-    """Persist a job record, then execute it in the background and return immediately."""
-    job = create_job(kind, payload=payload, created_by=created_by, label=label,
-                     collection_name=collection_name)
-    _run(job["_id"], func, args, kwargs or {}, collection_name)
-    return jsonable(job)
-
-
-def _run(job_id, func: Callable[..., dict], args: tuple, kwargs: dict,
-         collection_name: str) -> None:
-    def work() -> None:
-        set_status(job_id, "running", collection_name=collection_name)
-        append_log(job_id, "info", f"started by engine={engine()}", collection_name=collection_name)
-        try:
-            outcome = func(*args, **kwargs)
-            if not isinstance(outcome, dict):
-                outcome = {"output": outcome}
-            set_status(job_id, "completed", result=outcome, metrics=outcome.get("metrics"),
-                       collection_name=collection_name)
-            append_log(job_id, "info", "completed", collection_name=collection_name)
-        except Exception as exc:
-            logger.error("background task failed: %s", exc, exc_info=True)
-            collection(collection_name).update_one(
-                {"_id": job_id}, {"$inc": {"attempt": 1}}
+    global _pool
+    with _pool_lock:
+        if _pool is None:
+            _pool = ThreadPoolExecutor(
+                max_workers=env.get_int("BACKGROUND_WORKERS", 4),
+                thread_name_prefix="earthscape-worker",
             )
-            set_status(job_id, "failed", error=_sanitise_failure(traceback.format_exc()),
-                       collection_name=collection_name)
-            append_log(job_id, "error", _sanitise_failure(traceback.format_exc()),
-                       collection_name=collection_name)
-
-    pool().submit(work)
+        return _pool
 
 
-def retry(job_id, func: Callable[..., dict], *, args: tuple = (), kwargs: dict | None = None,
-          collection_name: str = TASK_COLLECTION) -> dict | None:
-    job = find_one(collection_name, {"_id": job_id})
-    if not job:
-        return None
-    if job.get("status") not in ("failed", "cancelled"):
-        return {"retryable": False, "reason": f"job status is '{job.get('status')}', only failed jobs can retry"}
-    if int(job.get("attempt", 0)) >= int(job.get("max_attempts", 3)):
-        return {"retryable": False, "reason": "attempt limit reached"}
-    collection(collection_name).update_one(
-        {"_id": job_id}, {"$set": {"status": "queued", "queued_at": now_utc(), "error": None,
-                                   "updated_at": now_utc()}}
-    )
-    _run(job_id, func, args, kwargs or {}, collection_name)
-    return {"retryable": True, "status": "queued"}
+def backend() -> str:
+    if env.get_raw("REDIS_URL") and _celery_ready():
+        return "celery"
+    return "in-process-thread-pool"
 
 
-def sweep_stale_jobs(max_age_minutes: int = 120, *, collection_name: str = TASK_COLLECTION) -> int:
-    """Mark jobs left 'running' by a process crash as failed so the UI is honest."""
-    cutoff = now_utc() - timedelta(minutes=max_age_minutes)
-    result = collection(collection_name).update_many(
-        {"status": {"$in": ["running", "queued"]}, "updated_at": {"$lt": cutoff}},
-        {"$set": {"status": "failed", "error": "stale: worker no longer reporting; retry the job",
-                  "finished_at": now_utc(), "updated_at": now_utc()}},
-    )
-    return result.modified_count
+_celery_state: Optional[bool] = None
+
+
+def _celery_ready() -> bool:
+    global _celery_state
+    if _celery_state is None:
+        try:
+            from celery import Celery  # noqa: F401
+
+            _celery_state = True
+        except ImportError:
+            _celery_state = False
+    return _celery_state or False
+
+
+JOB_REPOSITORIES: Dict[str, str] = {
+    "ingestion": "ingestion_jobs",
+    "processing": "processing_jobs",
+    "report": "reports",
+}
+
+
+def submit(task_name: str, *, job_id: str, job_type: str, payload: Dict[str, Any]) -> str:
+    """Queue a registered task. Returns the executor that accepted it."""
+    if task_name not in REGISTRY:
+        raise BackendUnavailable(f"Task '{task_name}' is not registered.")
+    if job_type not in JOB_REPOSITORIES:
+        raise BackendUnavailable(f"Unknown job type '{job_type}'.")
+
+    if backend() == "celery":
+        try:
+            from apps.monitoring.celery_tasks import run_registered_task
+
+            run_registered_task.delay(task_name, job_id, job_type, payload)
+            return "celery"
+        except Exception as exc:  # noqa: BLE001 - fall back instead of failing the request
+            logger.warning("Celery dispatch failed (%s); using the in-process pool", exc)
+
+    with _ACTIVE_LOCK:
+        _ACTIVE[job_id] = {"task": task_name, "job_type": job_type}
+    pool().submit(_execute, task_name, job_id, job_type, payload)
+    return "in-process-thread-pool"
+
+
+def _execute(task_name: str, job_id: str, job_type: str, payload: Dict[str, Any]) -> None:
+    from common import repositories
+
+    repository = getattr(repositories, JOB_REPOSITORIES[job_type])
+    try:
+        REGISTRY[task_name](job_id=job_id, **payload)
+    except Exception as exc:  # noqa: BLE001 - worker boundary
+        logger.error("Background task %s (job %s) failed: %s", task_name, job_id, exc)
+        logger.debug("%s", traceback.format_exc())
+        try:
+            repository.update_by_id(job_id, {
+                "status": "failed",
+                "error_message": str(exc)[:500],
+                "finished_at": repositories.utcnow(),
+            })
+        except Exception as mark_exc:  # noqa: BLE001
+            logger.error("Could not mark job %s failed: %s", job_id, mark_exc)
+    finally:
+        with _ACTIVE_LOCK:
+            _ACTIVE.pop(job_id, None)
+        try:
+            from common.database import get_database
+
+            get_database().flush_if_dirty()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Post-task flush failed: %s", exc)
+
+
+def active_jobs() -> Dict[str, Dict[str, Any]]:
+    with _ACTIVE_LOCK:
+        return dict(_ACTIVE)
+
+
+def active_job_count() -> int:
+    with _ACTIVE_LOCK:
+        return len(_ACTIVE)
+
+
+def shutdown(wait: bool = True) -> None:
+    global _pool
+    with _pool_lock:
+        if _pool is not None:
+            _pool.shutdown(wait=wait)
+            _pool = None

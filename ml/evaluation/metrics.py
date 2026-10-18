@@ -1,76 +1,144 @@
-"""Prediction error metrics.
-
-Every number returned here must originate from a real executed train/eval run;
-MAPE is deliberately skipped (with a reason) when actuals are ~zero, which is
-the norm for precipitation.
-"""
-
+"""Forecast-quality metrics computed on chronological holdouts only."""
 from __future__ import annotations
 
-from typing import Any, Optional
-
-import numpy as np
-
-MAPE_ZERO_TOLERANCE = 1e-9
+import math
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
-def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    return float(np.mean(np.abs(np.asarray(y_true) - np.asarray(y_pred))))
+def _finite_pairs(pairs: Sequence[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    return [(float(actual), float(predicted)) for actual, predicted in pairs
+            if actual is not None and predicted is not None
+            and math.isfinite(actual) and math.isfinite(predicted)]
 
 
-def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((np.asarray(y_true) - np.asarray(y_pred)) ** 2)))
-
-
-def mape(y_true: np.ndarray, y_pred: np.ndarray,
-         zero_tolerance: float = MAPE_ZERO_TOLERANCE) -> tuple[Optional[float], Optional[str]]:
-    """Return (mape, None) or (None, reason). Skipped when any actual is ~zero."""
-    actual = np.asarray(y_true, dtype="float64")
-    if actual.size == 0:
-        return None, "no evaluation samples"
-    near_zero = int(np.sum(np.abs(actual) <= zero_tolerance))
-    if near_zero:
-        return None, (f"skipped: {near_zero}/{actual.size} actual values are ~0; MAPE is undefined/inflated "
-                      f"near zero (typical for dry-day precipitation)")
-    pred = np.asarray(y_pred, dtype="float64")
-    return float(np.mean(np.abs((actual - pred) / actual)) * 100.0), None
-
-
-def r2(y_true: np.ndarray, y_pred: np.ndarray) -> Optional[float]:
-    actual = np.asarray(y_true, dtype="float64")
-    pred = np.asarray(y_pred, dtype="float64")
-    ss_res = float(np.sum((actual - pred) ** 2))
-    ss_tot = float(np.sum((actual - np.mean(actual)) ** 2))
-    if ss_tot <= 1e-12:
+def mae(pairs: Sequence[Tuple[float, float]]) -> Optional[float]:
+    data = _finite_pairs(pairs)
+    if not data:
         return None
-    return 1.0 - ss_res / ss_tot
+    return round(sum(abs(a - p) for a, p in data) / len(data), 4)
 
 
-def skill_vs_baseline(model_error: float, baseline_error: float) -> Optional[float]:
-    """Fractional improvement over the baseline: (baseline - model) / baseline.
+def rmse(pairs: Sequence[Tuple[float, float]]) -> Optional[float]:
+    data = _finite_pairs(pairs)
+    if not data:
+        return None
+    return round(math.sqrt(sum((a - p) ** 2 for a, p in data) / len(data)), 4)
 
-    <= 0 means the model does not beat the baseline at all.
+
+def r2(pairs: Sequence[Tuple[float, float]]) -> Optional[float]:
+    data = _finite_pairs(pairs)
+    if len(data) < 3:
+        return None
+    mean = sum(a for a, _ in data) / len(data)
+    ss_total = sum((a - mean) ** 2 for a, _ in data)
+    ss_resid = sum((a - p) ** 2 for a, p in data)
+    if ss_total <= 0:
+        return None
+    return round(1.0 - ss_resid / ss_total, 4)
+
+
+def mape(pairs: Sequence[Tuple[float, float]]) -> Optional[float]:
+    """Mean absolute percentage error - only when every actual is strictly positive."""
+    data = _finite_pairs(pairs)
+    if len(data) < 3 or any(a <= 0 for a, _ in data):
+        return None
+    return round(sum(abs(a - p) / a for a, p in data) / len(data) * 100.0, 3)
+
+
+def skill_vs_baseline(model_mae: Optional[float], baseline_mae: Optional[float]) -> Optional[float]:
+    """Fraction of naive-baseline error removed. Negative means the model is worse."""
+    if model_mae is None or baseline_mae is None or baseline_mae <= 0:
+        return None
+    return round(1.0 - model_mae / baseline_mae, 4)
+
+
+def residual_quantiles(pairs: Sequence[Tuple[float, float]],
+                       level: float = 0.95) -> Tuple[Optional[float], Optional[float]]:
+    data = _finite_pairs(pairs)
+    if len(data) < 8:
+        return None, None
+    residuals = sorted(a - p for a, p in data)
+    alpha = (1.0 - level) / 2.0
+    lo = residuals[max(0, math.floor(alpha * len(residuals)))]
+    hi = residuals[min(len(residuals) - 1, math.ceil((1.0 - alpha) * len(residuals)) - 1)]
+    return round(lo, 4), round(hi, 4)
+
+
+def per_step_residual_quantiles(step_pairs: Sequence[Tuple[int, float, float]],
+                                horizon: int, level: float = 0.95
+                                ) -> List[Optional[List[float]]]:
+    """Empirical residual quantiles per lead-time step; NaN-free bands for the artifact.
+
+    ``step_pairs`` items are ``(lead_step, actual, predicted)``. Steps with too few
+    samples fall back to a global-std normal approximation, which is recorded in the
+    model's uncertainty note.
     """
-    if baseline_error <= 0:
-        return None
-    return float((baseline_error - model_error) / baseline_error)
+    buckets: Dict[int, List[Tuple[float, float]]] = {}
+    all_pairs: List[Tuple[float, float]] = []
+    for step, actual, predicted in step_pairs:
+        step = max(1, min(int(step), max(1, int(horizon))))
+        buckets.setdefault(step, []).append((actual, predicted))
+        all_pairs.append((actual, predicted))
+    global_lo, global_hi = residual_quantiles(all_pairs, level=level)
+    data = _finite_pairs(all_pairs)
+    std = None
+    if len(data) >= 8:
+        mean_err = sum(a - p for a, p in data) / len(data)
+        std = math.sqrt(sum((a - p - mean_err) ** 2 for a, p in data) / (len(data) - 1))
+    bands: List[Optional[List[float]]] = []
+    for step in range(1, max(1, int(horizon)) + 1):
+        pairs = buckets.get(step) or []
+        lo, hi = residual_quantiles(pairs, level=level) if len(pairs) >= 8 else (None, None)
+        if lo is None and std is not None:
+            scale = math.sqrt(step)
+            lo, hi = -1.96 * std * scale, 1.96 * std * scale
+        if lo is None and global_lo is not None:
+            lo, hi = global_lo, global_hi
+        bands.append([round(lo, 4), round(hi, 4)] if lo is not None and hi is not None else None)
+    return bands
 
 
-def evaluate_forecast(y_true: Any, y_pred: Any) -> dict[str, Any]:
-    """Full metric bundle with honest MAPE/R2 skip reasons."""
-    y_true_arr = np.asarray(y_true, dtype="float64")
-    y_pred_arr = np.asarray(y_pred, dtype="float64")
-    mape_value, mape_reason = mape(y_true_arr, y_pred_arr)
-    r2_value = r2(y_true_arr, y_pred_arr)
-    out: dict[str, Any] = {
-        "n": int(y_true_arr.size),
-        "mae": mae(y_true_arr, y_pred_arr),
-        "rmse": rmse(y_true_arr, y_pred_arr),
-        "mape": mape_value,
-        "r2": r2_value,
+def evaluate(pairs: Sequence[Tuple[float, float]],
+             baseline_mae_value: Optional[float] = None) -> Dict[str, Any]:
+    result = {
+        "mae": mae(pairs),
+        "rmse": rmse(pairs),
+        "mape_or_null": mape(pairs),
+        "r2": r2(pairs),
+        "evaluated_points": len(_finite_pairs(pairs)),
+        "baseline_mae": baseline_mae_value,
+        "skill_vs_baseline": skill_vs_baseline(mae(pairs), baseline_mae_value),
     }
-    if mape_value is None:
-        out["mape_skipped_reason"] = mape_reason
-    if r2_value is None:
-        out["r2_skipped_reason"] = "actual variance ~0 on the evaluation window"
-    return out
+    return result
+
+
+def holdout_comparison_table(run_results: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Comparison rows: each algorithm plus both naive baselines on the same holdout."""
+    table: List[Dict[str, Any]] = []
+    for entry in run_results:
+        metrics = entry.get("metrics") or {}
+        table.append({
+            "model": entry.get("algorithm"),
+            "train_size": entry.get("train_size"),
+            "test_size": entry.get("test_size"),
+            "mae": metrics.get("mae"),
+            "rmse": metrics.get("rmse"),
+            "mape_pct": metrics.get("mape_or_null"),
+            "r2": metrics.get("r2"),
+            "skill_vs_naive": metrics.get("skill_vs_baseline"),
+        })
+    for key, label in (("naive_baseline", "baseline: naive persistence"),
+                       ("seasonal_baseline", "baseline: seasonal-naive (365 d)")):
+        metrics = (run_results[0].get(key) or {}) if run_results else {}
+        table.append({
+            "model": label, "train_size": None,
+            "test_size": metrics.get("evaluated_points"),
+            "mae": metrics.get("mae"), "rmse": metrics.get("rmse"),
+            "mape_pct": metrics.get("mape_or_null"), "r2": metrics.get("r2"),
+            "skill_vs_naive": None,
+        })
+    return table
+
+
+__all__ = ["mae", "rmse", "r2", "mape", "skill_vs_baseline", "residual_quantiles",
+           "per_step_residual_quantiles", "evaluate", "holdout_comparison_table"]

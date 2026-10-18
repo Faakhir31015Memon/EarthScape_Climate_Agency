@@ -1,31 +1,51 @@
-import { cn } from "../../lib/cn";
+import type { CSSProperties } from 'react'
 
-export interface SkeletonProps {
-  className?: string;
-  /** Render as a circle when true. */
-  circle?: boolean;
+export function Skeleton({ className = '', style }: { className?: string; style?: CSSProperties }) {
+  return <div className={`skeleton ${className}`} style={style} aria-hidden="true" />
 }
 
-export function Skeleton({ className, circle = false }: SkeletonProps) {
+export function CardSkeleton({ lines = 3 }: { lines?: number }) {
   return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        "animate-pulse bg-surface-2",
-        circle ? "rounded-full" : "rounded-md",
-        className,
-      )}
-    />
-  );
-}
-
-/** A block skeleton for a chart/card body while data loads. */
-export function SkeletonBlock({ rows = 3 }: { rows?: number }) {
-  return (
-    <div className="space-y-2" aria-hidden="true">
-      {Array.from({ length: rows }).map((_, i) => (
-        <Skeleton key={i} className="h-4 w-full" />
-      ))}
+    <div className="card">
+      <Skeleton className="h-4 w-32" />
+      <div className="mt-4 space-y-2.5">
+        {Array.from({ length: lines }).map((_, index) => (
+          <Skeleton key={index} className={index === lines - 1 ? 'h-4 w-2/3' : 'h-4'} />
+        ))}
+      </div>
     </div>
-  );
+  )
+}
+
+export function TableSkeleton({ rows = 6, columns = 5 }: { rows?: number; columns?: number }) {
+  return (
+    <div className="table-wrap">
+      <table className="data" aria-busy="true">
+        <thead>
+          <tr>
+            {Array.from({ length: columns }).map((_, index) => (
+              <th key={index}>
+                <Skeleton className="h-3 w-20" />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: rows }).map((_, rowIndex) => (
+            <tr key={rowIndex}>
+              {Array.from({ length: columns }).map((__, colIndex) => (
+                <td key={colIndex}>
+                  <Skeleton className="h-3.5 w-full" />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+export function ChartSkeleton({ height = 280 }: { height?: number }) {
+  return <Skeleton style={{ height }} className="w-full" />
 }

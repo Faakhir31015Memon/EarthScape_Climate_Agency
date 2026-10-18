@@ -1,0 +1,27 @@
+# EarthScape Climate Agency report
+# Report,Ingestion History report
+# Report type,ingestion_history
+# Status,completed
+# Generated at (UTC),2026-10-16T18:09:08+00:00
+# Data source,ingestion_jobs
+# Date range,requested_from=; requested_to=; observed_from=2026-07-18T18:09:08Z; observed_to=2026-10-16T18:09:08Z; note=window defaults to the last 365 days unless filters set an explicit range
+# Units,records=count
+# Requested by,admin@earthscape.pk (administrator)
+# Filters applied,none
+# Aggregation limits,max_source_documents=100000; max_rows_per_section=500; max_time_ms=15000; pdf_rows_per_table=150
+
+# SECTION: Ingestion outcomes per day and provider
+# note: ingestion job documents are read within a bounded window (up to 500 most recent jobs); the provider field is taken from 'provider' or 'source'
+Day (UTC),Provider,Jobs,Completed,Failed,Other,Records accepted,Records rejected
+2026-10-16,open_meteo,7,7,0,0,23,0
+
+# SECTION: Most recent ingestion jobs
+Created at,Provider,Dataset,Status,Accepted,Rejected,Started,Finished,Job ref,Error
+2026-10-16T18:09:04Z,open_meteo,,completed,0,0,2026-10-16T18:09:04Z,,ing_001792174144030pr,
+2026-10-16T18:07:56Z,open_meteo,,completed,0,0,2026-10-16T18:07:56Z,,ing_001792174076371pr,
+2026-10-16T18:02:44Z,open_meteo,,completed,0,0,2026-10-16T18:02:44Z,,ing_001792173764704pr,
+2026-10-16T17:48:09Z,open_meteo,,completed,0,0,2026-10-16T17:48:09Z,,ing_001792172889824pr,
+2026-10-16T17:38:58Z,open_meteo,,completed,3,0,2026-10-16T17:38:58Z,,ing_001792172338756pr,
+2026-10-16T16:34:50Z,open_meteo,,completed,0,0,2026-10-16T16:34:50Z,,ing_001792168490949pr,
+2026-10-16T16:20:38Z,open_meteo,,completed,20,0,2026-10-16T16:20:38Z,,ing_001792167638476pr,
+

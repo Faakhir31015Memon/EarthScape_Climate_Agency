@@ -1,5 +1,4 @@
 import { NavLink } from "react-router-dom";
-import { CalendarClock } from "lucide-react";
 import { NAV_GROUPS } from "./navigation";
 import { useAuth } from "../../features/auth/useAuth";
 import { cn } from "../../lib/cn";
@@ -11,8 +10,7 @@ export interface SidebarNavProps {
 
 /**
  * Grouped app navigation. Items the user's role cannot access are hidden (the
- * server enforces independently). `planned` items render disabled — the honest
- * state for areas owned by later phases.
+ * server enforces independently).
  */
 export function SidebarNav({ onNavigate, className }: SidebarNavProps) {
   const { can } = useAuth();
@@ -32,21 +30,6 @@ export function SidebarNav({ onNavigate, className }: SidebarNavProps) {
             <ul className="space-y-0.5">
               {visible.map((item) => {
                 const Icon = item.icon;
-                if (item.planned) {
-                  return (
-                    <li key={item.to}>
-                      <span
-                        aria-disabled="true"
-                        title="Available in a later phase"
-                        className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted/70"
-                      >
-                        <Icon size={16} />
-                        <span className="flex-1 truncate">{item.label}</span>
-                        <CalendarClock size={13} aria-hidden="true" />
-                      </span>
-                    </li>
-                  );
-                }
                 return (
                   <li key={item.to}>
                     <NavLink

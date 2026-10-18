@@ -1,46 +1,19 @@
-# syntax=docker/dockerfile:1.6
-# Frontend image: Node build stage (Vite) + nginx serve stage.
-#
-# Build context MUST be the repository root:
-#   docker image build -f infrastructure/docker/Dockerfile.frontend .
-#
-# The runtime configuration is baked at build time (Vite reads VITE_* at build), so the
-# compose build passes the API base URL and map tile settings as build args.
+# EarthScape Climate Agency — frontend image (Vite build served by nginx).
+# Build context must be the repository root (see docker-compose.yml) so the shared
+# nginx configuration can be copied in.
 FROM node:20-alpine AS build
+WORKDIR /app/frontend
 
-WORKDIR /src
-
-# Dependency layer caches independently of source changes.
 COPY frontend/package.json frontend/package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+RUN npm ci
 
 COPY frontend/ ./
-
-ARG VITE_API_BASE_URL=http://localhost/api/v1
-ARG VITE_MAP_TILES_URL=https://tile.openstreetmap.org/{z}/{x}/{y}.png
-ARG VITE_MAP_ATTRIBUTION=OpenStreetMap contributors
-ARG VITE_POLLING_INTERVAL_MS=30000
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
-    VITE_MAP_TILES_URL=${VITE_MAP_TILES_URL} \
-    VITE_MAP_ATTRIBUTION=${VITE_MAP_ATTRIBUTION} \
-    VITE_POLLING_INTERVAL_MS=${VITE_POLLING_INTERVAL_MS}
-
+ARG VITE_API_BASE_URL=/api/v1
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build
 
-# ---------------------------------------------------------------- serve stage
-FROM nginx:1.27-alpine AS serve
-
-# `dist` is the Vite output directory; the SPA asset pattern keeps hashed files
-# immutable and lets index.html revalidate so a deploy is visible immediately.
-COPY --from=build --chown=nginx:nginx /src/dist /usr/share/nginx/html
-
-# Static-serving rules live in the shared config so nginx and the reverse proxy agree.
-COPY infrastructure/nginx/frontend-locations.conf /etc/nginx/conf.d/default.conf
-
+FROM nginx:1.27-alpine AS runtime
+COPY infrastructure/nginx/earthscape.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/frontend/dist /usr/share/nginx/html
 EXPOSE 80
-
-# The stock image entrypoint resolves nginx vars then starts the daemon; a plain
-# `wget` on the root path is enough because the SPA shell is a static file.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -q -O /dev/null http://127.0.0.1:80/healthz || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget -qO- http://127.0.0.1/healthz >/dev/null || exit 1

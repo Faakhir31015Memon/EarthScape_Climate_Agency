@@ -1,0 +1,2044 @@
+openapi: 3.0.3
+info:
+  title: EarthScape Climate Agency API
+  version: 1.0.0
+  description: Big Data climate intelligence, analytics and prediction platform. MongoDB
+    Atlas is the primary application database; Hadoop/Spark provide distributed processing;
+    scikit-learn/XGBoost provide forecasts.
+paths:
+  /api/v1/auth/register:
+    post:
+      operationId: auth_register_create
+      description: Self-registration. Disabled by default and never grants elevated
+        roles.
+      tags:
+      - auth
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/login:
+    post:
+      operationId: auth_login_create
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - auth
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/refresh:
+    post:
+      operationId: auth_refresh_create
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - auth
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/logout:
+    post:
+      operationId: auth_logout_create
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - auth
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/me:
+    get:
+      operationId: auth_me_retrieve
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - auth
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: auth_me_partial_update
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - auth
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/password-change:
+    post:
+      operationId: auth_password_change_create
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - auth
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/password-reset:
+    post:
+      operationId: auth_password_reset_create
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - auth
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/password-reset/confirm:
+    post:
+      operationId: auth_password_reset_confirm_create
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - auth
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/configuration:
+    get:
+      operationId: auth_configuration_retrieve
+      description: Non-secret deployment facts the sign-in screens need.
+      tags:
+      - auth
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/:
+    get:
+      operationId: users_retrieve
+      description: '``GET /api/v1/users/`` (search, filters, sort, paging) and ``POST``
+        (create).'
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: users_create
+      description: '``GET /api/v1/users/`` (search, filters, sort, paging) and ``POST``
+        (create).'
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/roles:
+    get:
+      operationId: users_roles_retrieve
+      description: '``GET /api/v1/users/roles`` - role catalogue, capabilities and
+        live account counts.'
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/{account_id}:
+    get:
+      operationId: users_retrieve_2
+      description: '``GET``/``PATCH``/``DELETE /api/v1/users/<id>`` - delete is a
+        soft deactivation.'
+      parameters:
+      - in: path
+        name: account_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: users_partial_update
+      description: '``GET``/``PATCH``/``DELETE /api/v1/users/<id>`` - delete is a
+        soft deactivation.'
+      parameters:
+      - in: path
+        name: account_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: users_destroy
+      description: 'Soft delete: the account is deactivated and its sessions revoked.'
+      parameters:
+      - in: path
+        name: account_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '204':
+          description: No response body
+  /api/v1/users/{account_id}/activate:
+    post:
+      operationId: users_activate_create
+      description: Base for the whole of ``/api/v1/users/`` - administrator authentication
+        only.
+      parameters:
+      - in: path
+        name: account_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/{account_id}/deactivate:
+    post:
+      operationId: users_deactivate_create
+      description: Base for the whole of ``/api/v1/users/`` - administrator authentication
+        only.
+      parameters:
+      - in: path
+        name: account_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/{account_id}/role:
+    post:
+      operationId: users_role_create
+      description: '``POST /api/v1/users/<id>/role`` - role change (last-administrator
+        guarded).'
+      parameters:
+      - in: path
+        name: account_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/{account_id}/reset-password:
+    post:
+      operationId: users_reset_password_create
+      description: '``POST /api/v1/users/<id>/reset-password`` - the new password
+        is never returned.'
+      parameters:
+      - in: path
+        name: account_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/{account_id}/unlock:
+    post:
+      operationId: users_unlock_create
+      description: Base for the whole of ``/api/v1/users/`` - administrator authentication
+        only.
+      parameters:
+      - in: path
+        name: account_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/{account_id}/sessions:
+    get:
+      operationId: users_sessions_retrieve
+      description: |-
+        ``GET``/``DELETE /api/v1/users/<id>/sessions``.
+
+        Only session *metadata* is exposed - token material and hashes never leave the
+        database.
+      parameters:
+      - in: path
+        name: account_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: users_sessions_destroy
+      description: |-
+        ``GET``/``DELETE /api/v1/users/<id>/sessions``.
+
+        Only session *metadata* is exposed - token material and hashes never leave the
+        database.
+      parameters:
+      - in: path
+        name: account_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '204':
+          description: No response body
+  /api/v1/datasets/:
+    get:
+      operationId: datasets_retrieve
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - datasets
+      responses:
+        '200':
+          description: No response body
+  /api/v1/datasets/upload:
+    post:
+      operationId: datasets_upload_create
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - datasets
+      responses:
+        '200':
+          description: No response body
+  /api/v1/datasets/column-suggestion:
+    post:
+      operationId: datasets_column_suggestion_create
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - datasets
+      responses:
+        '200':
+          description: No response body
+  /api/v1/datasets/formats:
+    get:
+      operationId: datasets_formats_retrieve
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - datasets
+      responses:
+        '200':
+          description: No response body
+  /api/v1/datasets/{dataset_id}:
+    get:
+      operationId: datasets_retrieve_2
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: dataset_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - datasets
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: datasets_partial_update
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: dataset_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - datasets
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: datasets_destroy
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: dataset_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - datasets
+      responses:
+        '204':
+          description: No response body
+  /api/v1/datasets/{dataset_id}/validate:
+    post:
+      operationId: datasets_validate_create
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: dataset_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - datasets
+      responses:
+        '200':
+          description: No response body
+  /api/v1/datasets/{dataset_id}/preview:
+    get:
+      operationId: datasets_preview_retrieve
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: dataset_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - datasets
+      responses:
+        '200':
+          description: No response body
+  /api/v1/datasets/{dataset_id}/ingest:
+    post:
+      operationId: datasets_ingest_create
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: dataset_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - datasets
+      responses:
+        '200':
+          description: No response body
+  /api/v1/datasets/{dataset_id}/mapping:
+    get:
+      operationId: datasets_mapping_retrieve
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: dataset_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - datasets
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: datasets_mapping_create
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: dataset_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - datasets
+      responses:
+        '200':
+          description: No response body
+  /api/v1/datasets/{dataset_id}/download:
+    get:
+      operationId: datasets_download_retrieve
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: dataset_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - datasets
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ingestion/jobs:
+    get:
+      operationId: ingestion_jobs_retrieve
+      description: Authenticated read; create requires administrator or climate analyst.
+      tags:
+      - ingestion
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: ingestion_jobs_create
+      description: Authenticated read; create requires administrator or climate analyst.
+      tags:
+      - ingestion
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ingestion/jobs/{job_id}:
+    get:
+      operationId: ingestion_jobs_retrieve_2
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - ingestion
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ingestion/jobs/{job_id}/retry:
+    post:
+      operationId: ingestion_jobs_retry_create
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - ingestion
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ingestion/jobs/{job_id}/cancel:
+    post:
+      operationId: ingestion_jobs_cancel_create
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - ingestion
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ingestion/connectors:
+    get:
+      operationId: ingestion_connectors_retrieve
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - ingestion
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ingestion/connectors/{name}/test:
+    post:
+      operationId: ingestion_connectors_test_create
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: name
+        schema:
+          type: string
+        required: true
+      tags:
+      - ingestion
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ingestion/coverage:
+    get:
+      operationId: ingestion_coverage_retrieve
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - ingestion
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/observations:
+    get:
+      operationId: climate_observations_retrieve
+      description: Bounded, indexed-friendly raw observation listing.
+      tags:
+      - climate
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/trends:
+    get:
+      operationId: climate_trends_retrieve
+      description: '``analytics.trend_series`` with an honest insufficient-data state.'
+      tags:
+      - climate
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/regions:
+    get:
+      operationId: climate_regions_retrieve
+      description: The region catalogue enriched with real per-region aggregates.
+      tags:
+      - climate
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/regions/{code}:
+    get:
+      operationId: climate_regions_retrieve_2
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: code
+        schema:
+          type: string
+        required: true
+      tags:
+      - climate
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/anomalies:
+    get:
+      operationId: climate_anomalies_retrieve
+      description: Anomaly detection over the stored record (``analytics.detect_anomalies``).
+      tags:
+      - climate
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/anomalies/scan:
+    post:
+      operationId: climate_anomalies_scan_create
+      description: 'Run detection and persist it: analyst or administrator only.'
+      tags:
+      - climate
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/map-data:
+    get:
+      operationId: climate_map_data_retrieve
+      description: 'Live map layer: most recent stored measurement per monitored point.'
+      tags:
+      - climate
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/correlations:
+    get:
+      operationId: climate_correlations_retrieve
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - climate
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/comparison:
+    get:
+      operationId: climate_comparison_retrieve
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - climate
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/history:
+    get:
+      operationId: climate_history_retrieve
+      description: 'Historical explorer: normals, per-year anomalies and change deltas.'
+      tags:
+      - climate
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/quality:
+    get:
+      operationId: climate_quality_retrieve
+      description: Data-quality report; authenticated, because it describes the platform.
+      tags:
+      - climate
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/stations:
+    get:
+      operationId: climate_stations_retrieve
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - climate
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/metrics:
+    get:
+      operationId: climate_metrics_retrieve
+      description: The measurement contract the frontend filter widgets are built
+        from.
+      tags:
+      - climate
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/filter-options:
+    get:
+      operationId: climate_filter_options_retrieve
+      description: One call that fills every explorer filter widget.
+      tags:
+      - climate
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/export:
+    get:
+      operationId: climate_export_retrieve
+      description: Streaming CSV export - analyst or administrator, audited, hard-bounded.
+      tags:
+      - climate
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/saved:
+    get:
+      operationId: climate_saved_retrieve
+      description: 'Saved explorer views: list and create.'
+      tags:
+      - climate
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: climate_saved_create
+      description: 'Saved explorer views: list and create.'
+      tags:
+      - climate
+      responses:
+        '200':
+          description: No response body
+  /api/v1/climate/saved/{document_id}:
+    get:
+      operationId: climate_saved_retrieve_2
+      description: 'Read or delete one saved analysis: owner or administrator only.'
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - climate
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: climate_saved_partial_update
+      description: 'Read or delete one saved analysis: owner or administrator only.'
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - climate
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: climate_saved_destroy
+      description: 'Read or delete one saved analysis: owner or administrator only.'
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - climate
+      responses:
+        '204':
+          description: No response body
+  /api/v1/processing/workflows:
+    get:
+      operationId: processing_workflows_retrieve
+      description: '``GET /api/v1/processing/workflows`` - registry + real availability.'
+      tags:
+      - processing
+      responses:
+        '200':
+          description: No response body
+  /api/v1/processing/engines:
+    get:
+      operationId: processing_engines_retrieve
+      description: '``GET /api/v1/processing/engines`` - composite EngineHealth, wrapped
+        in a list.'
+      tags:
+      - processing
+      responses:
+        '200':
+          description: No response body
+  /api/v1/processing/data-lake:
+    get:
+      operationId: processing_data_lake_retrieve
+      description: '``GET /api/v1/processing/data-lake`` - honest lake inventory.'
+      tags:
+      - processing
+      responses:
+        '200':
+          description: No response body
+  /api/v1/processing/monitor:
+    get:
+      operationId: processing_monitor_retrieve
+      description: '``GET /api/v1/processing/monitor`` - active-first job stream for
+        the dashboard.'
+      tags:
+      - processing
+      responses:
+        '200':
+          description: No response body
+  /api/v1/processing/:
+    get:
+      operationId: processing_retrieve
+      description: '``GET/POST /api/v1/processing/jobs``.'
+      tags:
+      - processing
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: processing_create
+      description: '``GET/POST /api/v1/processing/jobs``.'
+      tags:
+      - processing
+      responses:
+        '200':
+          description: No response body
+  /api/v1/processing/{job_id}/cancel:
+    post:
+      operationId: processing_cancel_create
+      description: |-
+        ``POST /api/v1/processing/jobs/<id>/cancel``.
+
+        Only ``queued`` jobs can actually be cancelled - see :func:`apps.processing.jobs.cancel_job`.
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - processing
+      responses:
+        '200':
+          description: No response body
+  /api/v1/processing/{job_id}/logs:
+    get:
+      operationId: processing_logs_retrieve
+      description: |-
+        ``GET /api/v1/processing/jobs/<id>/logs``.
+
+        Response shape matches ``{ lines: {timestamp, level, message}[], job: ProcessingJob }``
+        from ``frontend/src/services/api.ts`` - note the ``timestamp`` key used by the
+        dedicated logs feed, distinct from the ``at`` key on ``ProcessingJob.log_lines``.
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - processing
+      responses:
+        '200':
+          description: No response body
+  /api/v1/processing/{job_id}:
+    get:
+      operationId: processing_retrieve_2
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - processing
+      responses:
+        '200':
+          description: No response body
+  /api/v1/models/:
+    get:
+      operationId: models_retrieve
+      description: GET /api/v1/models/ - paginated registry list; POST also accepted
+        here.
+      tags:
+      - models
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: models_create
+      description: GET /api/v1/models/ - paginated registry list; POST also accepted
+        here.
+      tags:
+      - models
+      responses:
+        '200':
+          description: No response body
+  /api/v1/models/train:
+    post:
+      operationId: models_train_create
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      tags:
+      - models
+      responses:
+        '200':
+          description: No response body
+  /api/v1/models/catalogue:
+    get:
+      operationId: models_catalogue_retrieve
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      tags:
+      - models
+      responses:
+        '200':
+          description: No response body
+  /api/v1/models/training-status:
+    get:
+      operationId: models_training_status_retrieve
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      tags:
+      - models
+      responses:
+        '200':
+          description: No response body
+  /api/v1/models/{model_id}/activate:
+    post:
+      operationId: models_activate_create
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      parameters:
+      - in: path
+        name: model_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - models
+      responses:
+        '200':
+          description: No response body
+  /api/v1/models/{model_id}/retire:
+    post:
+      operationId: models_retire_create
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      parameters:
+      - in: path
+        name: model_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - models
+      responses:
+        '200':
+          description: No response body
+  /api/v1/models/{model_id}/retrain:
+    post:
+      operationId: models_retrain_create
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      parameters:
+      - in: path
+        name: model_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - models
+      responses:
+        '200':
+          description: No response body
+  /api/v1/models/{model_id}/artifacts/{kind}:
+    get:
+      operationId: models_artifacts_retrieve
+      description: |-
+        GET /api/v1/models/<id>/artifacts/<kind>.
+
+        kind = report (markdown), metrics (JSON metrics), features (feature
+        definition JSON) for any authenticated role; kind = model (the raw joblib
+        artifact) requires administrator.
+      parameters:
+      - in: path
+        name: kind
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: model_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - models
+      responses:
+        '200':
+          description: No response body
+  /api/v1/models/{model_id}:
+    get:
+      operationId: models_retrieve_2
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      parameters:
+      - in: path
+        name: model_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - models
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: models_partial_update
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      parameters:
+      - in: path
+        name: model_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - models
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: models_destroy
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      parameters:
+      - in: path
+        name: model_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - models
+      responses:
+        '204':
+          description: No response body
+  /api/v1/predictions/:
+    get:
+      operationId: predictions_retrieve
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      tags:
+      - predictions
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: predictions_create
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      tags:
+      - predictions
+      responses:
+        '200':
+          description: No response body
+  /api/v1/predictions/explain:
+    get:
+      operationId: predictions_explain_retrieve
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      tags:
+      - predictions
+      responses:
+        '200':
+          description: No response body
+  /api/v1/predictions/summary:
+    get:
+      operationId: predictions_summary_retrieve
+      description: 'Dashboard helper: the latest stored forecast for a scope (read-only).'
+      tags:
+      - predictions
+      responses:
+        '200':
+          description: No response body
+  /api/v1/predictions/{prediction_id}/export:
+    get:
+      operationId: predictions_export_retrieve
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      parameters:
+      - in: path
+        name: prediction_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - predictions
+      responses:
+        '200':
+          description: No response body
+  /api/v1/predictions/{prediction_id}:
+    get:
+      operationId: predictions_retrieve_2
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      parameters:
+      - in: path
+        name: prediction_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - predictions
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: predictions_destroy
+      description: |-
+        Authenticated base for this app: platform convention is that every view
+        declares ``authentication_classes`` explicitly (``common.views.BaseView``
+        keeps the list empty).
+      parameters:
+      - in: path
+        name: prediction_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - predictions
+      responses:
+        '204':
+          description: No response body
+  /api/v1/alerts/:
+    get:
+      operationId: alerts_retrieve
+      description: '``GET /api/v1/alerts/`` - fired alerts (rules live behind ``/rules``).'
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alerts/summary:
+    get:
+      operationId: alerts_summary_retrieve
+      description: '``GET /api/v1/alerts/summary`` - severity/status/region counts
+        and newest alert.'
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alerts/templates:
+    get:
+      operationId: alerts_templates_retrieve
+      description: '``GET /api/v1/alerts/templates`` - starting payloads for the rule
+        builder.'
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alerts/scan:
+    post:
+      operationId: alerts_scan_create
+      description: '``POST /api/v1/alerts/scan`` - alias of ``rules/evaluate`` for
+        the web client.'
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alerts/rules:
+    get:
+      operationId: alerts_rules_retrieve
+      description: '``GET /api/v1/alerts/rules`` (role-aware) / ``POST`` (analyst
+        or administrator).'
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: alerts_rules_create
+      description: '``GET /api/v1/alerts/rules`` (role-aware) / ``POST`` (analyst
+        or administrator).'
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alerts/rules/evaluate:
+    post:
+      operationId: alerts_rules_evaluate_create
+      description: '``POST /api/v1/alerts/rules/evaluate`` - run the engine now, report
+        real counts.'
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alerts/rules/{rule_id}:
+    get:
+      operationId: alerts_rules_retrieve_2
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: rule_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: alerts_rules_partial_update
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: rule_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: alerts_rules_destroy
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: rule_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - alerts
+      responses:
+        '204':
+          description: No response body
+  /api/v1/alerts/rules/{rule_id}/enable:
+    post:
+      operationId: alerts_rules_enable_create
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: rule_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alerts/rules/{rule_id}/disable:
+    post:
+      operationId: alerts_rules_disable_create
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: rule_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alerts/rules/{rule_id}/active:
+    post:
+      operationId: alerts_rules_active_create
+      description: |-
+        ``POST /api/v1/alerts/rules/<id>/active`` - one switch for both directions.
+
+        Same engine call as ``enable``/``disable``; kept because the web client toggles a
+        single boolean. The role check is performed here because the view accepts either
+        direction, so it cannot rely on the URL to express intent.
+      parameters:
+      - in: path
+        name: rule_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alerts/rules/{rule_id}/test:
+    post:
+      operationId: alerts_rules_test_create
+      description: '``POST /api/v1/alerts/rules/<id>/test`` - dry run; nothing is
+        persisted.'
+      parameters:
+      - in: path
+        name: rule_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alerts/{alert_id}:
+    get:
+      operationId: alerts_retrieve_2
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: alert_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alerts/{alert_id}/acknowledge:
+    post:
+      operationId: alerts_acknowledge_create
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: alert_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/alerts/{alert_id}/resolve:
+    post:
+      operationId: alerts_resolve_create
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: alert_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - alerts
+      responses:
+        '200':
+          description: No response body
+  /api/v1/notifications/:
+    get:
+      operationId: notifications_retrieve
+      description: '``GET /api/v1/notifications/`` - the caller''s own notifications.'
+      tags:
+      - notifications
+      responses:
+        '200':
+          description: No response body
+  /api/v1/notifications/unread-count:
+    get:
+      operationId: notifications_unread_count_retrieve
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - notifications
+      responses:
+        '200':
+          description: No response body
+  /api/v1/notifications/read-all:
+    post:
+      operationId: notifications_read_all_create
+      description: Sets the platform exception handler and access-token authentication.
+      tags:
+      - notifications
+      responses:
+        '200':
+          description: No response body
+  /api/v1/notifications/preferences:
+    get:
+      operationId: notifications_preferences_retrieve
+      description: Per-user channel preferences (in-app and email).
+      tags:
+      - notifications
+      responses:
+        '200':
+          description: No response body
+    put:
+      operationId: notifications_preferences_update
+      description: Per-user channel preferences (in-app and email).
+      tags:
+      - notifications
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: notifications_preferences_partial_update
+      description: Per-user channel preferences (in-app and email).
+      tags:
+      - notifications
+      responses:
+        '200':
+          description: No response body
+  /api/v1/notifications/{notification_id}:
+    get:
+      operationId: notifications_retrieve_2
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: notification_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - notifications
+      responses:
+        '200':
+          description: No response body
+  /api/v1/notifications/{notification_id}/read:
+    post:
+      operationId: notifications_read_create
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: notification_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - notifications
+      responses:
+        '200':
+          description: No response body
+  /api/v1/notifications/{notification_id}/acknowledge:
+    post:
+      operationId: notifications_acknowledge_create
+      description: Sets the platform exception handler and access-token authentication.
+      parameters:
+      - in: path
+        name: notification_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - notifications
+      responses:
+        '200':
+          description: No response body
+  /api/v1/reports/:
+    get:
+      operationId: reports_retrieve
+      description: '``GET/POST /api/v1/reports/``.'
+      tags:
+      - reports
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: reports_create
+      description: '``GET/POST /api/v1/reports/``.'
+      tags:
+      - reports
+      responses:
+        '200':
+          description: No response body
+  /api/v1/reports/types:
+    get:
+      operationId: reports_types_retrieve
+      description: The catalogue plus an honest 'could this be computed right now?'
+        flag.
+      tags:
+      - reports
+      responses:
+        '200':
+          description: No response body
+  /api/v1/reports/summary:
+    get:
+      operationId: reports_summary_retrieve
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      tags:
+      - reports
+      responses:
+        '200':
+          description: No response body
+  /api/v1/reports/{report_id}/download:
+    get:
+      operationId: reports_download_retrieve
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: report_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - reports
+      responses:
+        '200':
+          description: No response body
+  /api/v1/reports/{report_id}/cancel:
+    post:
+      operationId: reports_cancel_create
+      description: '``POST /api/v1/reports/<id>/cancel`` - withdraw a queued report.'
+      parameters:
+      - in: path
+        name: report_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - reports
+      responses:
+        '200':
+          description: No response body
+  /api/v1/reports/{report_id}:
+    get:
+      operationId: reports_retrieve_2
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: report_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - reports
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: reports_destroy
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: report_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - reports
+      responses:
+        '204':
+          description: No response body
+  /api/v1/support/:
+    get:
+      operationId: support_retrieve
+      description: '``GET/POST /api/v1/support/tickets``.'
+      tags:
+      - support
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: support_create
+      description: '``GET/POST /api/v1/support/tickets``.'
+      tags:
+      - support
+      responses:
+        '200':
+          description: No response body
+  /api/v1/support/tickets:
+    get:
+      operationId: support_tickets_retrieve
+      description: '``GET/POST /api/v1/support/tickets``.'
+      tags:
+      - support
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: support_tickets_create
+      description: '``GET/POST /api/v1/support/tickets``.'
+      tags:
+      - support
+      responses:
+        '200':
+          description: No response body
+  /api/v1/support/summary:
+    get:
+      operationId: support_summary_retrieve
+      description: Open counts by status and priority plus the median first response
+        time.
+      tags:
+      - support
+      responses:
+        '200':
+          description: No response body
+  /api/v1/support/categories:
+    get:
+      operationId: support_categories_retrieve
+      description: Enumeration the UI needs, straight from the server-side contract.
+      tags:
+      - support
+      responses:
+        '200':
+          description: No response body
+  /api/v1/support/tickets/{ticket_id}:
+    get:
+      operationId: support_tickets_retrieve_2
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: ticket_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - support
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: support_tickets_partial_update
+      description: 'Authenticated base: the JWT authenticator is declared, not inherited
+        empty.'
+      parameters:
+      - in: path
+        name: ticket_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - support
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: support_tickets_destroy
+      description: 'Spam control: administrators only, and the audit trail keeps the
+        reference.'
+      parameters:
+      - in: path
+        name: ticket_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - support
+      responses:
+        '204':
+          description: No response body
+  /api/v1/support/tickets/{ticket_id}/messages:
+    post:
+      operationId: support_tickets_messages_create
+      description: '``POST /api/v1/support/tickets/<id>/comments`` (also mounted as
+        ``/messages``).'
+      parameters:
+      - in: path
+        name: ticket_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - support
+      responses:
+        '200':
+          description: No response body
+  /api/v1/support/tickets/{ticket_id}/comments:
+    post:
+      operationId: support_tickets_comments_create
+      description: '``POST /api/v1/support/tickets/<id>/comments`` (also mounted as
+        ``/messages``).'
+      parameters:
+      - in: path
+        name: ticket_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - support
+      responses:
+        '200':
+          description: No response body
+  /api/v1/support/tickets/{ticket_id}/close:
+    post:
+      operationId: support_tickets_close_create
+      description: '``POST /api/v1/support/tickets/<id>/close`` - author or staff.'
+      parameters:
+      - in: path
+        name: ticket_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - support
+      responses:
+        '200':
+          description: No response body
+  /api/v1/feedback/:
+    get:
+      operationId: feedback_retrieve
+      description: |-
+        ``GET/POST /api/v1/feedback`` - paginated list + create.
+
+        A viewer only sees their own submissions; staff see every record. The
+        feedback text itself is stored as-is and rendered by the React client
+        (which escapes it) - the backend never injects HTML or evaluates it.
+      tags:
+      - feedback
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: feedback_create
+      description: |-
+        ``GET/POST /api/v1/feedback`` - paginated list + create.
+
+        A viewer only sees their own submissions; staff see every record. The
+        feedback text itself is stored as-is and rendered by the React client
+        (which escapes it) - the backend never injects HTML or evaluates it.
+      tags:
+      - feedback
+      responses:
+        '200':
+          description: No response body
+  /api/v1/feedback/summary:
+    get:
+      operationId: feedback_summary_retrieve
+      description: '``GET /api/v1/feedback/summary`` - average rating + counts.'
+      tags:
+      - feedback
+      responses:
+        '200':
+          description: No response body
+  /api/v1/feedback/{feedback_id}:
+    get:
+      operationId: feedback_retrieve_2
+      description: '``GET/PATCH /api/v1/feedback/<id>`` - PATCH is administrator-only
+        triage.'
+      parameters:
+      - in: path
+        name: feedback_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - feedback
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: feedback_partial_update
+      description: '``GET/PATCH /api/v1/feedback/<id>`` - PATCH is administrator-only
+        triage.'
+      parameters:
+      - in: path
+        name: feedback_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - feedback
+      responses:
+        '200':
+          description: No response body
+  /api/v1/dashboard/summary:
+    get:
+      operationId: dashboard_summary_retrieve
+      description: Computed platform state for the signed-in account.
+      tags:
+      - dashboard
+      responses:
+        '200':
+          description: No response body
+  /api/v1/dashboard/activity:
+    get:
+      operationId: dashboard_activity_retrieve
+      description: Recent audit events merged with ingestion/processing job activity.
+      tags:
+      - dashboard
+      responses:
+        '200':
+          description: No response body
+  /api/v1/dashboard/widgets:
+    get:
+      operationId: dashboard_widgets_retrieve
+      description: Widget catalogue plus whether each widget is computable right now.
+      tags:
+      - dashboard
+      responses:
+        '200':
+          description: No response body
+  /api/v1/analytics/summaries:
+    get:
+      operationId: analytics_summaries_retrieve
+      description: Stored aggregates, newest first.
+      tags:
+      - analytics
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/analytics/summaries/{key}:
+    get:
+      operationId: analytics_summaries_retrieve_2
+      description: One aggregate by its ``summary_key``.
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        required: true
+      tags:
+      - analytics
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/analytics/recompute:
+    post:
+      operationId: analytics_recompute_create
+      description: Recompute the core aggregates from MongoDB and store them (analyst/admin).
+      tags:
+      - analytics
+      responses:
+        '200':
+          description: No response body
+  /api/v1/analytics/trends-slope:
+    get:
+      operationId: analytics_trends_slope_retrieve
+      description: '``analytics.trend_slope`` per region/location with base-period
+        deltas.'
+      tags:
+      - analytics
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/analytics/matrix:
+    get:
+      operationId: analytics_matrix_retrieve
+      description: Correlation + regional comparison + trend in one call for the analytics
+        page.
+      tags:
+      - analytics
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/health:
+    get:
+      operationId: health_retrieve
+      description: '``GET /api/v1/health`` - exact HealthResponse shape from api.ts.'
+      tags:
+      - health
+      responses:
+        '200':
+          description: No response body
+  /api/v1/ready:
+    get:
+      operationId: ready_retrieve
+      description: '``GET /api/v1/ready`` - returns 200 only when this instance can
+        serve traffic.'
+      tags:
+      - ready
+      responses:
+        '200':
+          description: No response body
+  /api/v1/system/status:
+    get:
+      operationId: system_status_retrieve
+      description: '``GET /api/v1/system/status`` - HealthResponse + operational extras.'
+      tags:
+      - system
+      responses:
+        '200':
+          description: No response body
+  /api/v1/system/metrics:
+    get:
+      operationId: system_metrics_retrieve
+      description: '``GET /api/v1/system/metrics`` - real numbers where possible,
+        null + ``unavailable`` list otherwise.'
+      tags:
+      - system
+      responses:
+        '200':
+          description: No response body
+  /api/v1/system/endpoints:
+    get:
+      operationId: system_endpoints_retrieve
+      description: '``GET /api/v1/system/endpoints`` - static catalog derived from
+        the URL roots.'
+      tags:
+      - system
+      responses:
+        '200':
+          description: No response body
+  /api/v1/system/audit:
+    get:
+      operationId: system_audit_retrieve
+      description: '``GET /api/v1/system/audit`` - admin-only, redacted on read too.'
+      tags:
+      - system
+      responses:
+        '200':
+          description: No response body
+  /api/v1/system/settings:
+    get:
+      operationId: system_settings_retrieve
+      description: |-
+        ``GET/PATCH /api/v1/system/settings``.
+
+        GET is open to any authenticated account. PATCH is administrator only and
+        refuses to touch any security env key (FORCE_ATLAS_CONNECTION, JWT_SIGNING_KEY
+        and friends).
+      tags:
+      - system
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: system_settings_partial_update
+      description: |-
+        ``GET/PATCH /api/v1/system/settings``.
+
+        GET is open to any authenticated account. PATCH is administrator only and
+        refuses to touch any security env key (FORCE_ATLAS_CONNECTION, JWT_SIGNING_KEY
+        and friends).
+      tags:
+      - system
+      responses:
+        '200':
+          description: No response body
+  /api/v1/system/backups:
+    get:
+      operationId: system_backups_retrieve
+      description: '``GET/POST /api/v1/system/backups``.'
+      tags:
+      - system
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: system_backups_create
+      description: '``GET/POST /api/v1/system/backups``.'
+      tags:
+      - system
+      responses:
+        '200':
+          description: No response body
+  /api/v1/system/dependencies:
+    get:
+      operationId: system_dependencies_retrieve
+      description: '``GET /api/v1/system/dependencies`` - real installed versions
+        + CLI presence.'
+      tags:
+      - system
+      responses:
+        '200':
+          description: No response body
+  /api/v1/system/services:
+    get:
+      operationId: system_services_retrieve
+      description: '``GET /api/v1/system/services`` - real reachability probes with
+        timestamps.'
+      tags:
+      - system
+      responses:
+        '200':
+          description: No response body
+  /api/:
+    get:
+      operationId: api_retrieve
+      description: '``GET /api/`` and ``GET /`` - JSON directory of the API roots.'
+      tags:
+      - api
+      responses:
+        '200':
+          description: No response body
+  /:
+    get:
+      operationId: root_retrieve
+      description: '``GET /api/`` and ``GET /`` - JSON directory of the API roots.'
+      responses:
+        '200':
+          description: No response body
+components: {}

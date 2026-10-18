@@ -1,6 +1,9 @@
-/** Tiny dependency-free class combiner (filters falsy values). */
-export function cn(
-  ...parts: Array<string | false | null | undefined>
-): string {
-  return parts.filter(Boolean).join(" ");
+import { clsx, type ClassValue } from 'clsx'
+
+export function cn(...inputs: ClassValue[]): string {
+  return clsx(inputs)
+}
+
+export function cx(...inputs: ClassValue[]): string {
+  return clsx(inputs)
 }

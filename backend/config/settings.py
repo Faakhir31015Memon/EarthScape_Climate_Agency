@@ -1,212 +1,154 @@
 """Django settings for EarthScape Climate Agency.
 
-MongoDB (via PyMongo repositories) is the primary application database, so the
-relational DATABASES setting stays empty and no ORM model, migration or Django admin
-is used. Authentication is a custom JWT pipeline against MongoDB user records.
+There is deliberately no relational ``DATABASES`` entry and no ``django.contrib.auth``:
+application records live in MongoDB Atlas and are accessed through PyMongo
+repositories (``backend/common/repositories.py``). Authentication, sessions and
+permissions are implemented against the ``users`` collection.
 """
-
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from django.core.exceptions import ImproperlyConfigured
+from config import env
 
-from common.env import ENV, development_signing_key, allowed_origins, BACKEND_DIR, REPO_ROOT
+BASE_DIR = Path(__file__).resolve().parent.parent
+REPO_ROOT = BASE_DIR.parent
+sys.path.insert(0, str(BASE_DIR))
+# The ml/ package (features, training, inference, anomaly, evaluation) lives beside
+# backend/ at the repository root, so management commands, the dev server and any
+# worker all resolve ``import ml.*`` the same way.
+sys.path.insert(0, str(REPO_ROOT))
 
-BASE_DIR = BACKEND_DIR
-PROJECT_ROOT = REPO_ROOT
+env.validate_startup()
 
-SECRET_KEY = development_signing_key()
-SIGNING_KEY_IS_EPHEMERAL = not ENV.exists("DJANGO_SECRET_KEY")
-DEBUG = ENV.flag("DJANGO_DEBUG", True)
-ALLOWED_HOSTS = ENV.items("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]")
+SECRET_KEY = env.get_str("DJANGO_SECRET_KEY")
+DEBUG = env.get_bool("DJANGO_DEBUG")
+ALLOWED_HOSTS = env.get_list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1", "0.0.0.0"])
 
-TESTING = False
+FRONTEND_ORIGINS = env.get_list("FRONTEND_ORIGIN", ["http://localhost:5173", "http://127.0.0.1:5173"])
 
 INSTALLED_APPS = [
     "rest_framework",
-    "corsheaders",
     "drf_spectacular",
-    "apps.authentication",
-    "apps.users",
-    "apps.datasets",
-    "apps.ingestion",
-    "apps.climate",
-    "apps.processing",
-    "apps.machine_learning",
-    "apps.alerts",
-    "apps.reports",
-    "apps.support",
-    "apps.monitoring",
 ]
 
+# No ORM: the platform is a document database application.
+DATABASES: dict = {}
+
 MIDDLEWARE = [
+    "common.middleware.CORSAllowListMiddleware",
+    "common.middleware.CorrelationIdMiddleware",
     "common.middleware.SecurityHeadersMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
-    "django.middleware.common.CommonMiddleware",
-    "common.middleware.RequestContextMiddleware",
-    "common.middleware.AuditTrailMiddleware",
+    "common.middleware.RateLimitMiddleware",
+    "common.middleware.LocalWriteFlushMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
+# Only /api/docs renders a template (the OpenAPI reference). Every API response stays
+# pure JSON because DEFAULT_RENDERER_CLASSES is JSONRenderer-only; without a registered
+# engine drf_spectacular's Swagger view raises InvalidTemplateEngineError and 500s.
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates"],
+        "DIRS": [],
         "APP_DIRS": True,
         "OPTIONS": {"context_processors": []},
-    }
+    },
 ]
-
-# No relational database by design - see module docstring.
-DATABASES: dict = {}
-
-STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
-DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "apps.authentication.jwt_auth.MongoJWTAuthentication",
+        "common.api.MongoJWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "apps.authentication.permissions.IsAuthenticatedMongo",
+        "rest_framework.permissions.AllowAny",
     ],
-    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
+    "EXCEPTION_HANDLER": "common.api.error_response",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    "EXCEPTION_HANDLER": "common.exceptions.api_exception_handler",
-    "DEFAULT_PAGINATION_CLASS": "common.pagination.MongoPageNumberPagination",
-    "PAGE_SIZE": 25,
     "UNAUTHENTICATED_USER": None,
-    "DEFAULT_THROTTLE_CLASSES": [
-        "common.throttling.ScopedRateThrottle",
-    ],
-    "DEFAULT_THROTTLE_RATES": {
-        "login": ENV.raw("THROTTLE_LOGIN", "10/min"),
-        "register": ENV.raw("THROTTLE_REGISTER", "5/hour"),
-        "password_reset": ENV.raw("THROTTLE_PASSWORD_RESET", "5/hour"),
-        "feedback": ENV.raw("THROTTLE_FEEDBACK", "20/hour"),
-        "ingest": ENV.raw("THROTTLE_INGEST", "30/hour"),
-        "processing": ENV.raw("THROTTLE_PROCESSING", "60/hour"),
-        "training": ENV.raw("THROTTLE_TRAINING", "10/hour"),
-        "reports": ENV.raw("THROTTLE_REPORTS", "30/hour"),
-        "burst": ENV.raw("THROTTLE_BURST", "300/hour"),
-    },
+    "DEFAULT_FILTER_BACKENDS": [],
+    "DEFAULT_THROTTLE_CLASSES": [],
 }
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "EarthScape Climate Agency API",
-    "DESCRIPTION": "Big Data climate intelligence, analytics and prediction platform.",
+    "DESCRIPTION": (
+        "Big Data climate intelligence, analytics and prediction platform. "
+        "MongoDB Atlas is the primary application database; Hadoop/Spark provide "
+        "distributed processing; scikit-learn/XGBoost provide forecasts."
+    ),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "SCHEMA_PATH_PREFIX": "/api/v1",
     "COMPONENT_SPLIT_REQUEST": True,
+    "SORT_OPERATIONS": False,
 }
 
-CORS_ALLOWED_ORIGINS = allowed_origins()
+# ------------------------------------------------------------------ security
+CORS_ALLOWED_ORIGINS = FRONTEND_ORIGINS
 CORS_ALLOW_CREDENTIALS = False
-CORS_ALLOW_METHODS = ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"]
-CORS_ALLOW_HEADERS = [
-    "accept", "accept-encoding", "authorization", "content-type",
-    "csrftoken", "origin", "user-agent", "x-correlation-id", "x-requested-with",
-]
-CORS_MAX_AGE = 600
-
-CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 
-JWT = {
-    "SIGNING_KEY": ENV.raw("JWT_SIGNING_KEY", SECRET_KEY),
-    "ALGORITHM": ENV.raw("JWT_ALGORITHM", "HS256"),
-    "ACCESS_MINUTES": ENV.integer("JWT_ACCESS_MINUTES", 15),
-    "REFRESH_DAYS": ENV.integer("JWT_REFRESH_DAYS", 7),
-    "ISSUER": ENV.raw("JWT_ISSUER", "earthscape-climate-agency"),
-}
+# --------------------------------------------------------------------- paths
+MEDIA_ROOT = Path(env.get_str("LOCAL_DATA_ROOT", str(BASE_DIR / ".data")))
+UPLOAD_ROOT = MEDIA_ROOT / "uploads"
+EXPORT_ROOT = MEDIA_ROOT / "exports"
+REPORT_ROOT = MEDIA_ROOT / "reports"
+MODEL_STORE = Path(env.get_str("MODEL_ARTIFACT_DIR", str(MEDIA_ROOT / "ml-artifacts")))
+PROCESSING_ROOT = Path(env.get_str("PROCESSING_SCRATCH_DIR", str(MEDIA_ROOT / "processing")))
+DATA_LAKE_ROOT = Path(env.get_str("DATA_LAKE_LOCAL_ROOT", str(REPO_ROOT / ".data-lake")))
+for _directory in (UPLOAD_ROOT, EXPORT_ROOT, REPORT_ROOT, MODEL_STORE, PROCESSING_ROOT, DATA_LAKE_ROOT):
+    _directory.mkdir(parents=True, exist_ok=True)
 
-MONGODB = {
-    "URI": ENV.raw("MONGODB_URI"),
-    "DATABASE": ENV.raw("MONGODB_DATABASE", "earthscape_climate"),
-}
-
-LOGGING_LEVEL = ENV.raw("LOG_LEVEL", "INFO").upper()
-LOG_DIR = PROJECT_ROOT / "artifacts" / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+# -------------------------------------------------------------------- logging
+LOG_LEVEL = env.get_str("LOG_LEVEL", "INFO").upper()
 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "structured": {"()": "common.logging_config.StructuredFormatter"},
+        "structured": {
+            "()": "common.logging_formatter.StructuredFormatter",
+        },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "structured",
-            "level": LOGGING_LEVEL,
-        },
-        "file": {
-            "class": "logging.handlers.RotatingFileHandler",
-            "formatter": "structured",
-            "filename": str(LOG_DIR / "backend.log"),
-            "maxBytes": 5_000_000,
-            "backupCount": ENV.integer("LOG_BACKUP_COUNT", 3),
-            "level": LOGGING_LEVEL,
+            "stream": "ext://sys.stdout",
         },
     },
-    "root": {"handlers": ["console", "file"], "level": LOGGING_LEVEL},
+    "root": {"handlers": ["console"], "level": LOG_LEVEL},
     "loggers": {
-        "django.request": {"handlers": ["console", "file"], "level": "WARNING", "propagate": False},
-        "django.security": {"handlers": ["console", "file"], "level": "WARNING", "propagate": False},
-        "pymongo": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+        "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},
+        "django.server": {"handlers": ["console"], "level": "INFO", "propagate": False},
     },
 }
 
-APP = {
-    "ALLOW_SELF_REGISTRATION": ENV.flag("ALLOW_SELF_REGISTRATION", False),
-    "DEFAULT_ROLE": ENV.raw("DEFAULT_REGISTRATION_ROLE", "viewer"),
-    "MAX_UPLOAD_BYTES": ENV.integer("MAX_UPLOAD_BYTES", 200 * 1024 * 1024),
-    "MAX_UPLOAD_ROWS": ENV.integer("MAX_UPLOAD_ROWS", 2_000_000),
-    "PREVIEW_ROWS": ENV.integer("UPLOAD_PREVIEW_ROWS", 20),
-    "PASSWORD_MIN_LENGTH": ENV.integer("PASSWORD_MIN_LENGTH", 10),
-    "LOGIN_MAX_FAILURES": ENV.integer("LOGIN_MAX_FAILURES", 8),
-    "LOGIN_LOCKOUT_MINUTES": ENV.integer("LOGIN_LOCKOUT_MINUTES", 15),
-    "BCRYPT_ROUNDS": ENV.integer("BCRYPT_ROUNDS", 12),
-    "OBSERVATIONS_RETENTION_DAYS": ENV.integer("OBSERVATIONS_RETENTION_DAYS", 0),
-    "PASSWORD_RESET_MINUTES": ENV.integer("PASSWORD_RESET_MINUTES", 30),
-    "PUBLIC_BASE_URL": ENV.raw("PUBLIC_BASE_URL", "http://localhost:5173"),
-}
+# ------------------------------------------------------------- upload limits
+MAX_UPLOAD_BYTES = env.get_int("MAX_UPLOAD_BYTES", 52428800)
+MAX_UPLOAD_ROWS = env.get_int("MAX_UPLOAD_ROWS", 500000)
+DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_BYTES
+FILE_UPLOAD_MAX_MEMORY_SIZE = min(10_485_760, MAX_UPLOAD_BYTES)
+ALLOWED_UPLOAD_EXTENSIONS = env.get_list(
+    "ALLOWED_UPLOAD_EXTENSIONS", [".csv", ".json", ".xlsx", ".xls", ".parquet", ".txt", ".nc"]
+)
 
-# Email is disabled until a real provider is configured; no notification path pretends
-# to deliver mail without it.
-EMAIL_ENABLED = bool(ENV.raw("EMAIL_HOST")) and bool(ENV.raw("DEFAULT_FROM_EMAIL"))
-if EMAIL_ENABLED:
-    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-    EMAIL_HOST = ENV.raw("EMAIL_HOST")
-    EMAIL_PORT = ENV.integer("EMAIL_PORT", 587)
-    EMAIL_HOST_USER = ENV.raw("EMAIL_HOST_USER")
-    EMAIL_HOST_PASSWORD = ENV.raw("EMAIL_HOST_PASSWORD")
-    EMAIL_USE_TLS = ENV.flag("EMAIL_USE_TLS", True)
-    DEFAULT_FROM_EMAIL = ENV.raw("DEFAULT_FROM_EMAIL")
-    EMAIL_TIMEOUT = ENV.integer("EMAIL_TIMEOUT", 15)
-else:
-    EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
-    DEFAULT_FROM_EMAIL = ENV.raw("DEFAULT_FROM_EMAIL", "no-reply@earthscape.local")
-
-if not MONGODB["URI"]:
-    # Boot is still allowed so the interface and health checks work; every data route
-    # returns an explicit configuration error instead of a fake success.
-    import warnings
-
-    warnings.warn(
-        "MONGODB_URI is not configured. The API will start, but data operations will fail "
-        "with a clear 503 configuration response.",
-        RuntimeWarning,
-    )
-
-if not ALLOWED_HOSTS:
-    raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS must list at least one host.")
+# ----------------------------------------------------------- runtime defaults
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+USE_TZ = True
+TIME_ZONE = "UTC"
+LANGUAGE_CODE = "en-us"
+STATIC_URL = "/static/"
+APPEND_SLASH = False

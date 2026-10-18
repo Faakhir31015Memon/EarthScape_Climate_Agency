@@ -1,256 +1,347 @@
-"""HTTP layer for alert rules, alert events and the notification inbox."""
+"""Alert rules, fired alerts and the evaluation trigger endpoints.
 
+Mounted at ``/api/v1/alerts/``. Mutations are administrator/analyst only and every
+one is audited; a viewer can read rules without seeing who is notified.
+"""
 from __future__ import annotations
 
-from apps.alerts import notifier, services
-from apps.authentication.permissions import role_allows
-from common.audit import audit
-from common.db import find_one, now_utc, oid, update_one
-from common.exceptions import Forbidden, NotFound
-from common.pagination import normalize_pagination
-from common.responses import paginated
-from common.serialization import document_to_api
-from common.validators import AlertRuleRequest, parse
-from common.views import ApiView
+import logging
+
+from rest_framework.response import Response
+
+from apps.monitoring import import_compat
+
+import_compat.ensure_common_api_importable()
+
+from apps.alerts import monitor, notifications, rules as engine, serializers as alert_serializers  # noqa: E402
+from common import analytics, audit  # noqa: E402
+from common.api import (  # noqa: E402
+    ADMINISTRATOR,
+    CLIMATE_ANALYST,
+    ApiError,
+    AdministratorOrAnalyst,
+    IsAuthenticatedAccount,
+    MongoJWTAuthentication,
+)
+from common.repositories import RepositoryError  # noqa: E402
+from common.views import (  # noqa: E402
+    AuthenticatedView,
+    bool_param,
+    date_param,
+    int_param,
+    str_param,
+)
+
+logger = logging.getLogger(__name__)
+
+STAFF_ROLES = (ADMINISTRATOR, CLIMATE_ANALYST)
 
 
-def _bool_param(value: str | None) -> bool:
-    return str(value).strip().lower() in ("1", "true", "yes", "on")
+class AlertView(AuthenticatedView):
+    """Authenticated base: the JWT authenticator is declared, not inherited empty."""
+
+    authentication_classes = [MongoJWTAuthentication]
+    permission_classes = [IsAuthenticatedAccount]
 
 
-class AlertRuleListView(ApiView):
-    required_capability = "alert.rule.manage"
+class StaffView(AlertView):
+    permission_classes = [AdministratorOrAnalyst]
+
+
+def require_object_id(value: str, label: str) -> str:
+    from bson import ObjectId
+
+    if not ObjectId.is_valid(value or ""):
+        raise ApiError("not_found", f"No such {label}.", status=404)
+    return value
+
+
+def _is_staff(request) -> bool:
+    user = getattr(request, "user", None)
+    return bool(user and getattr(user, "is_authenticated", False) and user.role in STAFF_ROLES)
+
+
+def require_staff(request):
+    """Per-method role enforcement on views that are readable by every account."""
+    if not _is_staff(request):
+        raise ApiError("permission_denied",
+                       "Climate analyst or administrator role required.", status=403)
+    return request.user
+
+
+class RuleListView(AlertView):
+    """``GET /api/v1/alerts/rules`` (role-aware) / ``POST`` (analyst or administrator)."""
 
     def get(self, request):
-        params = self.params(request)
-        page, size, _skip = normalize_pagination(request.query_params)
-        items, total = services.list_rules(
-            enabled=params.get("enabled", ""),
-            condition=params.get("condition", ""),
-            variable=params.get("variable", ""),
-            search=params.get("search", ""),
-            page=page, page_size=size,
-        )
-        return paginated(items, total=total, page=page, page_size=size,
-                         extra={"policy": "unique dedupe per rule+scope+variable+UTC day, then cooldown"},
-                         request=request)
+        page = int_param(request, "page", 1, minimum=1, maximum=100000)
+        page_size = int_param(request, "page_size", 25, minimum=1, maximum=200)
+        # ``enabled`` and ``enabled_only`` are accepted synonyms (the web client uses the
+        # shorter name); both mean "only rules that the engine will actually run".
+        enabled_only = bool_param(request, "enabled_only", False) or bool_param(
+            request, "enabled", False)
+        result = engine.list_rules(enabled_only=enabled_only, page=page, page_size=page_size,
+                                  include_recipients=_is_staff(request))
+        if not _is_staff(request):
+            for item in result["items"]:
+                item.pop("evaluation_state", None)
+                item.pop("created_by", None)
+        result["role_view"] = "staff" if _is_staff(request) else "restricted"
+        return Response(result)
 
     def post(self, request):
-        payload = parse(AlertRuleRequest, self.body(request))
-        rule = services.create_rule(payload, request.auth_identity.user_id)
-        audit(request, "alert_rule.create", resource_type="alert_rules",
-              resource_id=rule["id"], metadata={"condition": rule.get("condition"),
-                                                "variable": rule.get("target_variable")})
-        return self.created(request, rule)
+        user = require_staff(request)
+        serializer = alert_serializers.RuleCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        rule = engine.create_rule(dict(serializer.validated_data), actor_id=user.id)
+        audit.for_request(request, action="alert_rule.created", resource_type="alert_rule",
+                         resource_id=str(rule.get("id")), actor_user_id=user.id,
+                         metadata={"rule_key": rule.get("rule_key"),
+                                   "target_variable": rule.get("target_variable"),
+                                   "operator": (rule.get("condition") or {}).get("operator"),
+                                   "severity": rule.get("severity")})
+        return Response({"rule": rule}, status=201)
 
 
-class AlertRuleDetailView(ApiView):
-    required_capability = "alert.rule.manage"
-
+class RuleDetailView(AlertView):
     def get(self, request, rule_id: str):
-        return self.ok(request, services.get_rule(rule_id))
+        require_object_id(rule_id, "alert rule")
+        rule = engine.get_rule(rule_id)
+        if not _is_staff(request):
+            rule.pop("recipients", None)
+            rule.pop("evaluation_state", None)
+            rule.pop("created_by", None)
+        return Response({"rule": rule})
 
     def patch(self, request, rule_id: str):
-        payload = parse(AlertRuleRequest, self.body(request))
-        rule = services.update_rule(rule_id, payload, request.auth_identity)
-        audit(request, "alert_rule.update", resource_type="alert_rules", resource_id=rule_id)
-        return self.ok(request, rule)
+        require_staff(request)
+        require_object_id(rule_id, "alert rule")
+        serializer = alert_serializers.RuleUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        payload = {key: value for key, value in serializer.validated_data.items()
+                   if value is not None or key == "is_enabled"}
+        rule = engine.update_rule(rule_id, payload)
+        audit.for_request(request, action="alert_rule.updated", resource_type="alert_rule",
+                         resource_id=rule_id,
+                         metadata={"fields": sorted(payload)})
+        return Response({"rule": rule})
 
     def delete(self, request, rule_id: str):
-        result = services.delete_rule(rule_id, request.auth_identity)
-        audit(request, "alert_rule.delete", resource_type="alert_rules", resource_id=rule_id,
-              metadata=result)
-        return self.ok(request, result)
+        require_staff(request)
+        require_object_id(rule_id, "alert rule")
+        deleted = engine.delete_rule(rule_id)
+        audit.for_request(request, action="alert_rule.deleted", resource_type="alert_rule",
+                         resource_id=rule_id, metadata={"deleted": deleted})
+        return Response({"status": "deleted", "deleted": deleted,
+                         "note": "Alerts already fired by this rule are retained."})
 
 
-class AlertRuleEvaluateView(ApiView):
-    required_capability = "alert.rule.manage"
-    throttle_scope = "processing"
-    http_method_names = ["post"]
+class RuleEnableView(StaffView):
+    def post(self, request, rule_id: str):
+        require_object_id(rule_id, "alert rule")
+        rule = engine.set_rule_enabled(rule_id, True)
+        audit.for_request(request, action="alert_rule.enabled", resource_type="alert_rule",
+                         resource_id=rule_id)
+        return Response({"rule": rule})
+
+
+class RuleDisableView(StaffView):
+    def post(self, request, rule_id: str):
+        require_object_id(rule_id, "alert rule")
+        rule = engine.set_rule_enabled(rule_id, False)
+        audit.for_request(request, action="alert_rule.disabled", resource_type="alert_rule",
+                         resource_id=rule_id)
+        return Response({"rule": rule})
+
+
+class RuleActiveView(AlertView):
+    """``POST /api/v1/alerts/rules/<id>/active`` - one switch for both directions.
+
+    Same engine call as ``enable``/``disable``; kept because the web client toggles a
+    single boolean. The role check is performed here because the view accepts either
+    direction, so it cannot rely on the URL to express intent.
+    """
 
     def post(self, request, rule_id: str):
-        result = services.evaluate_rule_by_id(rule_id)
-        audit(request, "alert_rule.evaluate", resource_type="alert_rules", resource_id=rule_id,
-              metadata={"status": result.get("status"),
-                        "events_created": len(result.get("events_created", []))})
-        return self.ok(request, result)
+        require_staff(request)
+        require_object_id(rule_id, "alert rule")
+        payload = request.data if isinstance(request.data, dict) else {}
+        if "enabled" not in payload and "is_enabled" not in payload:
+            raise ApiError("validation_failed", "enabled (true or false) is required.")
+        raw = payload.get("enabled", payload.get("is_enabled"))
+        enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"} if not isinstance(raw, bool) else raw
+        rule = engine.set_rule_enabled(rule_id, bool(enabled))
+        audit.for_request(request,
+                          action="alert_rule.enabled" if enabled else "alert_rule.disabled",
+                          resource_type="alert_rule", resource_id=rule_id,
+                          metadata={"enabled": bool(enabled),
+                                    "rule_key": rule.get("rule_key")})
+        return Response({"rule": rule})
 
 
-class AlertEvaluationSweepView(ApiView):
-    """Administrator-driven full pass over every enabled rule."""
+class RuleTemplateView(AlertView):
+    """``GET /api/v1/alerts/templates`` - starting payloads for the rule builder."""
 
-    required_capability = "alert.rule.admin"
-    throttle_scope = "processing"
-    http_method_names = ["post"]
+    def get(self, request):
+        return Response({
+            "templates": engine.templates(),
+            "operators": list(engine.OPERATORS),
+            "severities": list(engine.SEVERITIES),
+            "metrics": list(analytics.METRICS),
+            "note": "Templates are suggestions; each is validated by the same engine on create.",
+        })
+
+
+class AlertScanView(StaffView):
+    """``POST /api/v1/alerts/scan`` - alias of ``rules/evaluate`` for the web client."""
 
     def post(self, request):
-        params = self.params(request)
-        result = services.evaluate_sweep(include_disabled=_bool_param(params.get("include_disabled")))
-        audit(request, "alert.evaluate_all", resource_type="alert_rules",
-              metadata={"rules_evaluated": result["rules_evaluated"],
-                        "events_created": result["events_created"],
-                        "status_counts": result["status_counts"]})
-        return self.ok(request, result)
+        outcome = monitor.run_once(source="manual")
+        audit.for_request(request, action="alert_rules.evaluated", resource_type="alert_rule",
+                          metadata={"rules_evaluated": outcome.get("rules_evaluated"),
+                                    "alerts_created": outcome.get("alerts_created"),
+                                    "trigger": "scan"})
+        return Response({
+            "job": None,
+            "matched": outcome.get("alerts_created", 0),
+            "detail": f"{outcome.get('rules_evaluated', 0)} enabled rule(s) evaluated; "
+                      f"{outcome.get('alerts_created', 0)} alert(s) created.",
+            "evaluation": outcome,
+            "scheduler": monitor.status(),
+        })
 
 
-class AlertEventListView(ApiView):
-    """Read-only event board; every authenticated role may see raised alerts."""
-
-    required_capability = "platform.view"
-
-    def get(self, request):
-        params = self.params(request)
-        page, size, _skip = normalize_pagination(request.query_params)
-        items, total = services.list_events(params, page=page, page_size=size)
-        return paginated(items, total=total, page=page, page_size=size,
-                         extra={"counts": services.event_counts()}, request=request)
-
-
-class AlertEventDetailView(ApiView):
-    required_capability = "platform.view"
-    http_method_names = ["get"]
-
-    def get(self, request, event_id: str):
-        return self.ok(request, services.get_event(event_id))
-
-
-class _EventTransitionView(ApiView):
-    required_capability = "alert.acknowledge"
-    http_method_names = ["post"]
-    action_name = "alert.event.update"
-
-    def _note(self, request) -> str | None:
-        body = self.body(request)
-        note = body.get("note") or body.get("reason")
-        return str(note)[:400] if note else None
-
-
-class AlertEventAcknowledgeView(_EventTransitionView):
-    action_name = "alert.event.acknowledge"
-
-    def post(self, request, event_id: str):
-        event = services.acknowledge(event_id, request.auth_identity, note=self._note(request))
-        audit(request, self.action_name, resource_type="alert_events", resource_id=event_id,
-              metadata={"note": self._note(request)})
-        return self.ok(request, event)
-
-
-class AlertEventResolveView(_EventTransitionView):
-    action_name = "alert.event.resolve"
-
-    def post(self, request, event_id: str):
-        event = services.resolve(event_id, request.auth_identity, note=self._note(request))
-        audit(request, self.action_name, resource_type="alert_events", resource_id=event_id,
-              metadata={"note": self._note(request)})
-        return self.ok(request, event)
-
-
-class AlertEventReopenView(_EventTransitionView):
-    action_name = "alert.event.reopen"
-
-    def post(self, request, event_id: str):
-        event = services.reopen(event_id, request.auth_identity, note=self._note(request))
-        audit(request, self.action_name, resource_type="alert_events", resource_id=event_id,
-              metadata={"note": self._note(request)})
-        return self.ok(request, event)
-
-
-class AlertSummaryView(ApiView):
-    required_capability = "platform.view"
-    http_method_names = ["get"]
-
-    def get(self, request):
-        return self.ok(request, services.event_counts())
-
-
-class NotificationTestView(ApiView):
-    required_capability = "notification.view_own"
-    http_method_names = ["post"]
+class RuleEvaluateView(StaffView):
+    """``POST /api/v1/alerts/rules/evaluate`` - run the engine now, report real counts."""
 
     def post(self, request):
-        channel = str(self.body(request).get("channel", "in_app"))
-        result = services.test_notification(request.auth_identity, channel=channel)
-        audit(request, "notification.test", resource_type="notifications",
-              metadata={"channel": channel, "email_enabled": result["email_enabled"]})
-        return self.created(request, result)
+        outcome = monitor.run_once(source="manual")
+        audit.for_request(request, action="alert_rules.evaluated", resource_type="alert_rule",
+                         resource_id=None,
+                         metadata={"rules_evaluated": outcome.get("rules_evaluated"),
+                                   "alerts_created": outcome.get("alerts_created"),
+                                   "notifications_queued": outcome.get("notifications_queued"),
+                                   "suppressed_by_dedupe": outcome.get("suppressed_by_dedupe")})
+        return Response({"evaluation": outcome, "scheduler": monitor.status()})
 
 
-class NotificationListView(ApiView):
-    required_capability = "notification.view_own"
+class RuleTestView(StaffView):
+    """``POST /api/v1/alerts/rules/<id>/test`` - dry run; nothing is persisted."""
+
+    def post(self, request, rule_id: str):
+        require_object_id(rule_id, "alert rule")
+        result = engine.dry_run_rule(rule_id)
+        audit.for_request(request, action="alert_rule.tested", resource_type="alert_rule",
+                         resource_id=rule_id,
+                         metadata={"candidates": result.get("candidate_count",
+                                                            len(result.get("candidates", []))),
+                                   "in_cooldown": result.get("in_cooldown")})
+        return Response({
+            "dry_run": True,
+            "rule": engine.get_rule(rule_id),
+            "candidates": result.get("candidates", []),
+            "candidate_count": len(result.get("candidates", [])),
+            "would_persist": result.get("would_persist"),
+            "in_cooldown": result.get("in_cooldown"),
+            "recipients_resolved": result.get("recipients_resolved"),
+            "observations_scanned": result.get("observations_scanned"),
+            "predictions_scanned": result.get("predictions_scanned"),
+            "state": result.get("state"),
+            "note": "Nothing was written: this is a dry run of the stored rule.",
+        })
+
+
+class AlertListView(AlertView):
+    """``GET /api/v1/alerts/`` - fired alerts (rules live behind ``/rules``)."""
 
     def get(self, request):
-        params = self.params(request)
-        page, size, _skip = normalize_pagination(request.query_params)
-        items, total = notifier.list_for_user(
-            request.auth_identity.user_id,
-            unread_only=_bool_param(params.get("unread_only")),
-            kind=params.get("kind", ""),
-            page=page, page_size=size,
+        page = int_param(request, "page", 1, minimum=1, maximum=100000)
+        page_size = int_param(request, "page_size", 25, minimum=1, maximum=200)
+        rule_key = str_param(request, "rule_key", max_length=64)
+        rule_id = str_param(request, "rule_id", max_length=24)
+        if rule_id and not rule_key:
+            # A fired alert stores the rule_key it was created from; resolve the id so
+            # clients can filter by either handle.
+            try:
+                rule_key = (engine.get_rule(rule_id) or {}).get("rule_key")
+            except (ApiError, RepositoryError):
+                rule_key = None
+            if not rule_key:
+                raise ApiError("not_found", "No such alert rule.", status=404)
+        result = engine.list_alerts(
+            status_filter=str_param(request, "status", choices=engine.ALERT_STATUSES),
+            severity=str_param(request, "severity", choices=engine.SEVERITIES),
+            region=str_param(request, "region", max_length=60)
+            or str_param(request, "region_code", max_length=60),
+            rule_key=rule_key,
+            start_date=date_param(request, "start_date"),
+            end_date=date_param(request, "end_date"),
+            page=page, page_size=page_size,
         )
-        return paginated(items, total=total, page=page, page_size=size,
-                         extra={"unread": notifier.unread_count(request.auth_identity.user_id),
-                                "email_enabled": bool(_email_enabled())},
-                         request=request)
+        result["unread_notifications"] = notifications.unread_counts(request.user.id)["total"] \
+            if getattr(request, "user", None) else None
+        return Response(result)
 
 
-class NotificationDetailView(ApiView):
-    required_capability = "notification.view_own"
-
-    def get(self, request, notification_id: str):
-        document = find_one("notifications", {"_id": oid(notification_id)})
-        if not document:
-            raise NotFound("Notification not found.")
-        if str(document.get("recipient")) != str(request.auth_identity.user_id) and not role_allows(
-                request.auth_identity.role, "alert.rule.admin"):
-            raise Forbidden("You can only read your own notifications.")
-        return self.ok(request, document_to_api(document))
-
-    def patch(self, request, notification_id: str):
-        body = self.body(request)
-        mark = body.get("read", True)
-        if str(mark).lower() in ("false", "0", "no"):
-            existing = find_one("notifications", {"_id": oid(notification_id)})
-            if not existing:
-                raise NotFound("Notification not found.")
-            if str(existing.get("recipient")) != str(request.auth_identity.user_id):
-                raise Forbidden("You can only manage your own notifications.")
-            update_one("notifications", {"_id": existing["_id"]},
-                       {"$set": {"read_at": None, "acknowledged_at": None, "updated_at": now_utc()}})
-            return self.ok(request, document_to_api(find_one("notifications", {"_id": existing["_id"]})))
-        return self.ok(request, notifier.mark_read(notification_id, request.auth_identity.user_id))
+class AlertDetailView(AlertView):
+    def get(self, request, alert_id: str):
+        require_object_id(alert_id, "alert")
+        try:
+            return Response({"alert": engine.get_alert(alert_id)})
+        except RepositoryError:
+            raise ApiError("not_found", "No such alert.", status=404)
 
 
-class NotificationReadAllView(ApiView):
-    required_capability = "notification.view_own"
-    http_method_names = ["post"]
+class AlertAcknowledgeView(StaffView):
+    def post(self, request, alert_id: str):
+        require_object_id(alert_id, "alert")
+        user = self.current_user(request)
+        serializer = alert_serializers.AlertAcknowledgeSerializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
+        alert = engine.acknowledge_alert(alert_id, user_id=user.id, role=user.role)
+        comment = serializer.validated_data.get("comment")
+        if comment:
+            from common.repositories import alerts
 
-    def post(self, request):
-        marked = notifier.mark_all_read(request.auth_identity.user_id)
-        return self.ok(request, {"marked_read": marked})
+            alerts.update_by_id(alert_id, {"metadata": {**(alert.get("metadata") or {}),
+                                                        "acknowledge_comment": str(comment)[:500]}})
+            alert = engine.get_alert(alert_id)["alert"]
+        audit.for_request(request, action="alert.acknowledged", resource_type="alert",
+                         resource_id=alert_id, actor_user_id=user.id,
+                         metadata={"rule_key": alert.get("rule_key"),
+                                   "severity": alert.get("severity")})
+        return Response({"alert": alert})
 
 
-class NotificationUnreadView(ApiView):
-    required_capability = "notification.view_own"
-    http_method_names = ["get"]
+class AlertResolveView(StaffView):
+    def post(self, request, alert_id: str):
+        require_object_id(alert_id, "alert")
+        user = self.current_user(request)
+        serializer = alert_serializers.AlertResolveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        status_value = serializer.validated_data.get("status", "resolved")
+        alert = engine.resolve_alert(alert_id, user_id=user.id, role=user.role,
+                                    note=serializer.validated_data["note"], status=status_value)
+        audit.for_request(request, action=f"alert.{status_value}", resource_type="alert",
+                         resource_id=alert_id, actor_user_id=user.id,
+                         metadata={"rule_key": alert.get("rule_key"),
+                                   "severity": alert.get("severity")})
+        return Response({"alert": alert})
+
+
+class AlertSummaryView(AlertView):
+    """``GET /api/v1/alerts/summary`` - severity/status/region counts and newest alert."""
 
     def get(self, request):
-        return self.ok(request, {"unread": notifier.unread_count(request.auth_identity.user_id)})
+        payload = engine.summary()
+        payload["notification_delivery"] = notifications.counts()
+        payload["email_delivery"] = _email_state()
+        return Response(payload)
 
 
-class NotificationRetryView(ApiView):
-    required_capability = "notification.view_own"
-    http_method_names = ["post"]
+def _email_state() -> dict:
+    from common import emailer
 
-    def post(self, request, notification_id: str):
-        is_admin = role_allows(request.auth_identity.role, "alert.rule.admin")
-        result = notifier.retry_delivery(notification_id, request.auth_identity.user_id,
-                                        is_admin=is_admin)
-        audit(request, "notification.retry", resource_type="notifications",
-              resource_id=notification_id, metadata=result)
-        return self.ok(request, result)
-
-
-def _email_enabled() -> bool:
-    from django.conf import settings
-
-    return bool(settings.EMAIL_ENABLED)
+    status = emailer.configuration_status()
+    status["note"] = ("Email notifications are recorded as suppressed until SMTP_HOST and "
+                      "ENABLE_EMAIL_NOTIFICATIONS are configured.")
+    return status

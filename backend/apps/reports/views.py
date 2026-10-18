@@ -1,91 +1,138 @@
-"""Report endpoints: request a report, read status, stream an authenticated download."""
+"""HTTP layer for reports.
 
+Access rules enforced server-side (and re-checked inside ``services``):
+
+* every authenticated account lists and manages **its own** reports;
+* administrators see every report;
+* a report type flagged ``administrator_only`` cannot be requested by anyone else;
+* downloads stream through an authenticated request with an access check, so artefact
+  paths are never published in a response body and no public URL exists for a file.
+"""
 from __future__ import annotations
 
+from typing import Any, Dict
+
 from django.http import FileResponse
+from rest_framework.response import Response
 
-from apps.authentication.permissions import role_allows
-from apps.reports import services
-from common.audit import audit
-from common.db import find_one, oid
-from common.exceptions import Forbidden, NotFound, ValidationError
-from common.pagination import normalize_pagination
-from common.responses import paginated
-from common.validators import ReportRequest, parse
-from common.views import ApiView
+from apps.monitoring import import_compat
+
+import_compat.ensure_common_api_importable()
+
+from common.api import ApiError, MongoJWTAuthentication  # noqa: E402
+from common.views import (  # noqa: E402
+    AuthenticatedView,
+    bool_param,
+    int_param,
+    str_param,
+)
+
+from apps.reports import generators, services  # noqa: E402
 
 
-class ReportListView(ApiView):
-    """``GET`` lists visible reports; ``POST`` requests generation (needs report.generate).
+class ReportView(AuthenticatedView):
+    """Authenticated base: the JWT authenticator is declared, not inherited empty."""
 
-    The route is shared by both verbs, so the view is opened at ``export.download``
-    (every role) and the create path enforces ``report.generate`` explicitly below.
-    """
+    authentication_classes = [MongoJWTAuthentication]
 
-    required_capability = "export.download"
-    throttle_scope = "reports"
+
+class ReportCollectionView(ReportView):
+    """``GET/POST /api/v1/reports/``."""
 
     def get(self, request):
-        params = self.params(request)
-        page, size, _skip = normalize_pagination(request.query_params)
-        items, total = services.list_reports(request.auth_identity, params,
-                                            page=page, page_size=size)
-        extra: dict = {"report_types": list(services.REPORT_TYPES), "limits": services.LIMITS}
-        if role_allows(request.auth_identity.role, "report.view_any"):
-            extra["storage"] = services.storage_state()
-        return paginated(items, total=total, page=page, page_size=size, extra=extra, request=request)
+        page = int_param(request, "page", 1, minimum=1, maximum=100000)
+        page_size = int_param(request, "page_size", 20, minimum=1, maximum=200)
+        status = str_param(request, "status", None, choices=services.STATUSES)
+        report_type = str_param(request, "report_type", None,
+                                choices=tuple(generators.REPORT_TYPES))
+        include_expired = bool_param(request, "include_expired", False)
+        data = services.list_reports(
+            request, page=page, page_size=page_size, status=status,
+            report_type=report_type, include_expired=include_expired,
+        )
+        data["scope"] = "all_reports" if request.user.role == "administrator" else "own_reports"
+        data["retention_days"] = services.retention_days()
+        return Response(data)
 
     def post(self, request):
-        if not role_allows(request.auth_identity.role, "report.generate"):
-            raise Forbidden("Generating reports requires the report.generate capability.")
-        payload = parse(ReportRequest, self.body(request))
-        document = services.create_report(payload, request.auth_identity)
-        audit(request, "report.request", resource_type="reports",
-              resource_id=str(document["_id"]),
-              metadata={"report_type": document["report_type"], "formats": document["formats"],
-                        "job_ref": document.get("job_ref")})
-        return self.created(request, services.summarise(document) | {
-            "note": "Generation runs in the background; poll this report for status "
-                    "and read job transitions from the linked processing job."})
+        payload = _payload(request)
+        report_type = str(payload.get("report_type") or "").strip()
+        if not report_type:
+            raise ApiError("validation_failed", "report_type is required.")
+        fmt = str(payload.get("format") or payload.get("file_format") or "pdf").strip().lower()
+        filters = payload.get("filters")
+        if filters is not None and not isinstance(filters, dict):
+            raise ApiError("validation_failed", "filters must be an object.")
+        data = services.create_report(request, report_type=report_type, fmt=fmt,
+                                      filters=filters or {})
+        return Response(data, status=202)
 
 
-class ReportDetailView(ApiView):
-    required_capability = "export.download"
-    http_method_names = ["get"]
+class ReportTypeListView(ReportView):
+    """The catalogue plus an honest 'could this be computed right now?' flag."""
 
+    def get(self, request):
+        return Response({
+            "types": services.catalogue(request),
+            "formats": list(services.FORMATS),
+            "statuses": list(services.STATUSES),
+            "filter_help": {
+                "metric": "measured variable, e.g. temperature_c",
+                "frequency": "daily | weekly | monthly | annual",
+                "start_date": "YYYY-MM-DD",
+                "end_date": "YYYY-MM-DD",
+                "regions": "list of region codes",
+                "location_codes": "list of station codes",
+                "countries": "list of country names or codes",
+                "datasets": "list of dataset ids",
+                "sigma": "deviation threshold for the anomaly report",
+                "limit": "maximum rows (1-1000)",
+            },
+            "storage": services.storage_report(),
+        })
+
+
+class ReportSummaryView(ReportView):
+    def get(self, request):
+        data = services.counts(request)
+        data["storage"] = services.storage_report()
+        return Response(data)
+
+
+class ReportDetailView(ReportView):
     def get(self, request, report_id: str):
-        report = services.get_report(report_id, request.auth_identity,
-                                     include_sections=str(
-                                         self.params(request).get("sections", "true")).lower()
-                                     != "false")
-        return self.ok(request, report)
+        return Response(services.detail(report_id, request))
+
+    def delete(self, request, report_id: str):
+        return Response(services.delete_report(report_id, request))
 
 
-class ReportDownloadView(ApiView):
-    """Streams a stored export from the server path - never a public URL."""
+class ReportCancelView(ReportView):
+    """``POST /api/v1/reports/<id>/cancel`` - withdraw a queued report."""
 
-    required_capability = "export.download"
-    throttle_scope = "burst"
-    http_method_names = ["get"]
+    def post(self, request, report_id: str):
+        return Response(services.cancel_report(report_id, request))
 
-    def get(self, request, report_id: str, fmt: str):
-        report = find_one("reports", {"_id": oid(report_id)})
-        if not report:
-            raise NotFound("Report not found.")
-        if not services.can_view(report, request.auth_identity):
-            raise Forbidden("You can only download reports you requested, unless you hold "
-                            "report.view_any.")
-        if report.get("status") != "completed":
-            raise ValidationError(f"Report is '{report.get('status')}'; only completed reports "
-                                  "can be downloaded.")
-        # The requested format is validated against the allowlist recorded on the document,
-        # so a URL can never select an arbitrary file.
-        path, entry = services.resolve_output(report, fmt)
-        audit(request, "report.download", resource_type="reports", resource_id=report_id,
-              metadata={"format": fmt, "file": entry.get("path")})
-        filename = f"{report.get('report_type', 'report')}-{report_id[:8]}.{fmt}"
-        response = FileResponse(open(path, "rb"), as_attachment=True, filename=filename,
-                               content_type=entry.get("media_type")
-                               or services.MEDIA_TYPES.get(fmt, "application/octet-stream"))
-        response["X-Report-Generated-At"] = str(report.get("completed_at") or "")
+
+class ReportDownloadView(ReportView):
+    def get(self, request, report_id: str):
+        path, filename, content_type, document = services.artefact_for_download(report_id, request)
+        try:
+            handle = path.open("rb")
+        except OSError as exc:  # noqa: BLE001 - lost race with a cleanup sweep, reported plainly
+            raise ApiError("not_found", "The artefact could not be opened.", status=410) from exc
+        response = FileResponse(handle, as_attachment=True, filename=filename,
+                                content_type=content_type)
+        response["X-Report-Row-Count"] = str(document.get("row_count"))
+        response["X-Report-Status"] = str(document.get("status"))
+        response["Cache-Control"] = "private, no-store"
         return response
+
+
+def _payload(request) -> Dict[str, Any]:
+    data = getattr(request, "data", None)
+    if isinstance(data, dict):
+        return data
+    if data is None:
+        return {}
+    raise ApiError("validation_failed", "A JSON object body is required.")

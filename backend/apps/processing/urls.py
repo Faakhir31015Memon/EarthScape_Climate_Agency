@@ -1,19 +1,22 @@
-"""Processing workspace routes, mounted by the project at ``/api/v1/processing/``."""
+"""``/api/v1/processing/`` routing.
 
+``APPEND_SLASH`` is false, so the collection route is the empty path and every
+other literal segment is registered before the ``<job_id>`` catch-all.
+"""
 from __future__ import annotations
 
-from apps.processing import views
 from django.urls import path
+
+from apps.processing import runner  # noqa: F401 - importing registers the tasks
+from apps.processing import views
 
 urlpatterns = [
     path("workflows", views.WorkflowListView.as_view(), name="processing-workflows"),
-    path("workflows/<str:workflow_id>", views.WorkflowDetailView.as_view(),
-         name="processing-workflow-detail"),
-    path("jobs", views.JobListView.as_view(), name="processing-jobs"),
-    path("jobs/<str:job_id>", views.JobDetailView.as_view(), name="processing-job-detail"),
-    path("jobs/<str:job_id>/retry", views.JobRetryView.as_view(), name="processing-job-retry"),
-    path("summaries", views.SummaryListView.as_view(), name="processing-summaries"),
-    path("mapreduce", views.MapReduceCatalogueView.as_view(), name="processing-mapreduce"),
-    path("stream/status", views.StreamStatusView.as_view(), name="processing-stream-status"),
-    path("sweep", views.StaleJobSweepView.as_view(), name="processing-sweep"),
+    path("engines", views.EngineHealthView.as_view(), name="processing-engines"),
+    path("data-lake", views.DataLakeView.as_view(), name="processing-data-lake"),
+    path("monitor", views.JobMonitorView.as_view(), name="processing-monitor"),
+    path("", views.JobListView.as_view(), name="processing-jobs"),
+    path("<str:job_id>/cancel", views.JobCancelView.as_view(), name="processing-job-cancel"),
+    path("<str:job_id>/logs", views.JobLogsView.as_view(), name="processing-job-logs"),
+    path("<str:job_id>", views.JobDetailView.as_view(), name="processing-job-detail"),
 ]

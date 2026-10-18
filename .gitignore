@@ -1,4 +1,16 @@
-# Python
+# --- secrets and local state ---------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+backend/.data/
+.data-lake/
+.data/
+local-settings.json
+bootstrap-credentials.txt
+
+# --- python --------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -8,49 +20,41 @@ env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-*.log
+.coverage
+htmlcov/
 
-# Secrets and local configuration
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-artifacts/.dev-signing-key
-
-# Django
-backend/staticfiles/
-media/
-
-# Run-time artifacts (never commit generated data or credentials)
-artifacts/datalake/
-artifacts/models/
-artifacts/reports/
-artifacts/uploads/
-artifacts/checkpoints/
-artifacts/backups/
-artifacts/logs/
-sample-data/*.csv
-sample-data/*.json
-sample-data/*.meta.json
-!sample-data/README.md
-
-# Node / frontend
+# --- node / frontend -----------------------------------------------------------
 node_modules/
 frontend/dist/
 frontend/.vite/
-coverage/
-*.tsbuildinfo
+*.local
+npm-debug.log*
+yarn-error.log*
 
-# Editors / OS
-.idea/
-.vscode/
-*.swp
-Thumbs.db
-.DS_Store
-
-# Notebooks / tooling caches
-.ipynb_checkpoints/
+# --- build / artefacts ---------------------------------------------------------
+build/
+*.log
+logs/
+.celery/
+celerybeat-schedule*
+backend/.data/ml-artifacts/
+checkpoints/
 spark-warehouse/
 metastore_db/
 derby.log
+
+# --- data sets that are too large for git --------------------------------------
+sample-data/*.parquet
+sample-data/generated/
+data/*.zip
+
+# --- editors / os --------------------------------------------------------------
+.idea/
+.vscode/*
+!.vscode/settings.json
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- jupyter -------------------------------------------------------------------
+.ipynb_checkpoints/

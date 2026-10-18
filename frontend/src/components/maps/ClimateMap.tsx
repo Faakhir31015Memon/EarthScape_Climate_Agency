@@ -1,194 +1,219 @@
-import { useEffect, useMemo } from "react";
-import {
-  CircleMarker,
-  MapContainer,
-  Popup,
-  TileLayer,
-  Tooltip as LeafletTooltip,
-  useMap,
-} from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-import type { MapMode, MapPoint } from "../../lib/api/types";
-import { formatInt, formatMetric } from "../../lib/format";
-import { EmptyState, ErrorState } from "../ui/EmptyState";
-import { SkeletonBlock } from "../ui/Skeleton";
-import { Tabs } from "../ui/Tabs";
+import { useEffect, useMemo, useState } from 'react'
+import { CircleMarker, MapContainer, Marker, Popup, TileLayer, Tooltip as LeafletTooltip, useMap } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+import { Layers, Maximize2 } from 'lucide-react'
+import type { MapDataResponse, MapPoint, Metric } from '../../types/api'
+import { formatNumber, metricLabel, relativeTime } from '../../lib/format'
+
+const COLD = [37, 124, 235]
+const HOT = [198, 58, 58]
+const GREEN = [39, 99, 58]
+
+function interpolate(from: number[], to: number[], ratio: number): string {
+  const channel = from.map((value, index) => Math.round(value + (to[index] - value) * ratio))
+  return `rgb(${channel.join(',')})`
+}
+
+export function colorForValue(value: number | null, min: number, max: number, metric?: Metric): string {
+  if (value === null || !Number.isFinite(value)) return 'rgba(134, 151, 139, 0.5)'
+  const span = max - min || 1
+  const ratio = Math.max(0, Math.min(1, (value - min) / span))
+  if (metric?.startsWith('temperature')) return interpolate(COLD, HOT, ratio)
+  if (metric === 'precipitation_mm') return interpolate([191, 227, 254], [30, 69, 138], ratio)
+  return interpolate([189, 222, 197], GREEN, ratio)
+}
+
+function FitBounds({ bounds }: { bounds: [number, number, number, number] | null }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!bounds) return
+    map.fitBounds(
+      [
+        [bounds[0], bounds[1]],
+        [bounds[2], bounds[3]],
+      ],
+      { padding: [24, 24], maxZoom: 6 },
+    )
+  }, [bounds, map])
+  return null
+}
+
+function ZoomWatcher({ onZoom }: { onZoom: (zoom: number) => void }) {
+  const map = useMap()
+  useEffect(() => {
+    const handler = () => onZoom(map.getZoom())
+    handler()
+    map.on('zoomend', handler)
+    return () => {
+      map.off('zoomend', handler)
+    }
+  }, [map, onZoom])
+  return null
+}
 
 export interface ClimateMapProps {
-  points: MapPoint[];
-  mode: MapMode;
-  onModeChange: (mode: MapMode) => void;
-  loading?: boolean;
-  error?: string | null;
-  emptyReason?: string;
-  height?: number;
+  data: Pick<MapDataResponse, 'points' | 'clusters' | 'bounds' | 'metrics' | 'data_note'>
+  metric: Metric
+  unit: string
+  height?: number
+  onSelectPoint?: (point: MapPoint) => void
+  detailZoom?: number
 }
 
-const MODE_TABS = [
-  { id: "markers", label: "Markers" },
-  { id: "heatmap", label: "Heat" },
-  { id: "choropleth", label: "Choropleth" },
-];
+export function ClimateMap({ data, metric, unit, height = 520, onSelectPoint, detailZoom = 5 }: ClimateMapProps) {
+  const [zoom, setZoom] = useState(3)
+  const [showClusters, setShowClusters] = useState(true)
 
-/** Fit the viewport to the data whenever the point set changes. */
-function AutoBounds({ points }: { points: MapPoint[] }) {
-  const map = useMap();
-  useEffect(() => {
-    if (points.length === 0) return;
-    if (points.length === 1) {
-      const p = points[0];
-      if (p) map.setView([p.latitude, p.longitude], 6);
-      return;
-    }
-    const bounds = L.latLngBounds(
-      points.map((p) => [p.latitude, p.longitude] as [number, number]),
-    );
-    map.fitBounds(bounds, { padding: [24, 24] });
-  }, [points, map]);
-  return null;
-}
+  const { min, max } = useMemo(() => {
+    const values = data.points
+      .map((point) => point.measurements[metric]?.value ?? null)
+      .filter((value): value is number => value !== null && Number.isFinite(value))
+    if (!values.length) return { min: 0, max: 1 }
+    return { min: Math.min(...values), max: Math.max(...values) }
+  }, [data.points, metric])
 
-const DEFAULT_CENTER: [number, number] = [31.5204, 74.3587];
-
-function radiusFor(p: MapPoint, mode: MapMode): number {
-  const base = Math.sqrt(Math.max(1, p.observations)) * (mode === "heatmap" ? 4.5 : 3.2);
-  return Math.min(48, Math.max(6, base));
-}
-
-function colorFor(p: MapPoint, mode: MapMode): string {
-  // Water/temperature stays in the blue family; magnitude drives opacity.
-  if (mode === "choropleth") {
-    const t = Math.min(1, p.observations / 40);
-    return `rgb(37 99 168 / ${0.25 + t * 0.5})`;
-  }
-  return p.temperature != null ? "rgb(37 99 168)" : "rgb(34 94 60)";
-}
-
-/**
- * Leaflet climate map over OpenStreetMap tiles. Uses CircleMarker (SVG) so no
- * default image-icon assets are required. Renders the real observation summary
- * per point and an honest "no geographic data" state when there are none.
- */
-export function ClimateMap({
-  points,
-  mode,
-  onModeChange,
-  loading,
-  error,
-  emptyReason,
-  height = 440,
-}: ClimateMapProps) {
-  const center = useMemo<[number, number]>(() => {
-    const first = points[0];
-    return first ? [first.latitude, first.longitude] : DEFAULT_CENTER;
-  }, [points]);
-
-  if (loading) {
-    return (
-      <div style={{ height }} className="rounded-card border border-border bg-surface p-4">
-        <SkeletonBlock rows={6} />
-      </div>
-    );
-  }
-
-  if (error) {
-    return <ErrorState message={error} />;
-  }
-
-  if (points.length === 0) {
-    return (
-      <EmptyState
-        title="No geographic data"
-        reason={emptyReason ?? "No observations carry a location in the selected window."}
-      />
-    );
-  }
+  const useDetail = zoom >= detailZoom || !showClusters || data.clusters.length === 0
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs
-          tabs={MODE_TABS}
-          value={mode}
-          onChange={(id) => onModeChange(id as MapMode)}
-          ariaLabel="Map layer mode"
+    <div className="relative" style={{ height }}>
+      <MapContainer
+        center={[24, 68]}
+        zoom={3}
+        scrollWheelZoom
+        style={{ height: '100%', width: '100%', borderRadius: '0.75rem' }}
+        worldCopyJump
+      >
+        <TileLayer
+          attribution='&copy; OpenStreetMap contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <p className="text-xs text-muted">
-          {formatInt(points.length)} location{points.length === 1 ? "" : "s"}
-        </p>
-      </div>
+        <FitBounds bounds={data.bounds} />
+        <ZoomWatcher onZoom={setZoom} />
 
-      <div style={{ height }} role="region" aria-label="Climate observation map"
-        className="overflow-hidden rounded-card border border-border">
-        <MapContainer
-          center={center}
-          zoom={6}
-          scrollWheelZoom={false}
-          style={{ height: "100%", width: "100%" }}
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        {useDetail
+          ? data.points.map((point) => {
+              const lat = point.latitude
+              const lng = point.longitude
+              if (lat === null || lng === null) return null
+              const measurement = point.measurements[metric]
+              const value = measurement?.value ?? null
+              return (
+                <CircleMarker
+                  key={`${point.location_code}-${point.last_observation_date}`}
+                  center={[lat, lng]}
+                  radius={value === null ? 4 : 6}
+                  pathOptions={{
+                    color: 'var(--surface)',
+                    weight: 1,
+                    fillColor: colorForValue(value, min, max, metric),
+                    fillOpacity: value === null ? 0.25 : 0.85,
+                  }}
+                  eventHandlers={{ click: () => onSelectPoint?.(point) }}
+                >
+                  <LeafletTooltip direction="top" offset={[0, -6]}>
+                    {point.location_name}: {value === null ? 'no value' : `${formatNumber(value, 1)} ${unit}`}
+                  </LeafletTooltip>
+                  <Popup>
+                    <div className="space-y-1 text-xs" style={{ minWidth: '12rem' }}>
+                      <p className="text-sm font-semibold">{point.location_name}</p>
+                      <p className="muted">
+                        {point.region_code} · {point.country}
+                      </p>
+                      <p className="mono">
+                        {lat.toFixed(3)}, {lng.toFixed(3)}
+                      </p>
+                      <ul className="mt-2 space-y-1">
+                        {Object.entries(point.measurements)
+                          .filter(([, entry]) => entry && entry.value !== null)
+                          .map(([field, entry]) => (
+                            <li key={field} className="flex justify-between gap-3">
+                              <span className="muted">{metricLabel(field)}</span>
+                              <span className="mono font-medium">
+                                {formatNumber(entry?.value ?? null, 1)} {entry?.unit ?? ''}
+                              </span>
+                            </li>
+                          ))}
+                      </ul>
+                      <p className="pt-1 subtle">
+                        {point.source_name ? `${point.source_name} · ` : ''}
+                        {relativeTime(point.last_observation_date)}
+                      </p>
+                      {point.quality_flags?.length ? <p className="text-alert-high">Flags: {point.quality_flags.join(', ')}</p> : null}
+                      {onSelectPoint ? (
+                        <button type="button" className="link mt-1" onClick={() => onSelectPoint(point)}>
+                          Open location history
+                        </button>
+                      ) : null}
+                    </div>
+                  </Popup>
+                </CircleMarker>
+              )
+            })
+          : data.clusters.map((cluster) => {
+              const centroid = cluster.centroid
+              if (!centroid) return null
+              const clusterMean = cluster.measurements[metric]?.mean ?? null
+              const icon = L.divIcon({
+                className: 'earthscape-marker',
+                html: `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:9999px;font:600 12px Inter,system-ui;color:#fff;background:${colorForValue(
+                  clusterMean,
+                  min,
+                  max,
+                  metric,
+                )};box-shadow:0 2px 8px rgba(0,0,0,.25);border:2px solid rgba(255,255,255,.8)">${cluster.point_count}</div>`,
+                iconSize: [Math.min(46, 22 + cluster.point_count), Math.min(46, 22 + cluster.point_count)],
+              })
+              return (
+                <Marker
+                  key={cluster.cluster_key}
+                  position={[centroid[0], centroid[1]]}
+                  icon={icon}
+                  eventHandlers={{ click: () => setShowClusters(false) }}
+                >
+                  <Popup>
+                    <div className="text-xs">
+                      <p className="font-semibold">{cluster.point_count} locations grouped here</p>
+                      <p className="muted">{cluster.cluster_key}</p>
+                      <p className="mt-1 subtle">Zoom in or click to list the underlying stations.</p>
+                    </div>
+                  </Popup>
+                </Marker>
+              )
+            })}
+      </MapContainer>
+
+      <div className="card-tight absolute left-3 top-3 z-[400] space-y-2 text-xs">
+        <div className="flex items-center gap-2">
+          <Layers className="h-3.5 w-3.5 muted" aria-hidden="true" />
+          <span className="font-semibold">{metricLabel(metric)}</span>
+          <span className="subtle">· {useDetail ? `${data.points.length} stations` : `${data.clusters.length} clusters`}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="mono">{formatNumber(min, 1)}</span>
+          <span
+            className="h-2 w-28 rounded-full"
+            style={{
+              background: `linear-gradient(90deg, ${colorForValue(min, min, max, metric)}, ${colorForValue((min + max) / 2, min, max, metric)}, ${colorForValue(max, min, max, metric)})`,
+            }}
+            aria-hidden="true"
           />
-          <AutoBounds points={points} />
-          {points.map((p, i) => (
-            <CircleMarker
-              key={`${p.region}-${i}`}
-              center={[p.latitude, p.longitude]}
-              radius={radiusFor(p, mode)}
-              pathOptions={{
-                color: mode === "choropleth" ? "rgb(var(--c-surface))" : colorFor(p, mode),
-                fillColor: colorFor(p, mode),
-                fillOpacity: mode === "heatmap" ? 0.45 : 0.65,
-                weight: 1,
-              }}
-            >
-              <LeafletTooltip>{p.region}</LeafletTooltip>
-              <Popup>
-                <div className="space-y-1 text-sm">
-                  <p className="font-semibold text-content">{p.region}</p>
-                  <p className="text-muted">{formatInt(p.observations)} observations</p>
-                  <p>
-                    Latest max temp:{" "}
-                    <strong>
-                      {formatMetric(p.temperature ?? null, "C", 1)}
-                    </strong>
-                  </p>
-                  <p>
-                    Latest precipitation:{" "}
-                    <strong>{formatMetric(p.precipitation ?? null, "mm", 1)}</strong>
-                  </p>
-                  {p.anomaly_count > 0 ? (
-                    <p className="text-warning">{formatInt(p.anomaly_count)} flagged anomalies</p>
-                  ) : null}
-                </div>
-              </Popup>
-            </CircleMarker>
-          ))}
-        </MapContainer>
+          <span className="mono">
+            {formatNumber(max, 1)} {unit}
+          </span>
+        </div>
+        <p className="subtle">{data.data_note}</p>
       </div>
 
-      <MapLegend mode={mode} />
+      {zoom < detailZoom && data.clusters.length > 0 ? (
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm absolute right-3 top-3 z-[400]"
+          onClick={() => setShowClusters((current) => !current)}
+        >
+          <Maximize2 className="h-3.5 w-3.5" /> {showClusters ? 'Show stations' : 'Cluster view'}
+        </button>
+      ) : null}
     </div>
-  );
-}
-
-function MapLegend({ mode }: { mode: MapMode }) {
-  return (
-    <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-muted">
-      <span className="font-medium text-content">Legend</span>
-      <span className="flex items-center gap-1.5">
-        <span aria-hidden="true" className="inline-block h-3 w-3 rounded-full bg-accent" />
-        Temperature present
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span aria-hidden="true" className="inline-block h-3 w-3 rounded-full bg-primary" />
-        Precipitation only
-      </span>
-      <span>
-        Circle size ∝ {mode === "heatmap" ? "observation density" : "observation count"}
-      </span>
-    </div>
-  );
+  )
 }

@@ -1,19 +1,16 @@
-import { BrowserRouter } from "react-router-dom";
-import { AppRoutes } from "./routes/router";
-import { ThemeProvider } from "./lib/theme";
-import { AuthProvider } from "./features/auth/AuthProvider";
-import { ToastProvider } from "./components/ui/Toast";
+import { AppRouter } from './app/router'
+import { AuthProvider } from './features/auth/AuthContext'
+import { ThemeProvider } from './features/theme/ThemeContext'
+import { ToastProvider } from './components/ui/ToastProvider'
 
 export default function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
         <AuthProvider>
-          <BrowserRouter>
-            <AppRoutes />
-          </BrowserRouter>
+          <AppRouter />
         </AuthProvider>
       </ToastProvider>
     </ThemeProvider>
-  );
+  )
 }

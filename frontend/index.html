@@ -1,15 +1,26 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EarthScape Climate Agency — Big Data Climate Intelligence Platform</title>
     <meta
       name="description"
-      content="EarthScape Climate Agency — enterprise big-data climate intelligence: live observation ingestion, trend analysis, anomaly detection and forecasting on a MongoDB + Hadoop/Spark platform."
+      content="EarthScape Climate Agency ingests NASA POWER and NOAA climate data, processes it on Hadoop and Spark, and serves interactive analytics, anomaly detection and machine-learned forecasts."
     />
-    <meta name="theme-color" content="#225e3c" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#141a16" media="(prefers-color-scheme: dark)" />
-    <title>EarthScape Climate Agency</title>
+    <meta name="theme-color" content="#27633a" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Applied before first paint so dark mode never flashes white.
+      try {
+        var stored = localStorage.getItem('earthscape.theme');
+        var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (dark) document.documentElement.classList.add('dark');
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+      } catch (error) {
+        /* storage unavailable — default light */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

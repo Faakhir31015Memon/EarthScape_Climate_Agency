@@ -1,0 +1,19 @@
+{
+  "engine": "parquet",
+  "reason": "pyarrow available",
+  "path": "C:\\Users\\USER\\Documents\\Qoder\\2026-10-16\\63fe5681\\earthscape-climate-agency\\artifacts\\datalake\\analytics\\dataset=demo_cities\\year=2017\\month=01\\historical_compare.parquet",
+  "rows": 6,
+  "columns": [
+    "dataset_id",
+    "region",
+    "variable",
+    "year",
+    "annual_mean",
+    "baseline_from",
+    "baseline_to",
+    "baseline_mean",
+    "delta",
+    "delta_pct"
+  ],
+  "written_at": "2026-10-16T17:49:57+00:00"
+}

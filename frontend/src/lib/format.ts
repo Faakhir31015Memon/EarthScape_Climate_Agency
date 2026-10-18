@@ -1,124 +1,151 @@
-import { unitSymbol } from "./units";
+import type { Metric, Severity } from '../types/api'
 
-/**
- * Locale-stable formatters. Everything renders in `en-GB` and every datetime is
- * shown in UTC with the origin labelled, because the API emits ISO-8601 UTC
- * strings and climate data must not silently shift with the browser timezone.
- */
-
-const LOCALE = "en-GB";
-
-function nf(opts: Intl.NumberFormatOptions): Intl.NumberFormat {
-  return new Intl.NumberFormat(LOCALE, opts);
+export const METRIC_META: Record<Metric, { label: string; unit: string; short: string; color: string; aggregation: 'mean' | 'sum' }> = {
+  temperature_c: { label: 'Mean temperature', unit: '°C', short: 'Temp', color: '#c0562f', aggregation: 'mean' },
+  temperature_min_c: { label: 'Minimum temperature', unit: '°C', short: 'Min', color: '#3b9af6', aggregation: 'mean' },
+  temperature_max_c: { label: 'Maximum temperature', unit: '°C', short: 'Max', color: '#e98513', aggregation: 'mean' },
+  precipitation_mm: { label: 'Precipitation', unit: 'mm', short: 'Rain', color: '#257ceb', aggregation: 'sum' },
+  relative_humidity_pct: { label: 'Relative humidity', unit: '%', short: 'RH', color: '#559c66', aggregation: 'mean' },
+  wind_speed_ms: { label: 'Wind speed', unit: 'm/s', short: 'Wind', color: '#4d8f62', aggregation: 'mean' },
+  wind_direction_deg: { label: 'Wind direction', unit: '°', short: 'Dir', color: '#94744e', aggregation: 'mean' },
+  surface_pressure_hpa: { label: 'Surface pressure', unit: 'hPa', short: 'Pressure', color: '#1e51af', aggregation: 'mean' },
+  cloud_coverage_pct: { label: 'Cloud coverage', unit: '%', short: 'Cloud', color: '#86978b', aggregation: 'mean' },
+  solar_radiation_kwh_m2: { label: 'Solar radiation', unit: 'kWh/m²', short: 'Solar', color: '#e9b23c', aggregation: 'mean' },
 }
 
-export function formatNumber(
-  value: number | null | undefined,
-  fractionDigits = 0,
-): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  return nf({
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
-    useGrouping: true,
-  }).format(value);
+export const ALL_METRICS = Object.keys(METRIC_META) as Metric[]
+
+export function metricUnit(metric?: string | null): string {
+  if (!metric) return ''
+  return METRIC_META[metric as Metric]?.unit ?? ''
 }
 
-/** Compact integer with thousands separators (en-GB uses commas). */
-export function formatInt(value: number | null | undefined): string {
-  return formatNumber(value, 0);
+export function metricLabel(metric?: string | null): string {
+  if (!metric) return 'Metric'
+  return METRIC_META[metric as Metric]?.label ?? metric.replaceAll('_', ' ')
 }
 
-/**
- * Ratio (0–1) → percent string. Used for completeness `coverage`, where the API
- * sends 1.0 for full coverage. `scale` distinguishes a 0–1 ratio from a 0–100 value.
- */
-export function formatRatio(ratio: number | null | undefined, fractionDigits = 0): string {
-  if (ratio === null || ratio === undefined || Number.isNaN(ratio)) return "—";
-  return `${formatNumber(ratio * 100, fractionDigits)}%`;
+export function formatNumber(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—'
+  const absolute = Math.abs(value)
+  const fractionDigits = absolute >= 1000 ? 0 : absolute < 1 && absolute !== 0 ? Math.max(digits, 2) : digits
+  return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: fractionDigits })
 }
 
-/** A measurement with its API-provided unit token, e.g. 24.3 + "C" → "24.3 °C". */
-export function formatMetric(
-  value: number | null | undefined,
-  unitToken?: string,
-  fractionDigits = 1,
-): string {
-  const num = formatNumber(value, fractionDigits);
-  if (num === "—") return num;
-  const symbol = unitSymbol(unitToken);
-  return symbol ? `${num} ${symbol}` : num;
+export function formatMetric(value: number | null | undefined, metric: Metric, digits = 1): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—'
+  return `${formatNumber(value, digits)}${METRIC_META[metric]?.unit ? ` ${METRIC_META[metric].unit}` : ''}`
 }
 
-function toUtcParts(iso: string): { date: Date; valid: boolean } {
-  const date = new Date(iso);
-  return { date, valid: !Number.isNaN(date.getTime()) };
+export function formatCompact(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—'
+  return Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
 
-/** Full UTC datetime with the origin labelled: "20 Sep 2026, 00:00 UTC". */
-export function formatDateTimeUtc(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const { date, valid } = toUtcParts(iso);
-  if (!valid) return iso; // show the raw value rather than a misleading dash
-  const stamp = new Intl.DateTimeFormat(LOCALE, {
-    timeZone: "UTC",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
-  return `${stamp} UTC`;
-}
-
-/** Calendar date in UTC: "20 Sep 2026". */
-export function formatDateUtc(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const { date, valid } = toUtcParts(iso);
-  if (!valid) return iso;
-  return new Intl.DateTimeFormat(LOCALE, {
-    timeZone: "UTC",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(date);
-}
-
-/** The ISO instant exactly as stored (unambiguous, machine-readable). */
-export function formatIsoInstant(iso: string | null | undefined): string {
-  return iso ? iso : "—";
-}
-
-/** Human duration from seconds, e.g. 90 → "1 min 30 s"; null → dash. */
-export function formatDuration(seconds: number | null | undefined): string {
-  if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return "—";
-  if (seconds < 1) return `${formatNumber(seconds * 1000, 0)} ms`;
-  if (seconds < 60) return `${formatNumber(seconds, seconds < 10 ? 2 : 0)} s`;
-  const mins = Math.floor(seconds / 60);
-  const rem = Math.round(seconds % 60);
-  if (mins < 60) return rem ? `${mins} min ${rem} s` : `${mins} min`;
-  const hours = Math.floor(mins / 60);
-  const remMin = mins % 60;
-  return remMin ? `${hours} h ${remMin} min` : `${hours} h`;
-}
-
-/** Byte size → human units (data lake totals), binary-ish but labelled plainly. */
-export function formatBytes(bytes: number | null | undefined): string {
-  if (bytes === null || bytes === undefined || Number.isNaN(bytes)) return "—";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let i = 0;
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024;
-    i += 1;
+export function formatBytes(value: number | null | undefined): string {
+  if (!value && value !== 0) return '—'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let index = 0
+  let size = value
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024
+    index += 1
   }
-  return `${formatNumber(value, i === 0 ? 0 : 1)} ${units[i]}`;
+  return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
 
-export function titleCase(input: string | null | undefined): string {
-  if (!input) return "";
-  return input
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+export function parseDate(value: string | null | undefined): Date | null {
+  if (!value) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+export function formatDate(value: string | Date | null | undefined, withTime = false): string {
+  const date = typeof value === 'string' ? parseDate(value) : value ?? null
+  if (!date) return '—'
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}),
+  }).format(date)
+}
+
+export function formatDateTime(value: string | Date | null | undefined): string {
+  return formatDate(value, true)
+}
+
+export function formatTime(value: string | Date | null | undefined): string {
+  const date = typeof value === 'string' ? parseDate(value) : value ?? null
+  if (!date) return '—'
+  return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date)
+}
+
+export function relativeTime(value: string | Date | null | undefined): string {
+  const date = typeof value === 'string' ? parseDate(value) : value ?? null
+  if (!date) return 'never'
+  const seconds = Math.round((date.getTime() - Date.now()) / 1000)
+  const absolute = Math.abs(seconds)
+  const units: [Intl.RelativeTimeFormatUnit, number][] = [
+    ['year', 31_536_000],
+    ['month', 2_592_000],
+    ['day', 86_400],
+    ['hour', 3_600],
+    ['minute', 60],
+    ['second', 1],
+  ]
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+  for (const [unit, step] of units) {
+    if (absolute >= step) return formatter.format(Math.round(seconds / step), unit)
+  }
+  return 'just now'
+}
+
+export function toIsoDate(value: Date | string | null | undefined): string {
+  const date = typeof value === 'string' ? parseDate(value) : value ?? null
+  if (!date) return ''
+  return date.toISOString().slice(0, 10)
+}
+
+export function daysAgo(days: number): string {
+  const date = new Date()
+  date.setUTCDate(date.getUTCDate() - days)
+  return toIsoDate(date)
+}
+
+export function severityTone(severity?: Severity | string | null): 'neutral' | 'success' | 'info' | 'warning' | 'danger' {
+  switch (severity) {
+    case 'critical':
+    case 'high':
+      return 'danger'
+    case 'medium':
+      return 'warning'
+    case 'low':
+      return 'info'
+    case 'info':
+      return 'neutral'
+    default:
+      return 'neutral'
+  }
+}
+
+export function humanise(value?: string | null): string {
+  if (!value) return ''
+  return value
+    .replaceAll('_', ' ')
+    .split(' ')
+    .map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .join(' ')
+}
+
+export function titleCaseWords(value: string): string {
+  return value
+    .split(/[\s-]+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+export function percent(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '—'
+  return `${formatNumber(value * 100, digits)}%`
 }

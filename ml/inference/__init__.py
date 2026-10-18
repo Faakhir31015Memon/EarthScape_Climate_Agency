@@ -1,1 +1,1 @@
-from .predict import forecast, PROJECTION_NOTE
+"""Forecast inference (recursive multi-step) for registered models."""

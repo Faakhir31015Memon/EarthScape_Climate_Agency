@@ -1,4 +1,9 @@
-"""EarthScape Climate Agency ML package (offline, file-driven).
+"""Machine-learning layer for EarthScape Climate Agency.
 
-Facade: ``ml.mlkit`` re-exports the public API the Django backend imports.
+Modules:
+``features``  time-series feature engineering (leakage-safe, train-only fits)
+``training``  the reproducible training pipeline
+``inference`` recursive multi-step forecasting + persistence helpers
+``evaluation`` metrics and per-run reports
+``anomaly``   anomaly detection enrichment (delegates to common.analytics)
 """

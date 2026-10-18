@@ -1,0 +1,293 @@
+{
+  "model_name": "temperature-Quetta-daily-h30",
+  "algorithm": "linear_ridge",
+  "target_variable": "temperature",
+  "region": "Quetta",
+  "granularity": "daily",
+  "horizon_steps": 30,
+  "availability": {
+    "enough_rows": true,
+    "rows": 4018,
+    "min_required": 240,
+    "reason": "sufficient history for training and a chronological holdout",
+    "variable": "temperature",
+    "region": "Quetta",
+    "granularity": "daily",
+    "date_start": "2015-01-01 00:00:00+00:00",
+    "date_end": "2025-12-31 00:00:00+00:00",
+    "expected_slots": 4018,
+    "gap_count": 0,
+    "duplicate_collapses": 8036,
+    "unit": "C",
+    "provenance_files": [
+      "C:\\Users\\USER\\Documents\\Qoder\\2026-10-16\\63fe5681\\earthscape-climate-agency\\artifacts\\datalake\\raw\\sample_api\\demo_combined.jsonl",
+      "C:\\Users\\USER\\Documents\\Qoder\\2026-10-16\\63fe5681\\earthscape-climate-agency\\sample-data\\Quetta_daily.csv"
+    ]
+  },
+  "comparison": [
+    {
+      "algorithm": "naive",
+      "role": "baseline",
+      "n": 798,
+      "mae": 4.3853,
+      "rmse": 5.7237,
+      "mape": 51.3116,
+      "r2": 0.5514,
+      "skill_vs_naive": 0.0,
+      "beats_naive_by_5pct": null
+    },
+    {
+      "algorithm": "seasonal_naive",
+      "role": "baseline",
+      "n": 798,
+      "mae": 3.1308,
+      "rmse": 4.1626,
+      "mape": 46.2352,
+      "r2": 0.7627,
+      "skill_vs_naive": 0.2861,
+      "beats_naive_by_5pct": null
+    },
+    {
+      "algorithm": "linear_ridge",
+      "role": "model",
+      "n": 798,
+      "mae": 2.3018,
+      "rmse": 2.9644,
+      "mape": 35.4839,
+      "r2": 0.8797,
+      "skill_vs_naive": 0.4751,
+      "beats_naive_by_5pct": true
+    },
+    {
+      "algorithm": "random_forest",
+      "role": "model",
+      "n": 798,
+      "mae": 2.4236,
+      "rmse": 3.2009,
+      "mape": 35.4498,
+      "r2": 0.8597,
+      "skill_vs_naive": 0.4473,
+      "beats_naive_by_5pct": true
+    },
+    {
+      "algorithm": "xgboost",
+      "role": "model",
+      "n": 798,
+      "mae": 2.4772,
+      "rmse": 3.2716,
+      "mape": 39.9858,
+      "r2": 0.8534,
+      "skill_vs_naive": 0.4351,
+      "beats_naive_by_5pct": true
+    }
+  ],
+  "xgboost": {
+    "available": true,
+    "version": "3.2.0",
+    "reason": null
+  },
+  "status": "registered",
+  "leakage_check": {
+    "ran": true,
+    "violations": []
+  },
+  "data_source_files": [
+    "C:\\Users\\USER\\Documents\\Qoder\\2026-10-16\\63fe5681\\earthscape-climate-agency\\artifacts\\datalake\\raw\\sample_api\\demo_combined.jsonl",
+    "C:\\Users\\USER\\Documents\\Qoder\\2026-10-16\\63fe5681\\earthscape-climate-agency\\sample-data\\Quetta_daily.csv"
+  ],
+  "rows_used": 4018,
+  "training_rows": 3190,
+  "test_rows": 798,
+  "model_version": "v20261016T162838Z",
+  "artifact_uri": "artifacts/models/temperature-Quetta-daily-h30/v20261016T162838Z/model.joblib",
+  "saved_at": "2026-10-16T16:28:38.537370+00:00",
+  "registry_entry": {
+    "model_name": "temperature-Quetta-daily-h30",
+    "model_version": "v20261016T162838Z",
+    "algorithm": "linear_ridge",
+    "target_variable": "temperature",
+    "granularity": "daily",
+    "horizon_steps": 30,
+    "feature_definition": [
+      {
+        "name": "lag_1",
+        "derivation": "observed value shifted 0 step(s) back from the feature origin t"
+      },
+      {
+        "name": "lag_2",
+        "derivation": "observed value shifted 1 step(s) back from the feature origin t"
+      },
+      {
+        "name": "lag_3",
+        "derivation": "observed value shifted 2 step(s) back from the feature origin t"
+      },
+      {
+        "name": "lag_7",
+        "derivation": "observed value shifted 6 step(s) back from the feature origin t"
+      },
+      {
+        "name": "lag_14",
+        "derivation": "observed value shifted 13 step(s) back from the feature origin t"
+      },
+      {
+        "name": "lag_30",
+        "derivation": "observed value shifted 29 step(s) back from the feature origin t"
+      },
+      {
+        "name": "roll_mean_7",
+        "derivation": "trailing rolling mean of the last 7 observations ending at t (min_periods=7; NaN until a full window exists)"
+      },
+      {
+        "name": "roll_std_7",
+        "derivation": "trailing rolling std of the last 7 observations ending at t (min_periods=7; NaN until a full window exists)"
+      },
+      {
+        "name": "roll_min_7",
+        "derivation": "trailing rolling min of the last 7 observations ending at t (min_periods=7; NaN until a full window exists)"
+      },
+      {
+        "name": "roll_max_7",
+        "derivation": "trailing rolling max of the last 7 observations ending at t (min_periods=7; NaN until a full window exists)"
+      },
+      {
+        "name": "roll_mean_14",
+        "derivation": "trailing rolling mean of the last 14 observations ending at t (min_periods=14; NaN until a full window exists)"
+      },
+      {
+        "name": "roll_mean_30",
+        "derivation": "trailing rolling mean of the last 30 observations ending at t (min_periods=30; NaN until a full window exists)"
+      },
+      {
+        "name": "roll_std_30",
+        "derivation": "trailing rolling std of the last 30 observations ending at t (min_periods=30; NaN until a full window exists)"
+      },
+      {
+        "name": "roll_min_30",
+        "derivation": "trailing rolling min of the last 30 observations ending at t (min_periods=30; NaN until a full window exists)"
+      },
+      {
+        "name": "roll_max_30",
+        "derivation": "trailing rolling max of the last 30 observations ending at t (min_periods=30; NaN until a full window exists)"
+      },
+      {
+        "name": "diff_1",
+        "derivation": "s(t) - s(t-1)"
+      },
+      {
+        "name": "diff_7",
+        "derivation": "s(t) - s(t-7)"
+      },
+      {
+        "name": "doy_sin",
+        "derivation": "sin(2*pi*day_of_year/366): continuous seasonal encoding"
+      },
+      {
+        "name": "doy_cos",
+        "derivation": "cos(2*pi*day_of_year/366): continuous seasonal encoding"
+      },
+      {
+        "name": "month",
+        "derivation": "calendar month of the feature origin t"
+      },
+      {
+        "name": "year",
+        "derivation": "calendar year (trend anchor; long-horizon use only)"
+      },
+      {
+        "name": "latitude",
+        "derivation": "static site attribute (no temporal component)"
+      }
+    ],
+    "training_period": {
+      "start": "2015-01-01 00:00:00+00:00",
+      "end": "2023-09-25 00:00:00+00:00"
+    },
+    "test_period": {
+      "start": "2023-09-26 00:00:00+00:00",
+      "end": "2025-12-01 00:00:00+00:00"
+    },
+    "rows_used": 3988,
+    "evaluation_metrics": {
+      "mae": 2.3018,
+      "rmse": 2.9644,
+      "mape": 35.4839,
+      "mape_skipped_reason": null,
+      "r2": 0.8797,
+      "baseline_mae": 4.3853,
+      "skill_vs_baseline": 0.4751,
+      "test_n": 798
+    },
+    "artifact_uri": "artifacts/models/temperature-Quetta-daily-h30/v20261016T162838Z/model.joblib",
+    "status": "registered",
+    "created_at": "2026-10-16T16:28:38.546490+00:00",
+    "data_source_files": [
+      "C:\\Users\\USER\\Documents\\Qoder\\2026-10-16\\63fe5681\\earthscape-climate-agency\\artifacts\\datalake\\raw\\sample_api\\demo_combined.jsonl",
+      "C:\\Users\\USER\\Documents\\Qoder\\2026-10-16\\63fe5681\\earthscape-climate-agency\\sample-data\\Quetta_daily.csv"
+    ],
+    "limitations": [
+      "short-range weather forecast on observed cadence, not a long-term climate trend statement",
+      "forecast values are projections with uncertainty, never guaranteed outcomes",
+      "chronological split only; all preprocessing fit on training slice"
+    ],
+    "region": "Quetta",
+    "backtest": {
+      "available": true,
+      "horizon_steps": 30,
+      "folds": 5,
+      "warmup_train_rows": 3190,
+      "aggregate": {
+        "baseline": {
+          "algorithm": "naive",
+          "mean_fold_mae": 4.386925
+        },
+        "naive": {
+          "folds_evaluated": 5,
+          "mean_fold_mae": 4.386925,
+          "std_fold_mae": 0.39945,
+          "mean_fold_rmse": 5.696809,
+          "min_fold_mae": 3.908176,
+          "max_fold_mae": 4.855346,
+          "skill_vs_baseline": 0.0
+        },
+        "seasonal_naive": {
+          "folds_evaluated": 5,
+          "mean_fold_mae": 3.131826,
+          "std_fold_mae": 0.57286,
+          "mean_fold_rmse": 4.081295,
+          "min_fold_mae": 2.35283,
+          "max_fold_mae": 4.105031,
+          "skill_vs_baseline": 0.2861
+        },
+        "linear_ridge": {
+          "folds_evaluated": 5,
+          "mean_fold_mae": 2.285603,
+          "std_fold_mae": 0.403447,
+          "mean_fold_rmse": 2.924903,
+          "min_fold_mae": 1.645503,
+          "max_fold_mae": 2.728011,
+          "skill_vs_baseline": 0.478997
+        },
+        "random_forest": {
+          "folds_evaluated": 5,
+          "mean_fold_mae": 2.499073,
+          "std_fold_mae": 0.561912,
+          "mean_fold_rmse": 3.24349,
+          "min_fold_mae": 1.8645,
+          "max_fold_mae": 3.457417,
+          "skill_vs_baseline": 0.430336
+        },
+        "xgboost": {
+          "folds_evaluated": 5,
+          "mean_fold_mae": 2.539266,
+          "std_fold_mae": 0.563989,
+          "mean_fold_rmse": 3.30954,
+          "min_fold_mae": 1.826322,
+          "max_fold_mae": 3.386811,
+          "skill_vs_baseline": 0.421174
+        }
+      },
+      "note": "Each fold retrains strictly on data before its origins; metrics are out-of-sample."
+    },
+    "_id_note": "backend assigns _id; this document matches model_registry"
+  }
+}

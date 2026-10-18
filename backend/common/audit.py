@@ -1,122 +1,84 @@
-"""Audit trail persistence (best-effort, never breaks the request it observes)."""
+"""Audit trail helpers.
 
+Every sensitive action writes a document to ``audit_logs``. Passwords, tokens,
+API keys and connection strings are never accepted into audit metadata.
+"""
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import Any, Dict, Optional
 
-from common.db import collection, insert_one, now_utc
-from common.logging_config import get_logger, redact
-from common.security import sanitize_text
+from common.repositories import audit_logs, utcnow
+from config import env
 
-logger = get_logger("earthscape.audit")
+logger = logging.getLogger(__name__)
 
-ACTION_BY_SEGMENT = {
-    "auth": "authentication",
-    "users": "user_management",
-    "datasets": "dataset",
-    "ingestion": "ingestion",
-    "processing": "processing",
-    "models": "model",
-    "predictions": "prediction",
-    "anomaly": "anomaly",
-    "alerts": "alert",
-    "notifications": "notification",
-    "reports": "report",
-    "analyses": "saved_analysis",
-    "support": "support",
-    "feedback": "feedback",
+REDACTED_KEYS = {
+    "password", "password_hash", "current_password", "new_password", "token",
+    "access", "refresh", "refresh_token", "authorization", "api_key", "apikey",
+    "secret", "uri", "connection_string", "cookie",
 }
 
-OUTCOME_MAP = (("deleted", 204), ("failed", (400, 422)), ("denied", (401, 403)), ("blocked", 429))
+
+def scrub(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not metadata:
+        return {}
+    cleaned: Dict[str, Any] = {}
+    for key, value in metadata.items():
+        if key.lower() in REDACTED_KEYS:
+            cleaned[key] = "[redacted]"
+        elif isinstance(value, dict):
+            cleaned[key] = scrub(value)
+        elif isinstance(value, str) and any(token in value for token in ("mongodb://", "mongodb+srv://")):
+            cleaned[key] = "[redacted-connection-string]"
+        elif isinstance(value, (str, int, float, bool, type(None))):
+            cleaned[key] = value[:200] if isinstance(value, str) else value
+        elif isinstance(value, (list, tuple)):
+            cleaned[key] = [str(item)[:80] for item in list(value)[:20]]
+    return cleaned
 
 
-def derive_action(path: str, method: str) -> tuple[str, str]:
-    segments = [s for s in path.split("/") if s]
-    try:
-        api_index = segments.index("v1")
-    except ValueError:
-        api_index = 0
-    relevant = segments[api_index + 1:] if len(segments) > api_index + 1 else segments
-    resource = relevant[0] if relevant else "unknown"
-    action = ACTION_BY_SEGMENT.get(resource, resource)
-    verb = {"POST": "create", "PATCH": "update", "PUT": "replace", "DELETE": "delete"}.get(method, "write")
-    sub = "_".join(relevant[1:3]) if len(relevant) > 1 else ""
-    label = f"{action}.{verb}" + (f".{sanitize_text(sub, max_length=24)}" if sub and sub.isalpha() else "")
-    return action, label
-
-
-def classify_outcome(status_code: int) -> str:
-    if status_code < 300:
-        return "success"
-    if status_code == 404:
-        return "not_found"
-    if status_code == 429:
-        return "blocked"
-    if status_code in (401, 403):
-        return "denied"
-    if status_code >= 500:
-        return "error"
-    return "failed"
-
-
-def record(identity: str, action: str, *, resource_type: str, resource_id: str | None,
-           outcome: str, metadata: dict[str, Any] | None = None, actor_role: str | None = None,
-           source_ip: str | None = None, correlation_id: str | None = None, label: str | None = None):
+def record(
+    *,
+    action: str,
+    resource_type: str,
+    resource_id: Optional[str] = None,
+    outcome: str = "success",
+    actor_user_id: Optional[str] = None,
+    actor_role: Optional[str] = None,
+    request=None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> str:
     document = {
-        "identity": sanitize_text(identity or "system", max_length=64),
-        "actor_role": sanitize_text(actor_role or "service", max_length=24),
-        "action": sanitize_text(label or action, max_length=96),
-        "resource_type": sanitize_text(resource_type, max_length=48),
-        "resource_id": sanitize_text(resource_id, max_length=64) if resource_id else None,
-        "outcome": sanitize_text(outcome, max_length=24),
-        "occurred_at": now_utc(),
-        "source_ip": sanitize_text(source_ip, max_length=64) if source_ip else None,
-        "correlation_id": sanitize_text(correlation_id, max_length=64) if correlation_id else None,
-        "metadata": redact(metadata or {}),
+        "actor_user_id": actor_user_id,
+        "actor_role": actor_role or "system",
+        "action": action,
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "outcome": outcome,
+        "metadata": scrub(metadata),
+        "request_id": getattr(request, "request_id", None),
+        "source_ip": _client_ip(request) if request is not None else None,
+        "environment": env.get_str("DEPLOYMENT_ENVIRONMENT", "development"),
+        "created_at": utcnow(),
     }
     try:
-        insert_one("audit_logs", document)
-    except Exception as exc:  # audit must never take down a live request
-        logger.warning("audit write failed: %s", type(exc).__name__,
-                       extra={"correlation_id": correlation_id})
-    return document
+        return audit_logs.insert_one(document)
+    except Exception as exc:  # noqa: BLE001 - auditing must not break the request
+        logger.error("Audit write failed for %s: %s", action, exc)
+        return ""
 
 
-def record_from_request(request, response) -> dict | None:
-    identity = getattr(getattr(request, "auth_identity", None), "user_id", None)
-    role = getattr(getattr(request, "auth_identity", None), "role", None)
-    resource_type, action = derive_action(request.path, request.method)
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    ip = forwarded.split(",")[0].strip() if forwarded else request.META.get("REMOTE_ADDR")
-    return record(
-        identity or "anonymous",
-        resource_type,
-        resource_type=resource_type,
-        resource_id=None,
-        outcome=classify_outcome(getattr(response, "status_code", 0)),
-        metadata={"method": request.method, "path": request.path[:200]},
-        actor_role=role,
-        source_ip=ip,
-        correlation_id=getattr(request, "correlation_id", None),
-        label=action,
-    )
+def for_request(request, **kwargs) -> str:
+    user = getattr(request, "user", None)
+    kwargs.setdefault("actor_user_id", getattr(user, "id", None))
+    kwargs.setdefault("actor_role", getattr(user, "role", "anonymous"))
+    kwargs.setdefault("request", request)
+    return record(**kwargs)
 
 
-def audit(request, action: str, *, resource_type: str, resource_id=None, outcome="success",
-          metadata=None):
-    """Explicit audit call for services that need precise labelling."""
-    identity = getattr(getattr(request, "auth_identity", None), "user_id", None)
-    role = getattr(getattr(request, "auth_identity", None), "role", None)
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "") if hasattr(request, "META") else ""
-    ip = forwarded.split(",")[0].strip() if forwarded else (request.META.get("REMOTE_ADDR") if hasattr(request, "META") else None)
-    return record(
-        identity or "anonymous",
-        action,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        outcome=outcome,
-        metadata=metadata,
-        actor_role=role,
-        source_ip=ip,
-        correlation_id=getattr(request, "correlation_id", None),
-    )
+def _client_ip(request) -> Optional[str]:
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")

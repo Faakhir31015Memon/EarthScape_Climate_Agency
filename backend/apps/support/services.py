@@ -1,420 +1,376 @@
-"""Support tickets, ticket messages and user feedback.
+"""Business logic for tickets and feedback.
 
-Ticket numbering is race-free: ``next_ticket_number()`` performs a single atomic
-``findOneAndUpdate`` with ``$inc`` on a sequence document inside ``platform_settings``
-(key ``counter.support_tickets``), so two concurrent requests can never receive the same
-number even though the unique index on ``support_tickets.ticket_number`` would catch it.
-Those internal ``counter.*`` keys are hidden from the platform-settings API.
+``views.py`` in this package holds the HTTP layer, :mod:`apps.support.services`
+holds everything the API and Celery beat tasks share:
 
-Visibility rules (enforced here, not in the views):
-
-* a non-staff user sees and touches only tickets they opened;
-* a holder of ``support.manage`` sees every ticket, may assign, re-prioritise and change
-  status, and their replies generate an in-app notification for the requester through
-  ``apps.alerts.notifier.notify_user`` (the single documented cross-app entry point).
+* Ticket status transitions follow a fixed graph: open → in_progress → resolved →
+  closed, plus administrator-only reopen. The rules are enforced in
+  :func:`validate_transition`, never on the client.
+* Comments are appended (``$push`` on ``comments``) and immutable - there is no
+  edit or delete endpoint. ``first_response_at`` is written the first time a
+  staff account replies.
+* Feedback records are user-authored rows that only administrators can triage;
+  every reply is stamped with the triaging account and the moment.
+* Summary endpoints compute real counts and, when the timestamps support it,
+  the real mean and median first-response time. Values are ``None`` when they
+  cannot be computed - never fabricated.
 """
-
 from __future__ import annotations
 
+import logging
+import statistics
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
-from pymongo import ReturnDocument
-from pymongo.errors import DuplicateKeyError
+from apps.monitoring import import_compat
 
-from apps.alerts import notifier
-from apps.authentication.permissions import role_allows
-from apps.users import repository as users
-from common.db import (aggregate, collection, count, find, find_one, insert_one, now_utc, oid,
-                       update_one)
-from common.exceptions import Conflict, Forbidden, NotFound, ValidationError
-from common.security import sanitize_text
-from common.serialization import document_to_api, parse_datetime
+import_compat.ensure_common_api_importable()
 
-COUNTER_KEY = "counter.support_tickets"
-TICKET_PREFIX = "ESC"
-CATEGORIES = ("technical", "data_quality", "access", "feature_request", "billing", "other")
-PRIORITIES = ("low", "medium", "high")
-STATUSES = ("open", "in_progress", "waiting_user", "resolved", "closed")
+from apps.support import serializers as support_serializers  # noqa: E402
+from common.api import ADMINISTRATOR, CLIMATE_ANALYST, ApiError  # noqa: E402
+from common.repositories import (  # noqa: E402
+    RepositoryError,
+    feedback as feedback_repo,
+    support_tickets as tickets_repo,
+    to_object_id,
+    utcnow,
+)
 
-# Legal forward moves. Re-opening a resolved ticket is staff-only (see ``patch_ticket``).
-TRANSITIONS: dict[str, tuple[str, ...]] = {
-    "open": ("in_progress", "waiting_user", "resolved", "closed"),
-    "in_progress": ("waiting_user", "resolved", "closed"),
-    "waiting_user": ("in_progress", "resolved", "closed"),
-    "resolved": ("closed", "in_progress"),
-    "closed": ("in_progress",),
+
+logger = logging.getLogger(__name__)
+
+STAFF_ROLES = (ADMINISTRATOR, CLIMATE_ANALYST)
+CATEGORIES = support_serializers.CATEGORIES
+PRIORITIES = support_serializers.PRIORITIES
+TICKET_STATUSES = support_serializers.TICKET_STATUSES
+FEEDBACK_STATUSES = support_serializers.FEEDBACK_STATUSES
+OPEN_STATUSES = ("open", "in_progress")
+MAX_MEDIAN_SAMPLE = 2000
+
+# ----------------------------------------------------------------------- transitions
+# Legal moves for non-admin accounts, keyed by current status:
+_TRANSITIONS: Dict[str, Dict[str, Iterable[str]]] = {
+    "open": {"staff": ("in_progress", "resolved", "closed"),
+              "author": ("closed",)},
+    "in_progress": {"staff": ("open", "resolved", "closed"),
+                     "author": ("open", "closed")},
+    "resolved": {"staff": ("closed",), "author": ("closed",)},
+    "closed": {"staff": (), "author": ()},
 }
 
-_COUNTER_COLLECTION = "platform_settings"
+
+def is_staff(role: str) -> bool:
+    return role in STAFF_ROLES
 
 
-def _sequence_value() -> int:
-    document = collection(_COUNTER_COLLECTION).find_one_and_update(
-        {"key": COUNTER_KEY},
-        {"$inc": {"value": 1},
-         "$set": {"updated_at": now_utc()},
-         "$setOnInsert": {"created_at": now_utc(), "kind": "sequence",
-                          "note": "internal ticket counter; not a user-facing setting"}},
-        upsert=True,
-        return_document=ReturnDocument.AFTER,
-        projection={"value": 1},
-    )
-    value = (document or {}).get("value")
-    if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    raise Conflict("The ticket counter document is not numeric; run scripts/migrate_mongo.py "
-                   "and inspect platform_settings['counter.support_tickets'].")
+def validate_transition(document: Dict[str, Any], requested: str, *, actor_role: str,
+                         actor_id: str, administrator: bool) -> str:
+    """Return the status to apply or raise ``ApiError``.
+
+    * Ordinary authors may always close their own open tickets.
+    * Only administrators can reopen a closed ticket.
+    * Staff may move a ticket anywhere legal on the graph.
+    """
+    current = str(document.get("status") or "open")
+    if requested == current:
+        return current
+    if administrator and requested in OPEN_STATUSES and current in ("resolved", "closed"):
+        return requested
+    bucket = _TRANSITIONS.get(current, {})
+    allowed = set()
+    if actor_role in STAFF_ROLES:
+        allowed |= set(bucket.get("staff", ()))
+    if str(document.get("created_by") or "") == actor_id:
+        allowed |= set(bucket.get("author", ()))
+    if requested not in allowed:
+        raise ApiError("validation_failed",
+                       f"Cannot move a {current} ticket to {requested}.")
+    return requested
 
 
-def next_ticket_number() -> str:
-    year = datetime.now(timezone.utc).year
-    return f"{TICKET_PREFIX}-{year}-{_sequence_value():06d}"
-
-
-def is_staff(identity) -> bool:
-    return role_allows(identity.role, "support.manage")
-
-
-# ---------------------------------------------------------------------------- tickets
-
-
-def _ticket_columns() -> dict[str, Any]:
-    return {
-        "ticket_number": 1, "subject": 1, "category": 1, "priority": 1, "status": 1,
-        "created_by": 1, "assigned_to": 1, "created_at": 1, "updated_at": 1,
-        "last_activity_at": 1, "message_count": 1,
-    }
-
-
-def create_ticket(payload: Any, identity) -> dict[str, Any]:
-    moment = now_utc()
+# -------------------------------------------------------------------------- tickets
+def create_ticket(*, subject: str, description: str, category: str, priority: str,
+                  page_context: Optional[str], attached_dataset_id: Optional[str],
+                  created_by: str, created_by_role: str) -> str:
+    moment = utcnow()
     document = {
-        "ticket_number": next_ticket_number(),
-        "subject": sanitize_text(payload.subject, max_length=160),
-        "body": sanitize_text(payload.body, max_length=6000),
-        "category": payload.category,
-        "priority": payload.priority,
+        "subject": subject,
+        "description": description,
+        "category": category,
+        "priority": priority,
         "status": "open",
-        "created_by": str(identity.user_id),
-        "created_by_email": identity.email,
-        "created_by_role": identity.role,
+        "created_by": created_by,
+        "created_by_role": created_by_role,
         "assigned_to": None,
-        "assigned_to_email": None,
+        "page_context": page_context,
+        "attached_dataset_id": attached_dataset_id,
+        "comments": [],
+        "resolution_note": None,
         "first_response_at": None,
+        "resolved_at": None,
         "closed_at": None,
-        "message_count": 0,
-        "unread_for_user": 0,
         "created_at": moment,
         "updated_at": moment,
-        "last_activity_at": moment,
+        "schema_version": 3,
     }
     try:
-        document["_id"] = oid(insert_one("support_tickets", document))
-    except DuplicateKeyError:
-        raise Conflict("A ticket with that number already exists; the counter is out of sync.") from None
-    add_message(document, identity, document["body"], system=False)
-    return document_to_api(find_one("support_tickets", {"_id": document["_id"]}))
+        return tickets_repo.insert_one(document)
+    except RepositoryError as exc:
+        logger.error("Support ticket could not be stored: %s", exc)
+        raise ApiError("internal_error", "The ticket could not be stored.") from exc
 
 
-def _require_ticket(ticket_id: str) -> dict:
-    parsed = oid(ticket_id)
-    ticket = find_one("support_tickets", {"_id": parsed}) if parsed else None
-    if not ticket:
-        ticket = find_one("support_tickets", {"ticket_number": sanitize_text(ticket_id, max_length=40)})
-    if not ticket:
-        raise NotFound("Support ticket not found.")
-    return ticket
+def get_ticket(ticket_id: str) -> Dict[str, Any]:
+    try:
+        document = tickets_repo.find_one({"_id": to_object_id(ticket_id)})
+    except RepositoryError as exc:
+        raise ApiError("not_found", "No such ticket.") from exc
+    if document is None:
+        raise ApiError("not_found", "No such ticket.")
+    return document
 
 
-def _assert_access(ticket: dict, identity) -> None:
-    """Requester or ``support.manage`` — there is no third category of reader."""
-    if str(ticket.get("created_by")) == str(identity.user_id):
-        return
-    if not role_allows(identity.role, "support.manage"):
-        raise Forbidden("Support staff access is required for this ticket.")
+def append_message(*, ticket_id: str, body: str, internal: bool, actor_id: str,
+                    actor_name: str, actor_role: str) -> Dict[str, Any]:
+    """Append-only thread comment. Returns the refreshed ticket document."""
+    document = get_ticket(ticket_id)
+    moment = utcnow()
+    comment = {
+        "author_user_id": actor_id,
+        "author_name": actor_name,
+        "author_role": actor_role,
+        "body": body[:8000],
+        "created_at": moment,
+        "internal": bool(internal),
+    }
+    staff = is_staff(actor_role)
+    set_fields: Dict[str, Any] = {"updated_at": moment}
+    if staff and not document.get("first_response_at"):
+        set_fields["first_response_at"] = moment
+    if staff and document.get("status") == "open":
+        set_fields["status"] = "in_progress"
+        set_fields.setdefault("first_response_at", moment)
+    elif not staff and document.get("status") in ("resolved", "closed"):
+        # A non-staff reply after resolution reopens for the author (a legal transition).
+        set_fields["status"] = "open"
+        set_fields["reopened_at"] = moment
+        set_fields["reopened_by"] = actor_id
+    try:
+        return tickets_repo.update_by_id(str(document["_id"]),
+                                                   {"$push": {"comments": comment},
+                                                    "$set": set_fields}) or document
+    except RepositoryError as exc:
+        logger.error("Ticket comment write failed: %s", exc)
+        raise ApiError("internal_error", "The comment could not be stored.") from exc
 
 
-def list_tickets(identity, params: dict[str, str], *, page: int = 1,
-                 page_size: int = 25) -> tuple[list[dict], int]:
-    query: dict[str, Any] = {}
-    if not is_staff(identity):
-        query["created_by"] = str(identity.user_id)
-    elif params.get("created_by"):
-        query["created_by"] = str(params["created_by"])
-    if params.get("status"):
-        if params["status"] not in STATUSES:
-            raise ValidationError(f"Unknown ticket status '{params['status']}'.")
-        query["status"] = params["status"]
-    if params.get("priority"):
-        query["priority"] = params["priority"]
-    if params.get("category"):
-        query["category"] = params["category"]
-    if params.get("assigned_to"):
-        query["assigned_to"] = str(params["assigned_to"])
-    if params.get("unassigned") in ("true", "1"):
-        query["assigned_to"] = None
-    if params.get("search"):
-        query["subject"] = {"$regex": sanitize_text(params["search"], max_length=60), "$options": "i"}
-    total = count("support_tickets", query)
-    rows = find("support_tickets", query, sort=[("last_activity_at", -1)],
-                skip=(page - 1) * page_size, limit=page_size, projection=_ticket_columns())
-    return [document_to_api(row) for row in rows], total
+def close_ticket(*, ticket_id: str, note: str, status: str,
+                  actor_id: str, actor_role: str) -> Dict[str, Any]:
+    if status not in ("resolved", "closed"):
+        raise ApiError("validation_failed", "A ticket closes to 'resolved' or 'closed'.")
+    document = get_ticket(ticket_id)
+    moment = utcnow()
+    resolved_at = document.get("resolved_at")
+    if status == "resolved" and not resolved_at:
+        resolved_at = moment
+    elif status == "closed" and not resolved_at:
+        resolved_at = moment
+    try:
+        return tickets_repo.update_by_id(str(document["_id"]), {
+            "status": status,
+            "resolution_note": (note or "")[:4000] or None,
+            "closed_at": moment if status == "closed" else document.get("closed_at"),
+            "resolved_at": resolved_at,
+            "updated_at": moment,
+            "closed_by": actor_id,
+        }, return_document=True) or document
+    except RepositoryError as exc:
+        raise ApiError("internal_error", "The ticket close could not be stored.") from exc
 
 
-def queue_counts(identity) -> dict[str, Any]:
-    match: dict[str, Any] = {} if is_staff(identity) else {"created_by": str(identity.user_id)}
-    rows = aggregate("support_tickets",
-                     [{"$match": match}, {"$group": {"_id": "$status", "count": {"$sum": 1}}}])
-    counts = {status: 0 for status in STATUSES}
-    for row in rows:
-        counts[str(row["_id"] or "unknown")] = row["count"]
-    return {"by_status": counts, "scope": "all tickets" if is_staff(identity) else "own tickets"}
+def assign_ticket(*, ticket_id: str, assignee_id: Optional[str],
+                   actor_id: str) -> Dict[str, Any]:
+    document = get_ticket(ticket_id)
+    moment = utcnow()
+    return tickets_repo.update_by_id(str(document["_id"]), {
+        "assigned_to": assignee_id or None,
+        "assigned_at": moment if assignee_id else None,
+        "assigned_by": actor_id,
+        "updated_at": moment,
+    }, return_document=True) or document
 
 
-def get_ticket(ticket_id: str, identity) -> dict[str, Any]:
-    ticket = _require_ticket(ticket_id)
-    _assert_access(ticket, identity)
-    payload = document_to_api(ticket)
-    messages = find("ticket_messages", {"ticket_id": ticket["_id"]},
-                    sort=[("created_at", 1)], limit=200)
-    payload["messages"] = [document_to_api(message) for message in messages]
+# ----------------------------------------------------------------------- summary
+def ticket_summary(request) -> Dict[str, Any]:
+    """Real counts + median/mean first-response time (``None`` when uncomputable)."""
+    user = getattr(request, "user", None)
+    staff = bool(user and user.role in STAFF_ROLES)
+    scope: Dict[str, Any] = {} if staff else {"created_by": getattr(user, "id", None)}
+    by_status = {status: tickets_repo.count({**scope, "status": status}) for status in TICKET_STATUSES}
+    by_priority = {priority: tickets_repo.count({**scope, "status": {"$in": list(OPEN_STATUSES)},
+                                                   "priority": priority})
+                    for priority in PRIORITIES}
+    responded = tickets_repo.find({**scope, "first_response_at": {"$ne": None}},
+                                        projection={"created_at": 1, "first_response_at": 1},
+                                        sort=[("created_at", -1)], limit=MAX_MEDIAN_SAMPLE)
+    hours: List[float] = []
+    for document in responded:
+        created = _as_datetime(document.get("created_at"))
+        first = _as_datetime(document.get("first_response_at"))
+        if created and first and first >= created:
+            hours.append(round((first - created).total_seconds() / 3600.0, 2))
+    median = round(statistics.median(hours), 2) if hours else None
+    mean = round(statistics.mean(hours), 2) if len(hours) >= 2 else None
+    unassigned = None
+    if staff:
+        unassigned = tickets_repo.count({
+            "status": {"$in": list(OPEN_STATUSES)},
+            "$or": [{"assigned_to": None}, {"assigned_to": {"$exists": False}}],
+        })
+    return {
+        "open": by_status["open"],
+        "in_progress": by_status["in_progress"],
+        "resolved": by_status["resolved"],
+        "closed": by_status["closed"],
+        "open_total": by_status["open"] + by_status["in_progress"],
+        "by_status": by_status,
+        "by_priority": by_priority,
+        "median_first_response_hours": median,
+        "mean_first_response_hours": mean,
+        "unassigned": unassigned,
+        "first_response_sample": len(hours),
+        "scope": "all_tickets" if staff else "own_tickets",
+        "generated_at": utcnow(),
+        "note": "Median/mean are null when no ticket has been answered yet.",
+    }
+
+
+# ----------------------------------------------------------------------- feedback
+def create_feedback(*, rating: int, category: str, message: str,
+                     page_context: Optional[str], created_by: str,
+                     created_by_name: Optional[str]) -> Dict[str, Any]:
+    moment = utcnow()
+    document = {
+        "rating": int(rating),
+        "category": category,
+        "message": message[:8000],
+        "page_context": (page_context or "")[:200] or None,
+        "created_by": created_by,
+        "created_by_name": created_by_name,
+        "status": "new",
+        "administrator_reply": None,
+        "replied_by": None,
+        "replied_at": None,
+        "created_at": moment,
+        "updated_at": moment,
+        "schema_version": 3,
+    }
+    try:
+        document["_id"] = to_object_id(feedback_repo.insert_one(document))
+    except RepositoryError as exc:
+        logger.error("Feedback could not be stored: %s", exc)
+        raise ApiError("internal_error", "Feedback could not be stored.") from exc
+    return document
+
+
+def list_feedback(*, page: int, page_size: int, status: Optional[str] = None,
+                   category: Optional[str] = None,
+                   created_by: Optional[str] = None) -> Dict[str, Any]:
+    query: Dict[str, Any] = {}
+    if status:
+        query["status"] = status
+    if category:
+        query["category"] = category
+    if created_by:
+        query["created_by"] = created_by
+    return feedback_repo.paginate(query, page=page, page_size=page_size,
+                                       sort=[("created_at", -1)])
+
+
+def get_feedback(feedback_id: str) -> Dict[str, Any]:
+    try:
+        document = feedback_repo.find_one({"_id": to_object_id(feedback_id)})
+    except RepositoryError as exc:
+        raise ApiError("not_found", "No such feedback.") from exc
+    if document is None:
+        raise ApiError("not_found", "No such feedback.")
+    return document
+
+
+def triage_feedback(*, feedback_id: str, status: Optional[str], reply: Optional[str],
+                     category: Optional[str], actor_id: str) -> Dict[str, Any]:
+    document = get_feedback(feedback_id)
+    updates: Dict[str, Any] = {"updated_at": utcnow()}
+    if status:
+        updates["status"] = status
+    if category:
+        updates["category"] = category
+    if reply:
+        updates["administrator_reply"] = reply[:4000]
+        updates["replied_at"] = utcnow()
+        updates["replied_by"] = actor_id
+    updated = feedback_repo.update_by_id(str(document["_id"]), updates, return_document=True)
+    return updated or document
+
+
+def feedback_summary() -> Dict[str, Any]:
+    documents = feedback_repo.find({}, projection={"rating": 1, "category": 1, "status": 1},
+                                          limit=5000)
+    ratings = [int(row.get("rating")) for row in documents
+                  if row.get("rating") is not None]
+    by_category = {category: sum(1 for row in documents if row.get("category") == category)
+                    for category in CATEGORIES}
+    by_status = {status: sum(1 for row in documents if row.get("status") == status)
+                  for status in FEEDBACK_STATUSES}
+    average = round(sum(ratings) / len(ratings), 3) if ratings else None
+    return {
+        "average_rating": average,
+        "count": int(len(documents)),
+        "by_category": by_category,
+        "by_status": by_status,
+        "generated_at": utcnow(),
+    }
+
+
+def present_feedback(document: Dict[str, Any], request) -> Dict[str, Any]:
+    user = getattr(request, "user", None)
+    administrator = bool(user and user.role == ADMINISTRATOR)
+    payload = {
+        "id": str(document.get("id") or document.get("_id")),
+        "rating": document.get("rating"),
+        "category": document.get("category"),
+        "message": document.get("message"),
+        "page_context": document.get("page_context"),
+        "created_by": document.get("created_by"),
+        "created_by_name": document.get("created_by_name"),
+        "status": document.get("status"),
+        "administrator_reply": document.get("administrator_reply"),
+        "replied_by": document.get("replied_by") if administrator else None,
+        "replied_at": document.get("replied_at"),
+        "created_at": document.get("created_at"),
+        "updated_at": document.get("updated_at"),
+    }
     return payload
 
 
-def add_message(ticket: dict, author, body: str, *, system: bool = False) -> dict[str, Any]:
-    if not body or not body.strip():
-        raise ValidationError("A reply needs a message body.")
-    staff = is_staff(author)
-    moment = now_utc()
-    document = {
-        "ticket_id": ticket["_id"],
-        "ticket_number": ticket.get("ticket_number"),
-        "author": str(author.user_id),
-        "author_name": author.full_name,
-        "author_role": author.role,
-        "body": sanitize_text(body, max_length=6000),
-        "is_staff": bool(staff),
-        "system": bool(system),
-        "created_at": moment,
-    }
-    document["_id"] = oid(insert_one("ticket_messages", document))
-    update: dict[str, Any] = {"updated_at": moment, "last_activity_at": moment}
-    if staff:
-        update["first_response_at"] = ticket.get("first_response_at") or moment
-        update["unread_for_user"] = int(ticket.get("unread_for_user") or 0) + 1
-    else:
-        update["unread_for_staff"] = int(ticket.get("unread_for_staff") or 0) + 1
-    update_one("support_tickets", {"_id": ticket["_id"]},
-               {"$set": update, "$inc": {"message_count": 1}})
-    ticket["message_count"] = int(ticket.get("message_count") or 0) + 1
-    return document_to_api(document)
-
-
-def notify_requester(ticket: dict, author, body: str) -> Optional[dict[str, Any]]:
-    """Staff replies reach the requester through the alert notifier (in-app)."""
-    recipient = str(ticket.get("created_by") or "")
-    if not recipient or recipient == str(author.user_id):
-        return None
-    created = notifier.notify_user(
-        recipient,
-        f"Re: ticket {ticket.get('ticket_number')}",
-        f"{author.full_name} ({author.role}) replied to your support ticket "
-        f"'{ticket.get('subject')}':\n\n{sanitize_text(body, max_length=1200)}",
-        kind="support_reply", severity="info", channels=["in_app"],
-        link=f"/support/tickets/{ticket.get('_id')}",
-        metadata={"ticket_id": str(ticket.get("_id")), "ticket_number": ticket.get("ticket_number"),
-                  "author": str(author.user_id), "author_role": author.role},
-    )
-    return created[0] if created else None
-
-
-def reply(ticket_id: str, identity, body: str) -> dict[str, Any]:
-    """Append a reply to the thread.
-
-    A staff reply also auto-assigns the ticket when it is unassigned and resets the
-    requester's unread counter; a requester reply on an agent-held ticket moves it back
-    to ``in_progress``. Only staff replies raise a notification.
-    """
-    ticket = _require_ticket(ticket_id)
-    _assert_access(ticket, identity)
-    staff = is_staff(identity)
-    message = add_message(ticket, identity, body)
-    notification = notify_requester(ticket, identity, body) if staff else None
-    changes: dict[str, Any] = {}
-    if staff:
-        changes["unread_for_user"] = 0
-        if not ticket.get("assigned_to"):
-            changes["assigned_to"] = str(identity.user_id)
-            changes["assigned_to_email"] = identity.email
-    elif ticket.get("status") == "waiting_user":
-        changes["status"] = "in_progress"
-    changes["updated_at"] = now_utc()
-    changes["last_activity_at"] = now_utc()
-    update_one("support_tickets", {"_id": ticket["_id"]}, {"$set": changes})
-    return {"message": message,
-            "ticket": document_to_api(_require_ticket(str(ticket["_id"]))),
-            "staff": staff,
-            "notification": document_to_api(notification) if notification else None}
-
-
-def _validate_assignee(assigned_to: str) -> dict:
-    user = users.get_by_id(assigned_to)
-    if not user:
-        raise NotFound("The assignee account does not exist.")
-    if not user.get("is_active", True):
-        raise Conflict("Tickets cannot be assigned to a deactivated account.")
-    return user
-
-
-def patch_ticket(ticket_id: str, identity, payload: Any) -> dict[str, Any]:
-    """Apply an operator update: status, assignee, priority and/or a reply body.
-
-    Every branch is audited by the caller; this function only enforces the rules.
-    """
-    ticket = _require_ticket(ticket_id)
-    staff = is_staff(identity)
-    owner = str(ticket.get("created_by")) == str(identity.user_id)
-    if not staff and not owner:
-        raise Forbidden("Only the requester or support staff may change this ticket.")
-
-    changes: dict[str, Any] = {}
-    actions: list[str] = []
-
-    if payload.assigned_to:
-        if not staff:
-            raise Forbidden("Only support staff can assign tickets.")
-        assignee = _validate_assignee(payload.assigned_to)
-        changes["assigned_to"] = str(assignee["_id"])
-        changes["assigned_to_email"] = assignee.get("email")
-        actions.append("assigned")
-
-    if payload.priority:
-        if not staff:
-            raise Forbidden("Only support staff can change ticket priority.")
-        changes["priority"] = payload.priority
-        actions.append("priority")
-
-    if payload.status:
-        current = str(ticket.get("status"))
-        target = payload.status
-        allowed = TRANSITIONS.get(current, ())
-        if target != current:
-            if target not in allowed:
-                raise Conflict(f"Cannot move a ticket from '{current}' to '{target}'. "
-                               f"Allowed: {', '.join(allowed) or 'none'}.")
-            if not staff and target != "closed":
-                raise Forbidden("As the requester you may only close your own ticket; ask an "
-                                "agent to move it forward.")
-            if not staff and current == "resolved":
-                raise Forbidden("Re-opening a resolved ticket requires support staff.")
-            changes["status"] = target
-            if target == "closed":
-                changes["closed_at"] = now_utc()
-            actions.append("status")
-
-    notification = None
-    if payload.reply:
-        if not staff and changes.get("status") in (None, "waiting_user"):
-            # A requester reply on an agent-held ticket moves it back to open work.
-            if ticket.get("status") == "waiting_user":
-                changes.setdefault("status", "in_progress")
-        if staff and not changes.get("assigned_to") and not ticket.get("assigned_to"):
-            changes["assigned_to"] = str(identity.user_id)
-            changes["assigned_to_email"] = identity.email
-        message = add_message(ticket, identity, payload.reply)
-        actions.append("replied")
-        if staff:
-            notification = notify_requester(ticket, identity, payload.reply)
-            changes["unread_for_user"] = 0
-
-    if changes or actions:
-        changes["updated_at"] = now_utc()
-        changes["last_activity_at"] = now_utc()
-        update_one("support_tickets", {"_id": ticket["_id"]}, {"$set": changes})
-    ticket = _require_ticket(str(ticket["_id"]))
-    return {"ticket": document_to_api(ticket), "actions": actions,
-            "reply_notification": document_to_api(notification) if notification else None,
-            "staff": staff}
-
-
-# --------------------------------------------------------------------------- feedback
-
-
-def create_feedback(payload: Any, identity) -> dict[str, Any]:
-    document = {
-        "rating": int(payload.rating),
-        "message": sanitize_text(payload.message, max_length=4000),
-        "page": sanitize_text(payload.page, max_length=200) if payload.page else None,
-        "module": sanitize_text(payload.module, max_length=80) if payload.module else None,
-        "created_by": str(identity.user_id),
-        "created_by_email": identity.email,
-        "created_by_role": identity.role,
-        "created_at": now_utc(),
-    }
-    document["_id"] = oid(insert_one("feedback", document))
-    return document_to_api(document)
-
-
-def _feedback_query(params: dict[str, str]) -> dict[str, Any]:
-    """Translate the shared feedback filter dict into a Mongo query."""
-    query: dict[str, Any] = {}
-    if params.get("created_by"):
-        query["created_by"] = str(params["created_by"])
-    if params.get("module"):
-        query["module"] = params["module"]
-    if params.get("page"):
-        query["page"] = {"$regex": sanitize_text(params["page"], max_length=80), "$options": "i"}
-    if params.get("rating"):
+# ------------------------------------------------------------------------ utility
+def _as_datetime(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
         try:
-            query["rating"] = int(params["rating"])
+            parsed = datetime.fromisoformat(value)
         except ValueError:
-            raise ValidationError("rating must be a whole number.") from None
-    window: dict[str, Any] = {}
-    _from = parse_datetime(params.get("from"))
-    _to = parse_datetime(params.get("to"))
-    if _from:
-        window["$gte"] = _from
-    if _to:
-        window["$lte"] = _to
-    if window:
-        query["created_at"] = window
-    return query
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return None
 
 
-def list_feedback(params: dict[str, str], *, page: int = 1,
-                  page_size: int = 25) -> tuple[list[dict], int]:
-    query = _feedback_query(params)
-    total = count("feedback", query)
-    rows = find("feedback", query, sort=[("created_at", -1)], skip=(page - 1) * page_size,
-                limit=page_size)
-    return [document_to_api(row) for row in rows], total
-
-
-def feedback_summary(params: dict[str, str]) -> dict[str, Any]:
-    query = _feedback_query(params)
-    overall = aggregate("feedback", [{"$match": query}, {"$group": {
-        "_id": None, "total": {"$sum": 1}, "average_rating": {"$avg": "$rating"},
-        "first": {"$min": "$created_at"}, "last": {"$max": "$created_at"}}}])
-    distribution = aggregate("feedback", [
-        {"$match": query}, {"$group": {"_id": "$rating", "count": {"$sum": 1}}},
-        {"$sort": {"_id": 1}}])
-    by_module = aggregate("feedback", [
-        {"$match": query},
-        {"$group": {"_id": {"$ifNull": ["$module", "unspecified"]},
-                    "total": {"$sum": 1}, "average_rating": {"$avg": "$rating"}}},
-        {"$sort": {"total": -1}}, {"$limit": 30},
-    ])
-    row = overall[0] if overall else {"total": 0, "average_rating": None}
-    return {
-        "total": row.get("total", 0),
-        "average_rating": round(row["average_rating"], 3) if row.get("average_rating") else None,
-        "rating_distribution": {str(item["_id"]): item["count"] for item in distribution},
-        "by_module": [{
-            "module": item["_id"], "total": item["total"],
-            "average_rating": round(item["average_rating"], 3) if item.get("average_rating") else None,
-        } for item in by_module],
-        "first_at": row.get("first").isoformat() if isinstance(row.get("first"), datetime) else None,
-        "last_at": row.get("last").isoformat() if isinstance(row.get("last"), datetime) else None,
-        "note": "averages are computed with $avg over the stored rating field; no imputation",
-    }
+__all__ = [
+    "create_ticket", "get_ticket", "append_message", "close_ticket", "assign_ticket",
+    "validate_transition", "ticket_summary",
+    "create_feedback", "list_feedback", "get_feedback", "triage_feedback",
+    "feedback_summary", "present_feedback",
+    "CATEGORIES", "PRIORITIES", "TICKET_STATUSES", "FEEDBACK_STATUSES",
+    "is_staff",
+]

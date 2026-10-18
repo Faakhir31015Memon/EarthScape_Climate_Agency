@@ -1,0 +1,22 @@
+{
+  "engine": "parquet",
+  "reason": "pyarrow available",
+  "path": "C:\\Users\\USER\\Documents\\Qoder\\2026-10-16\\63fe5681\\earthscape-climate-agency\\artifacts\\datalake\\analytics\\dataset=demo_cities\\year=2016\\month=07\\anomaly_features.parquet",
+  "rows": 186,
+  "columns": [
+    "dedupe_key",
+    "dataset_id",
+    "region",
+    "year",
+    "month",
+    "timestamp",
+    "variable",
+    "value",
+    "climatology_mean",
+    "climatology_std",
+    "z_score",
+    "is_anomaly",
+    "quality_status"
+  ],
+  "written_at": "2026-10-16T17:50:14+00:00"
+}

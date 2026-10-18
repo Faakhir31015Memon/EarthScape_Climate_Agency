@@ -331,7 +331,7 @@ def _job_metrics(since: datetime, until: datetime) -> dict[str, Any]:
         {"$group": {"_id": {"kind": "$kind", "status": "$status"}, "count": {"$sum": 1},
                     "durations": {"$push": {"$cond": [
                         {"$and": [{"$ne": ["$started_at", None]}, {"$ne": ["$finished_at", None]}]},
-                        {"$subtract": ["$finished_at", "$started_at"]}, None]}}},
+                        {"$subtract": ["$finished_at", "$started_at"]}, None]}}}},
         {"$sort": {"count": -1}}, {"$limit": 30},
     ])
     queue = aggregate("processing_jobs", [{"$group": {"_id": "$status", "count": {"$sum": 1}}}])

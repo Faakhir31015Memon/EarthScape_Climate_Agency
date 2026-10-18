@@ -1,0 +1,200 @@
+# EarthScape Climate Agency — container orchestration.
+#
+# MongoDB Atlas is the primary application database and is NOT started here: set
+# MONGODB_URI in .env to your Atlas cluster. The optional `mongod` service below is a
+# convenience for offline development only; it is not a substitute for Atlas and is
+# commented out by default so nobody mistakes it for the production data path.
+#
+# The `hadoop`/`spark` services provide a single-node cluster so the distributed code
+# paths can be exercised on a developer machine. They are heavyweight and therefore
+# behind the `cluster` profile: `docker compose --profile cluster up`.
+#
+# NOTE (honest status): the images in this file were authored but not built in the
+# development environment used for this delivery because Docker was not available
+# there. See infrastructure/README.md for the exact build/verify commands.
+
+name: earthscape-climate-agency
+
+x-backend-env: &backend-env
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
+  JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in .env}
+  DJANGO_DEBUG: "false"
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-api,backend,127.0.0.1,localhost}
+  DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-production}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  MONGODB_URI: ${MONGODB_URI:?set MONGODB_URI to the Atlas connection string}
+  MONGODB_DATABASE: ${MONGODB_DATABASE:-earthscape_climate}
+  FORCE_ATLAS_CONNECTION: "true"
+  FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
+  CORS_ALLOWED_ORIGINS: ${FRONTEND_ORIGIN:-http://localhost:8080}
+  NASA_POWER_BASE_URL: ${NASA_POWER_BASE_URL:-https://power.larc.nasa.gov/api/temporal/daily/point}
+  NOAA_API_KEY: ${NOAA_API_KEY:-}
+  LIVE_CLIMATE_PROVIDER: ${LIVE_CLIMATE_PROVIDER:-open_meteo}
+  LIVE_CLIMATE_API_KEY: ${LIVE_CLIMATE_API_KEY:-}
+  # Only point these at the cluster when it is actually running
+  # (`--profile cluster`); otherwise they stay empty and the UI reports the
+  # engines as not configured instead of pretending they are reachable.
+  HDFS_ENDPOINT: ${HDFS_ENDPOINT:-}
+  HDFS_ROOT: ${HDFS_ROOT:-/user/earthscape}
+  HDFS_USER: ${HDFS_USER:-earthscape}
+  DATA_LAKE_BACKEND: ${DATA_LAKE_BACKEND:-auto}
+  SPARK_MASTER: ${SPARK_MASTER:-local[*]}
+  SPARK_ENABLED: ${SPARK_ENABLED:-true}
+  KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
+  AIRFLOW_ENABLED: ${AIRFLOW_ENABLED:-false}
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  ENABLE_EMAIL_NOTIFICATIONS: ${ENABLE_EMAIL_NOTIFICATIONS:-false}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  # Model artifacts live inside the data root so every stored file path in the
+  # documents is a key relative to it (see backend/common/storage_paths.py).
+  MODEL_ARTIFACT_DIR: ${MODEL_ARTIFACT_DIR:-/app/backend/.data/ml-artifacts}
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend
+    image: earthscape/backend:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    env_file: .env
+    environment: *backend-env
+    volumes:
+      - backend-data:/app/backend/.data
+      - data-lake:/app/.data-lake
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/ready', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    command: >
+      gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3
+      --timeout 120 --access-logfile - --error-logfile -
+
+  worker:
+    image: earthscape/backend:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend
+    restart: unless-stopped
+    env_file: .env
+    environment: *backend-env
+    command: celery -A apps.monitoring.celery_tasks worker --loglevel=INFO --concurrency=${BACKGROUND_WORKERS:-4}
+    volumes:
+      - backend-data:/app/backend/.data
+      - data-lake:/app/.data-lake
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    image: earthscape/backend:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    env_file: .env
+    environment: *backend-env
+    command: celery -A apps.monitoring.celery_tasks beat --loglevel=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+    image: earthscape/frontend:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_started
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------- data lake
+  namenode:
+    profiles: ["cluster"]
+    image: apache/hadoop:3.3.6
+    hostname: namenode
+    restart: unless-stopped
+    command: ["hdfs", "namenode"]
+    ports:
+      - "9870:9870"
+      - "8020:8020"
+    environment:
+      EDITOR: "vim"
+    volumes:
+      - hdfs-name:/tmp/hadoop-hdfs/dfs/name
+
+  datanode:
+    profiles: ["cluster"]
+    image: apache/hadoop:3.3.6
+    restart: unless-stopped
+    command: ["hdfs", "datanode"]
+    environment:
+      NODE_NAMES: "namenode"
+      CORE_SITE_COS: "fs.defaultFS=hdfs://namenode:8020"
+    volumes:
+      - hdfs-data:/tmp/hadoop-hdfs/dfs/data
+    depends_on:
+      - namenode
+
+  spark-master:
+    profiles: ["cluster"]
+    image: apache/spark:3.5.1
+    restart: unless-stopped
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    ports:
+      - "8085:8080"   # Spark UI (the web proxy owns host port 80)
+      - "7077:7077"
+    environment:
+      SPARK_PUBLIC_DNS: localhost
+
+  spark-worker:
+    profiles: ["cluster"]
+    image: apache/spark:3.5.1
+    restart: unless-stopped
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    depends_on:
+      - spark-master
+    environment:
+      SPARK_PUBLIC_DNS: localhost
+      SPARK_WORKER_CORES: "2"
+      SPARK_WORKER_MEMORY: 2g
+
+  # Offline convenience only — Atlas is the documented primary database.
+  # mongod:
+  #   image: mongo:7
+  #   profiles: ["offline-db"]
+  #   command: ["mongod", "--bind_ip_all"]
+  #   volumes:
+  #     - mongo-data:/data/db
+
+volumes:
+  backend-data:
+  data-lake:
+  redis-data:
+  hdfs-name:
+  hdfs-data:
+  # mongo-data:

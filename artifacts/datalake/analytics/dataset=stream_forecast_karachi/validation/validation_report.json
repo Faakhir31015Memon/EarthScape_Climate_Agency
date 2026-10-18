@@ -1,0 +1,169 @@
+{
+  "data_quality_score": 0.7417,
+  "examples": [
+    {
+      "detail": {
+        "dedupe_key": "8c21bd967601bc8d66eacda30cb66829fc013142",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "5f01db29f88610148d7ef782e1d4998700cbf6b9",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "5fe04c5887b580a06703a3faca73af0bdee2a625",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "c8ece0cb272797cdf96b5eaeca84bb2c98d0ffcf",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "c0e52ea5a002693b2767f8b796853e2b8cb82749",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "63c7ecdcd97eb3def021f94909be6eef3699245e",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "6a2532a10fee2891af776ab90b7c16907cffa555",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "8a9d345eff61638de40b1b7a29a79364e4ee6d4b",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "7f49a62a6a95eacd3c78f23fd830967d7bbc92a3",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "65c01e645ca079f7ae0a234688d4fd97161e616a",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "009a1902040e3d1c92c83aa48e7c1d5770ee4283",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "cc2c280ff528cbb72c669037f810ca390fb36e75",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "f5c8aa754afe295a9610dc25ab1b8ce32e4587f4",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "831d4dacf5987577584f030868f7b55c923f8ab1",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "4cc2f2ab4958c6ec9c18a8c7b4644e58b2911f82",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "a0765878c0c35d0ab0b040d64188db58a8381222",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "d8027e95f475de03e47daf100fcbb638d5ab1e88",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "4073e1524c5e00c49f9ce6da8b2b0ca9d647983e",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "3ad97ac49b0c4ced6a01139894523a72cdfab027",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    },
+    {
+      "detail": {
+        "dedupe_key": "a82b3b5a1fe24484b7191b9faa5cdad15ed87433",
+        "flag": "out_of_range:pressure"
+      },
+      "kind": "suspect"
+    }
+  ],
+  "missing_profile": {
+    "cloud_cover": 0.0,
+    "humidity": 1.0,
+    "precipitation": 1.0,
+    "pressure": 1.0,
+    "solar_radiation": 0.0,
+    "temperature": 1.0,
+    "temperature_max": 0.0,
+    "temperature_min": 0.0,
+    "wind_direction": 0.0,
+    "wind_speed": 1.0
+  },
+  "per_rule": {
+    "suspect:out_of_range:pressure": 72
+  },
+  "schema_engine": "jsonschema",
+  "score_formula": "0.40*field_completeness + 0.35*valid_share + 0.25*(1-duplicate_share)",
+  "totals": {
+    "accepted": 432,
+    "duplicates": 0,
+    "input": 432,
+    "rejected": 0,
+    "suspect": 72
+  }
+}

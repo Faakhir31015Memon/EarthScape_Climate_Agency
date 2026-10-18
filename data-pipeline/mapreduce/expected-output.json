@@ -1,0 +1,320 @@
+{
+  "note": "Computed ONCE by running python mapper | sort | python reducer on example-input.jsonl (SYNTHETIC contract example, not climate truth). Baseline for verify_local.sh/.ps1.",
+  "processing_mode": "local-streaming-simulated",
+  "jobs": {
+    "temperature_aggregation": {
+      "mapper": "temperature_aggregation_mapper.py",
+      "reducer": "temperature_aggregation_reducer.py",
+      "map_return_code": 0,
+      "sort_return_code": 0,
+      "reduce_return_code": 0,
+      "mapper_counters": [
+        "reporter:counter:EarthScape,temperature_mapper_input,33",
+        "reporter:counter:EarthScape,temperature_mapper_usable,30",
+        "reporter:counter:EarthScape,temperature_mapper_unusable,3",
+        "reporter:counter:EarthScape,temperature_mapper_malformed,0"
+      ],
+      "reducer_counters": [
+        "reporter:counter:EarthScape,temperature_reducer_groups,11",
+        "reporter:counter:EarthScape,temperature_reducer_bad_lines,0"
+      ],
+      "lines": [
+        {
+          "key": "Balochistan|2024|2",
+          "aggregate": {
+            "mean_temperature_c": 14.25,
+            "month": 2,
+            "observation_count": 2,
+            "precipitation_sum_mm": 14.5,
+            "precipitation_value_count": 2,
+            "quality_flag_counts": {},
+            "region_code": "Balochistan",
+            "skipped_within_group": 0,
+            "temperature_max_c": 23.5,
+            "temperature_min_c": 5.0,
+            "temperature_value_count": 2,
+            "year": 2024
+          }
+        },
+        {
+          "key": "Balochistan|2024|3",
+          "aggregate": {
+            "mean_temperature_c": 27.0,
+            "month": 3,
+            "observation_count": 2,
+            "precipitation_sum_mm": 4.5,
+            "precipitation_value_count": 2,
+            "quality_flag_counts": {},
+            "region_code": "Balochistan",
+            "skipped_within_group": 0,
+            "temperature_max_c": 27.5,
+            "temperature_min_c": 26.5,
+            "temperature_value_count": 2,
+            "year": 2024
+          }
+        },
+        {
+          "key": "Gilgit-Baltistan|2024|3",
+          "aggregate": {
+            "mean_temperature_c": 9.25,
+            "month": 3,
+            "observation_count": 2,
+            "precipitation_sum_mm": 20.0,
+            "precipitation_value_count": 1,
+            "quality_flag_counts": {},
+            "region_code": "Gilgit-Baltistan",
+            "skipped_within_group": 0,
+            "temperature_max_c": 10.5,
+            "temperature_min_c": 8.0,
+            "temperature_value_count": 2,
+            "year": 2024
+          }
+        },
+        {
+          "key": "Khyber Pakhtunkhwa|2024|1",
+          "aggregate": {
+            "mean_temperature_c": 5.5,
+            "month": 1,
+            "observation_count": 2,
+            "precipitation_sum_mm": 48.0,
+            "precipitation_value_count": 2,
+            "quality_flag_counts": {},
+            "region_code": "Khyber Pakhtunkhwa",
+            "skipped_within_group": 0,
+            "temperature_max_c": 8.5,
+            "temperature_min_c": 2.5,
+            "temperature_value_count": 2,
+            "year": 2024
+          }
+        },
+        {
+          "key": "Khyber Pakhtunkhwa|2024|2",
+          "aggregate": {
+            "mean_temperature_c": 12.0,
+            "month": 2,
+            "observation_count": 1,
+            "precipitation_sum_mm": 6.0,
+            "precipitation_value_count": 1,
+            "quality_flag_counts": {},
+            "region_code": "Khyber Pakhtunkhwa",
+            "skipped_within_group": 0,
+            "temperature_max_c": 12.0,
+            "temperature_min_c": 12.0,
+            "temperature_value_count": 1,
+            "year": 2024
+          }
+        },
+        {
+          "key": "Punjab|2024|1",
+          "aggregate": {
+            "mean_temperature_c": 12.5833,
+            "month": 1,
+            "observation_count": 7,
+            "precipitation_sum_mm": 23.0,
+            "precipitation_value_count": 5,
+            "quality_flag_counts": {
+              "wind_speed_ms_suspiciously_small": 1
+            },
+            "region_code": "Punjab",
+            "skipped_within_group": 0,
+            "temperature_max_c": 15.5,
+            "temperature_min_c": 9.5,
+            "temperature_value_count": 6,
+            "year": 2024
+          }
+        },
+        {
+          "key": "Punjab|2024|2",
+          "aggregate": {
+            "mean_temperature_c": 14.75,
+            "month": 2,
+            "observation_count": 2,
+            "precipitation_sum_mm": 5.5,
+            "precipitation_value_count": 1,
+            "quality_flag_counts": {},
+            "region_code": "Punjab",
+            "skipped_within_group": 0,
+            "temperature_max_c": 16.0,
+            "temperature_min_c": 13.5,
+            "temperature_value_count": 2,
+            "year": 2024
+          }
+        },
+        {
+          "key": "Punjab|2024|3",
+          "aggregate": {
+            "mean_temperature_c": 22.3333,
+            "month": 3,
+            "observation_count": 3,
+            "precipitation_sum_mm": 18.5,
+            "precipitation_value_count": 3,
+            "quality_flag_counts": {},
+            "region_code": "Punjab",
+            "skipped_within_group": 0,
+            "temperature_max_c": 25.0,
+            "temperature_min_c": 19.5,
+            "temperature_value_count": 3,
+            "year": 2024
+          }
+        },
+        {
+          "key": "Sindh|2024|1",
+          "aggregate": {
+            "mean_temperature_c": 21.1667,
+            "month": 1,
+            "observation_count": 4,
+            "precipitation_sum_mm": 4.5,
+            "precipitation_value_count": 3,
+            "quality_flag_counts": {
+              "temperature_c_out_of_range": 1
+            },
+            "region_code": "Sindh",
+            "skipped_within_group": 0,
+            "temperature_max_c": 22.0,
+            "temperature_min_c": 20.0,
+            "temperature_value_count": 3,
+            "year": 2024
+          }
+        },
+        {
+          "key": "Sindh|2024|2",
+          "aggregate": {
+            "mean_temperature_c": 24.75,
+            "month": 2,
+            "observation_count": 3,
+            "precipitation_sum_mm": 8.0,
+            "precipitation_value_count": 3,
+            "quality_flag_counts": {},
+            "region_code": "Sindh",
+            "skipped_within_group": 0,
+            "temperature_max_c": 25.5,
+            "temperature_min_c": 24.0,
+            "temperature_value_count": 2,
+            "year": 2024
+          }
+        },
+        {
+          "key": "Sindh|2024|3",
+          "aggregate": {
+            "mean_temperature_c": 27.75,
+            "month": 3,
+            "observation_count": 2,
+            "precipitation_sum_mm": 1.0,
+            "precipitation_value_count": 2,
+            "quality_flag_counts": {},
+            "region_code": "Sindh",
+            "skipped_within_group": 0,
+            "temperature_max_c": 28.5,
+            "temperature_min_c": 27.0,
+            "temperature_value_count": 2,
+            "year": 2024
+          }
+        }
+      ]
+    },
+    "observation_counts": {
+      "mapper": "observation_counts_mapper.py",
+      "reducer": "observation_counts_reducer.py",
+      "map_return_code": 0,
+      "sort_return_code": 0,
+      "reduce_return_code": 0,
+      "mapper_counters": [
+        "reporter:counter:EarthScape,counts_mapper_input,33",
+        "reporter:counter:EarthScape,counts_mapper_emitted,32",
+        "reporter:counter:EarthScape,counts_mapper_unusable,1",
+        "reporter:counter:EarthScape,counts_mapper_malformed,0"
+      ],
+      "reducer_counters": [
+        "reporter:counter:EarthScape,counts_reducer_groups,6"
+      ],
+      "lines": [
+        {
+          "key": "ds-example-001|2024|1",
+          "aggregate": {
+            "dataset_id": "ds-example-001",
+            "month": 1,
+            "observation_count": 9,
+            "region_count": 2,
+            "regions": {
+              "Punjab": 5,
+              "Sindh": 4
+            },
+            "year": 2024
+          }
+        },
+        {
+          "key": "ds-example-001|2024|2",
+          "aggregate": {
+            "dataset_id": "ds-example-001",
+            "month": 2,
+            "observation_count": 8,
+            "region_count": 3,
+            "regions": {
+              "Balochistan": 3,
+              "Punjab": 2,
+              "Sindh": 3
+            },
+            "year": 2024
+          }
+        },
+        {
+          "key": "ds-example-001|2024|3",
+          "aggregate": {
+            "dataset_id": "ds-example-001",
+            "month": 3,
+            "observation_count": 8,
+            "region_count": 4,
+            "regions": {
+              "Balochistan": 2,
+              "Gilgit-Baltistan": 2,
+              "Punjab": 2,
+              "Sindh": 2
+            },
+            "year": 2024
+          }
+        },
+        {
+          "key": "ds-example-002|2024|1",
+          "aggregate": {
+            "dataset_id": "ds-example-002",
+            "month": 1,
+            "observation_count": 4,
+            "region_count": 2,
+            "regions": {
+              "Khyber Pakhtunkhwa": 2,
+              "Punjab": 2
+            },
+            "year": 2024
+          }
+        },
+        {
+          "key": "ds-example-002|2024|2",
+          "aggregate": {
+            "dataset_id": "ds-example-002",
+            "month": 2,
+            "observation_count": 2,
+            "region_count": 2,
+            "regions": {
+              "Khyber Pakhtunkhwa": 1,
+              "Punjab": 1
+            },
+            "year": 2024
+          }
+        },
+        {
+          "key": "ds-example-002|2024|3",
+          "aggregate": {
+            "dataset_id": "ds-example-002",
+            "month": 3,
+            "observation_count": 1,
+            "region_count": 1,
+            "regions": {
+              "Punjab": 1
+            },
+            "year": 2024
+          }
+        }
+      ]
+    }
+  }
+}

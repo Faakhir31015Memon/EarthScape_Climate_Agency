@@ -1,0 +1,14 @@
+{
+  "engine": "parquet",
+  "reason": "pyarrow available",
+  "path": "C:\\Users\\USER\\Documents\\Qoder\\2026-10-16\\63fe5681\\earthscape-climate-agency\\artifacts\\datalake\\analytics\\dataset=demo_cities\\year=1970\\month=01\\correlations.parquet",
+  "rows": 168,
+  "columns": [
+    "dataset_id",
+    "variable_a",
+    "variable_b",
+    "pearson_r",
+    "n_pairs"
+  ],
+  "written_at": "2026-10-16T17:02:14+00:00"
+}
