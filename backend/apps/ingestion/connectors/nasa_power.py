@@ -40,6 +40,24 @@ SUPPORTED_PARAMETERS = list(regions.NASA_PARAMETERS)
 # storing physically correct pressure.  Real NASA values are ~100.04 kPa -> 1000.4 hPa.
 SOURCE_UNIT_OVERRIDES: Dict[str, str] = {"PS": "kpa"}
 
+# NASA POWER's daily point API serves ``PRECTOTCORR`` at two accumulations for the same
+# station-day: the documented millimetres per day, and a figure exactly 24x larger.  Which
+# one a response carries is decided by the *request window*, not by the data - measured
+# 2026-10-22 at station SVD for 2026-09-17: ``end=2026-09-30`` returned 33.8 mm/day while
+# ``end=2026-10-02`` and every fresher end returned 811.2 mm (24x) for that same day.  The
+# boundary is the source's quality lag: ends at least this many days in the past are final.
+# Temperature is identical in both bands, so only precipitation needs the correction.
+PRECIP_SETTLED_LAG_DAYS = 22
+PRECIP_HOURLY_ACCUMULATION_FACTOR = 24.0
+
+
+def _precipitation_needs_rescaling(end: Optional[str]) -> bool:
+    """True when the requested window ends inside NASA's unsettled precipitation band."""
+    moment = _day_to_datetime(_compact(end) or "")
+    if moment is None:
+        return False
+    return (datetime.now(timezone.utc) - moment).days < PRECIP_SETTLED_LAG_DAYS
+
 
 class NasaPowerConnector(SourceConnector):
     name = "nasa_power"
@@ -106,6 +124,7 @@ class NasaPowerConnector(SourceConnector):
             if isinstance(values_by_day, dict):
                 days.update(key for key in values_by_day if _looks_like_day(key))
 
+        rescale_precip = _precipitation_needs_rescaling(request.end)
         observations: List[Dict[str, Any]] = []
         for day in sorted(days):
             moment = _day_to_datetime(day)
@@ -125,6 +144,9 @@ class NasaPowerConnector(SourceConnector):
                 if number is None or _is_missing(number):
                     values.setdefault(field_name, None)
                     continue
+                if rescale_precip and field_name == "precipitation_mm":
+                    number /= PRECIP_HOURLY_ACCUMULATION_FACTOR
+                    quality.append("precipitation_rescaled_from_hourly_accumulation")
                 converted, _unit_flag = validators.convert_measurement(field_name, number, source_unit)
                 validated, issues = validators.validate_measurement(field_name, converted,
                                                                     None, len(observations) + 1)

@@ -20,9 +20,22 @@ Memory discipline (what makes each reader a *streaming* reader):
     only used as a guarded fallback when the file is small AND its shape is not a
     flat array of objects; larger non-streamable JSON raises a clear size error.
 
-``xlsx``
+``xlsx`` / ``xlsm`` / ``xltx`` / ``xltm``
     ``openpyxl`` ``read_only=True`` workbook + a generator over rows streams cells;
-    read-only mode does not build the full object tree in memory.
+    read-only mode does not build the full object tree in memory. Macro-enabled and
+    template variants are read through the same OOXML reader with macros never
+    executed.
+
+``ods``
+    :mod:`odfpy` walks the ``office:spreadsheet`` XML tree, so only one row object is
+    live at a time even for a very large OpenDocument spreadsheet.
+
+``xls``
+    ``xlrd`` must materialise the BIFF record stream, so the classic workbook is
+    capped by :data:`OLE_SAFE_LOAD_BYTES` before it is opened.
+
+``xlsb``
+    ``pyxlsb`` iterates the binary sheet record by record, yielding one row at a time.
 
 ``parquet``
     ``pyarrow.parquet.ParquetFile.iter_batches`` streams row-group batches.
@@ -39,6 +52,9 @@ import io
 import json
 import os
 import re
+import tempfile
+import zipfile
+from contextlib import contextmanager
 from typing import Dict, Iterator, List, Optional, Tuple
 
 # A JSON document larger than this is refused unless it can be streamed.  32 MiB is
@@ -46,6 +62,8 @@ from typing import Dict, Iterator, List, Optional, Tuple
 JSON_SAFE_LOAD_BYTES = 32 * 1024 * 1024
 # Parquet fallback via pandas is refused above this many bytes.
 PARQUET_SAFE_LOAD_BYTES = 512 * 1024 * 1024
+# Legacy .xls (xlrd) and decrypted containers are held fully in memory.
+OLE_SAFE_LOAD_BYTES = 256 * 1024 * 1024
 
 _CSV_SAMPLE_BYTES = 64 * 1024
 
@@ -71,7 +89,10 @@ def read_signature(path: str, nbytes: int = 8) -> bytes:
 
 
 def sniff_format(path: str, declared_extension: Optional[str] = None) -> str:
-    """Return the *content* format ('csv'|'txt'|'json'|'xlsx'|'parquet'|'xls'|'netcdf').
+    """Return the *content* format of a file.
+
+    Recognised formats are ``csv``, ``txt``, ``json``, ``xlsx``, ``xlsm``, ``xltm``,
+    ``xltx``, ``xlsb``, ``xls``, ``ods``, ``parquet``, ``encrypted`` and ``netcdf``.
 
     Raises :class:`FileImportError` for executables, active content, or anything that
     is not a recognised data format.  When ``declared_extension`` is supplied and its
@@ -93,7 +114,7 @@ def sniff_format(path: str, declared_extension: Optional[str] = None) -> str:
     if head.startswith(b"PK\x03\x04") or head.startswith(b"PK\x05\x06"):
         detected = _sniff_zip_package(path)
     elif head.startswith(b"\xd0\xcf\x11\xe0"):
-        detected = "xls"
+        detected = "encrypted" if _is_encrypted_ole(path) else "xls"
     elif head.startswith(b"PAR1"):
         detected = "parquet"
     elif head.startswith(b"CDF") or head[1:4] == b"HDF":
@@ -121,35 +142,87 @@ def _extension_conflict(extension: str, detected: str) -> Optional[str]:
     expected = {
         "csv": {"csv", "txt"},
         "txt": {"csv", "txt"},
+        "tsv": {"csv", "txt"},
         "json": {"json"},
-        "xlsx": {"xlsx", "xlsm", "xls"},
-        "xls": {"xlsx", "xlsm", "xls"},
-        "xlsm": {"xlsx", "xlsm", "xls"},
+        "jsonl": {"json"},
+        "xlsx": {"xlsx", "xlsb", "encrypted"},
+        "xlsm": {"xlsm", "xlsx", "xlsb", "encrypted"},
+        "xltx": {"xltx", "xlsx", "encrypted"},
+        "xltm": {"xltm", "xltx", "xlsm", "xlsx", "encrypted"},
+        "xls": {"xls", "encrypted"},
+        "xlsb": {"xlsb", "encrypted"},
+        "ods": {"ods"},
         "parquet": {"parquet"},
         "nc": {"netcdf"},
     }.get(extension, {extension})
-    if detected in expected or extension in expected:
+    if detected in expected:
+        return None
+    # A password-protected workbook reports its real subtype only once opened.
+    if detected == "encrypted":
         return None
     return (f"The declared extension '.{extension}' does not match the file content "
             f"(detected '{detected}').")
 
 
 def _sniff_zip_package(path: str) -> str:
-    """Distinguish a real xlsx (OOXML) from a plain zip / docx masquerade."""
-    import zipfile
-
+    """Distinguish a real OOXML spreadsheet / ODS from a plain zip masquerade."""
     try:
         with zipfile.ZipFile(path) as archive:
             names = set(archive.namelist())
-    except (zipfile.BadZipFile, OSError) as exc:
+            content_types = ""
+            if "xl/workbook.xml" not in names and not any(n.startswith("xl/") for n in names):
+                if "mimetype" in names:
+                    return _sniff_opendocument(archive.read("mimetype"))
+                if any(n.endswith(".docx") or n == "word/document.xml" for n in names):
+                    return "word-document"
+                raise FileImportError("A zip archive was supplied that is not a supported spreadsheet.")
+            if "xl/workbook.bin" in names:
+                return "xlsb"
+            if "[Content_Types].xml" in names:
+                content_types = archive.read("[Content_Types].xml").decode("utf-8", "replace").lower()
+    except zipfile.BadZipFile as exc:
         raise FileImportError("The archive could not be opened as a spreadsheet.") from exc
-    if "xl/workbook.xml" in names or any(n.startswith("xl/") for n in names):
-        return "xlsx"
-    if "mimetype" in names:
-        return "opendocument"
-    if any(n.endswith(".docx") or n == "word/document.xml" for n in names):
+    return _classify_ooxml_spreadsheet(names, content_types)
+
+
+def _classify_ooxml_spreadsheet(names: set, content_types: str) -> str:
+    """Split the OOXML spreadsheet subtypes, which share one container layout."""
+    if "xl/encryptedPayload.xml" in names or not content_types:
+        # Excel stores a *really* encrypted workbook as an OLE container, so a zip
+        # carrying only an encrypted payload is treated as protected content.
+        return "encrypted"
+    macro = any(n.endswith("vbaProject.bin") for n in names)
+    template = ("template.main+xml" in content_types
+                or "template.macroenabled.main+xml" in content_types)
+    if macro:
+        # A macro stream makes it a macro flavour; only a template part makes it a .xltm.
+        return "xltm" if template else "xlsm"
+    if template:
+        return "xltx"
+    return "xlsx"
+
+
+def _sniff_opendocument(mimetype_bytes: bytes) -> str:
+    mimetype = mimetype_bytes.decode("utf-8", "replace").strip()
+    if mimetype == "application/vnd.oasis.opendocument.spreadsheet":
+        return "ods"
+    if mimetype == "application/vnd.oasis.opendocument.text":
         return "word-document"
-    raise FileImportError("A zip archive was supplied that is not a supported spreadsheet.")
+    return "opendocument"
+
+
+def _is_encrypted_ole(path: str) -> bool:
+    """True for an Office Rocket Book container (password-protected workbook)."""
+    try:
+        with open(path, "rb") as handle:
+            blob = handle.read(65536)
+    except OSError:
+        return False
+    # OLE stream names are stored UTF-16LE, so match both byte encodings.
+    for marker in (b"EncryptedPackage", b"encryptedPayload"):
+        if marker in blob or marker.decode().encode("utf-16-le") in blob:
+            return True
+    return False
 
 
 def _sniff_text(path: str) -> str:
@@ -403,11 +476,57 @@ def _records_from_object(document: object, *, max_rows: Optional[int]) -> Iterat
             return
 
 
+@contextmanager
+def _ooxml_source(path: str) -> Iterator[str]:
+    """Yield a readable OOXML path, transparently decrypting protected workbooks."""
+    if _looks_like_encrypted_zip(path):
+        temp = _decrypt_to_temp(path)
+        try:
+            yield temp
+        finally:
+            _unlink_quietly(temp)
+        return
+    yield path
+
+
+def _looks_like_encrypted_zip(path: str) -> bool:
+    """Agile-encrypted OOXML bodies stay a zip but hide every part in ``encData``."""
+    found_xl_part = False
+    encrypted = False
+    try:
+        with zipfile.ZipFile(path) as archive:
+            if "xl/workbook.xml" in archive.namelist():
+                return False
+            for entry in archive.infolist():
+                if not entry.filename.startswith("xl/") or entry.is_dir():
+                    continue
+                found_xl_part = True
+                with archive.open(entry) as part:
+                    body = part.read(8192)
+                if b"encData" in body:
+                    encrypted = True
+                    break
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+        return False
+    return found_xl_part and encrypted
+
+
+def _unlink_quietly(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
 # --------------------------------------------------------------------- xlsx
 def iter_xlsx(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
+    # The workbook is unpacked eagerly (read_only=False) and keep_vba stays off: a
+    # macro-enabled book is read for its cell values only, so openpyxl is never asked
+    # to hold a second copy of the zip in memory.
     from openpyxl import load_workbook
 
-    workbook = load_workbook(path, read_only=True, data_only=True)
+    with _ooxml_source(path) as readable:
+        workbook = load_workbook(readable, data_only=True)
     try:
         worksheet = workbook.worksheets[0]
         header: Optional[List[str]] = None
@@ -426,6 +545,205 @@ def iter_xlsx(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[in
                 return
     finally:
         workbook.close()
+
+
+# ------------------------------------------------------------- password-protected
+def _spreadsheet_password() -> Optional[str]:
+    """Password used to open workbook-encrypted uploads (``UPLOAD_FILE_PASSWORD``)."""
+    try:
+        from config import env
+
+        return env.get_raw("UPLOAD_FILE_PASSWORD") or None
+    except Exception:  # noqa: BLE001 - configuration lookup must never crash an import
+        return os.environ.get("UPLOAD_FILE_PASSWORD") or None
+
+
+def _decrypt_to_temp(path: str) -> str:
+    """Write a password-protected workbook out to a temp file and return its path."""
+    try:
+        import msoffcrypto
+    except ImportError as exc:
+        raise FileImportError(
+            "This workbook is encrypted. Install msoffcrypto-tool and set "
+            "UPLOAD_FILE_PASSWORD to import it.") from exc
+
+    password = _spreadsheet_password()
+    if not password:
+        raise FileImportError(
+            "This workbook is password-protected. Set UPLOAD_FILE_PASSWORD in .env to "
+            "allow encrypted files to be imported.")
+    if os.path.getsize(path) > OLE_SAFE_LOAD_BYTES:
+        raise FileImportError(
+            f"An encrypted workbook must be fully decrypted before reading; the file is "
+            f"larger than the {OLE_SAFE_LOAD_BYTES} byte guard.")
+
+    handle = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    handle.close()
+    decrypted = handle.name
+    try:
+        with open(path, "rb") as source, open(decrypted, "wb") as sink:
+            office_file = msoffcrypto.OfficeFile(source)
+            office_file.load_key(password=password)
+            office_file.decrypt(sink)
+    except FileImportError:
+        os.unlink(decrypted)
+        raise
+    except Exception as exc:  # noqa: BLE001 - every crypto failure is a user-facing error
+        os.unlink(decrypted)
+        message = str(exc).strip() or type(exc).__name__
+        raise FileImportError(
+            f"The workbook could not be decrypted with UPLOAD_FILE_PASSWORD ({message}).") from exc
+    return decrypted
+
+
+def _classify_decrypted(decrypted_path: str) -> str:
+    """Reader chosen after decryption, since the container hides the real subtype."""
+    try:
+        return sniff_format(decrypted_path)
+    except FileImportError:
+        return "xlsx"
+
+
+# --------------------------------------------------------------------- xlsm / templates
+def iter_xlsm(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
+    """Read a macro-enabled or template workbook with the OOXML reader.
+
+    Only cell values are read, so the macro stream is never loaded or executed.
+    """
+    return iter_xlsx(path, max_rows=max_rows)
+
+
+# --------------------------------------------------------------------- ods
+def _ods_repeat_cap() -> int:
+    """odfpy expands ``number-columns-repeated``; LibreOffice pads rows to 16 384."""
+    try:
+        from config import env
+
+        return max(1, env.get_int("ODS_MAX_COLUMN_REPEAT", 4096))
+    except Exception:  # noqa: BLE001 - config is unavailable in bare-pipeline contexts
+        return 4096
+
+
+def _ods_cell_text(cell) -> str:
+    """Concatenate the leaf text nodes of an ODF cell (``text:p`` wraps ``text``)."""
+    parts: List[str] = []
+
+    def walk(node) -> None:
+        data = getattr(node, "data", None)
+        if isinstance(data, str):
+            parts.append(data)
+        for child in getattr(node, "childNodes", None) or []:
+            walk(child)
+
+    walk(cell)
+    return "".join(parts)
+
+
+def _ods_row_values(row, TableCell, CoveredTableCell, repeat_cap: int) -> List[object]:
+    """Flatten one ODF table row into a positional value list, honouring repeats."""
+    from odf.namespaces import TABLENS
+
+    values: List[object] = []
+    for cell in row.getElementsByType(TableCell) + row.getElementsByType(CoveredTableCell):
+        text = _ods_cell_text(cell)
+        try:
+            span = int(cell.attributes.get((TABLENS, "number-columns-repeated")) or 1)
+        except (TypeError, ValueError):
+            span = 1
+        span = max(1, min(span, repeat_cap))
+        values.extend([text] * span)
+    while values and (values[-1] is None or str(values[-1]).strip() == ""):
+        values.pop()
+    return values
+
+
+def iter_ods(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
+    index = 0
+    header: Optional[List[str]] = None
+    try:
+        from odf.opendocument import load
+        from odf.table import Table, TableCell, CoveredTableCell, TableRow
+    except ImportError as exc:
+        raise FileImportError(
+            "OpenDocument (.ods) support needs the odfpy package. Install odfpy or "
+            "convert the file to .csv or .xlsx and re-upload.") from exc
+
+    document = load(path)
+    repeat_cap = _ods_repeat_cap()
+    for sheet in document.getElementsByType(Table):
+        for row in sheet.getElementsByType(TableRow):
+            values = _ods_row_values(row, TableCell, CoveredTableCell, repeat_cap)
+            if header is None:
+                header = [_clean_key(name, i) for i, name in enumerate(values)]
+                continue
+            if all(value is None or str(value).strip() == "" for value in values):
+                continue
+            record = {header[position]: (values[position] if position < len(values) else None)
+                      for position in range(len(header))}
+            index += 1
+            yield index, record
+            if max_rows is not None and index >= max_rows:
+                return
+
+
+# --------------------------------------------------------------------- xls (BIFF)
+def iter_xls(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
+    if os.path.getsize(path) > OLE_SAFE_LOAD_BYTES:
+        raise FileImportError(
+            f"Legacy .xls workbooks are loaded fully into memory and are capped at "
+            f"{OLE_SAFE_LOAD_BYTES} bytes. Convert the file to .csv or .xlsx and re-upload.")
+    try:
+        import xlrd
+    except ImportError as exc:
+        raise FileImportError(
+            "Legacy .xls support needs the xlrd package. Install xlrd or convert the "
+            "file to .csv or .xlsx and re-upload.") from exc
+
+    book = xlrd.open_workbook(path)
+    sheet = book.sheet_by_index(0)
+    header: Optional[List[str]] = None
+    index = 0
+    for rowno in range(sheet.nrows):
+        values = [sheet.cell_value(rowno, colno) for colno in range(sheet.ncols)]
+        if header is None:
+            header = [_clean_key(name, i) for i, name in enumerate(values)]
+            continue
+        if all(value is None or str(value).strip() == "" for value in values):
+            continue
+        record = {header[position]: (values[position] if position < len(values) else None)
+                  for position in range(len(header))}
+        index += 1
+        yield index, record
+        if max_rows is not None and index >= max_rows:
+            return
+
+
+# --------------------------------------------------------------------- xlsb
+def iter_xlsb(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
+    try:
+        from pyxlsb import open_workbook
+    except ImportError as exc:
+        raise FileImportError(
+            "Excel binary (.xlsb) support needs the pyxlsb package. Install pyxlsb or "
+            "convert the file to .csv or .xlsx and re-upload.") from exc
+
+    index = 0
+    with open_workbook(path) as workbook:
+        with workbook.get_sheet(1) as sheet:
+            header: Optional[List[str]] = None
+            for values in sheet.rows():
+                row = [cell.v if getattr(cell, "v", None) is not None else "" for cell in values]
+                if header is None:
+                    header = [_clean_key(name, i) for i, name in enumerate(row)]
+                    continue
+                if all(value is None or str(value).strip() == "" for value in row):
+                    continue
+                record = {header[position]: (row[position] if position < len(row) else None)
+                          for position in range(len(header))}
+                index += 1
+                yield index, record
+                if max_rows is not None and index >= max_rows:
+                    return
 
 
 # --------------------------------------------------------------------- parquet
@@ -464,10 +782,31 @@ _ITERATORS = {
     "txt": iter_csv,
     "json": iter_json,
     "xlsx": iter_xlsx,
+    "xlsm": iter_xlsx,
+    "xltx": iter_xlsx,
+    "xltm": iter_xlsx,
+    "xls": iter_xls,
+    "xlsb": iter_xlsb,
+    "ods": iter_ods,
     "parquet": iter_parquet,
 }
 
-UNSUPPORTED = {"xls", "opendocument", "word-document", "netcdf"}
+UNSUPPORTED = {"word-document", "opendocument", "netcdf"}
+
+
+def _iter_encrypted(path: str, *, max_rows: Optional[int] = None
+                    ) -> Iterator[Tuple[int, Dict[str, object]]]:
+    """Decrypt a protected workbook, then stream whichever format it turns out to be."""
+    temp = _decrypt_to_temp(path)
+    try:
+        inner = _classify_decrypted(temp)
+        reader = _ITERATORS.get(inner, iter_xlsx)
+        yield from reader(temp, max_rows=max_rows)
+    finally:
+        _unlink_quietly(temp)
+
+
+_ITERATORS["encrypted"] = _iter_encrypted
 
 
 def open_file(path: str, fmt: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
@@ -478,7 +817,8 @@ def open_file(path: str, fmt: str, *, max_rows: Optional[int] = None) -> Iterato
     if fmt in UNSUPPORTED:
         raise FileImportError(
             f"Files detected as '{fmt}' are not supported by this build's readers. "
-            "Convert to .csv, .json (array or NDJSON), .xlsx or .parquet and re-upload.")
+            "Convert to .csv, .json (array or NDJSON), an Excel/LibreOffice spreadsheet "
+            "or .parquet and re-upload.")
     reader = _ITERATORS.get(fmt)
     if reader is None:
         raise FileImportError(f"No reader is available for detected format '{fmt}'.")
@@ -495,16 +835,17 @@ def read_headers(path: str, fmt: Optional[str] = None) -> List[str]:
             reader = csv.reader(handle, delimiter=delimiter)
             header = next(reader, [])
             return [_clean_key(name, i) for i, name in enumerate(header)]
-    if fmt == "xlsx":
+    if fmt in {"xlsx", "xlsm", "xltx", "xltm"}:
         from openpyxl import load_workbook
 
-        workbook = load_workbook(path, read_only=True, data_only=True)
+        with _ooxml_source(path) as readable:
+            workbook = load_workbook(readable, data_only=True)
         try:
             values = next(workbook.worksheets[0].iter_rows(values_only=True), None) or []
             return [_clean_key(name, i) for i, name in enumerate(values)]
         finally:
             workbook.close()
-    # json / parquet: headers come from the first record's keys.
+    # json / parquet / xls / xlsb / ods / encrypted: headers come from the first record.
     try:
         for _, record in open_file(path, fmt, max_rows=1):
             return [key for key in record if key != "__trailing__"]

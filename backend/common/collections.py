@@ -187,7 +187,8 @@ VALIDATORS: Dict[str, Dict[str, Any]] = {
                 "required": ["name", "source_type", "format", "status", "schema_version", "created_at"],
                 "properties": {
                     "source_type": {"enum": ["nasa_power", "noaa", "live_api", "university_upload", "sample"]},
-                    "format": {"enum": ["csv", "json", "xlsx", "parquet", "api"]},
+                    "format": {"enum": ["csv", "json", "xlsx", "xlsm", "xltx", "xltm", "xls",
+                                        "xlsb", "ods", "parquet", "api", "netcdf"]},
                     "status": {"enum": ["draft", "validating", "validated", "ingesting", "ready", "failed", "archived"]},
                 },
             }

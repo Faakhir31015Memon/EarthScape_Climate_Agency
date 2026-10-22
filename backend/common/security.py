@@ -80,6 +80,48 @@ def valid_email(email: str) -> bool:
     return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}", normalize_email(email)))
 
 
+# ------------------------------------------------------------------- text guards
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_PADDED_WHITESPACE = re.compile(r"[ \t]{2,}")
+
+
+def sanitize_text(value: Any, *, max_length: int = 500) -> str:
+    """Bounded plain text for storage: no control characters, no padded whitespace."""
+    if value is None:
+        return ""
+    text = value if isinstance(value, str) else str(value)
+    text = _CONTROL_CHARACTERS.sub("", text.replace("\r\n", "\n").replace("\r", "\n"))
+    text = _PADDED_WHITESPACE.sub(" ", text)
+    return text.strip()[:max(0, int(max_length))]
+
+
+def guard_query(value: Any, _depth: int = 0) -> Any:
+    """Return a JSON-shaped value with no MongoDB operator keys.
+
+    API input here becomes query documents, ``view_state`` or stored settings, so any
+    key starting with ``$`` or containing a dot is refused rather than silently escaped.
+    """
+    if _depth > 12:
+        raise ValueError("Value is nested too deeply to guard.")
+    if isinstance(value, dict):
+        guarded = {}
+        for key, item in value.items():
+            name = str(key)
+            if name.startswith("$") or "." in name:
+                raise ValueError(f"Disallowed key: {name}.")
+            guarded[name] = guard_query(item, _depth + 1)
+        return guarded
+    if isinstance(value, (list, tuple)):
+        return [guard_query(item, _depth + 1) for item in value]
+    return value
+
+
+def fingerprint(*parts: Any) -> str:
+    """Stable sha1 identity for dedupe keys, joined with the canonical ``|`` separator."""
+    raw = "|".join("" if part is None else str(part) for part in parts)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
 # ---------------------------------------------------------------------------- JWT
 def _signing_key() -> bytes:
     key = env.get_raw("JWT_SIGNING_KEY")

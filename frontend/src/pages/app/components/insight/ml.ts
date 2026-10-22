@@ -76,7 +76,7 @@ export interface EvalMetricMeta {
 export const EVAL_METRICS: EvalMetricMeta[] = [
   { key: 'mae', label: 'MAE', better: 'lower', digits: 2, format: (v, unit) => `${formatNumber(v, 2)} ${unit}` },
   { key: 'rmse', label: 'RMSE', better: 'lower', digits: 2, format: (v, unit) => `${formatNumber(v, 2)} ${unit}` },
-  { key: 'mape', label: 'MAPE', better: 'lower', digits: 2, format: (v) => `${formatNumber(v, 2)}%`, isPercent: true },
+  { key: 'mape_or_null', label: 'MAPE', better: 'lower', digits: 2, format: (v) => `${formatNumber(v, 2)}%`, isPercent: true },
   { key: 'r2', label: 'R²', better: 'higher', digits: 3, format: (v) => formatNumber(v, 3) },
   { key: 'skill_vs_baseline', label: 'Skill vs baseline', better: 'higher', digits: 3, format: (v) => formatNumber(v, 3) },
 ]

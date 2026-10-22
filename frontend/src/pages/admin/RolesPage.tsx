@@ -40,15 +40,15 @@ interface RoleDefinition {
  */
 const FRONTEND_GUARD_CAPABILITIES: Record<Role, string[]> = {
   administrator: [
-    'platform:manage', 'users:read', 'users:manage', 'datasets:read', 'datasets:manage', 'ingestion:run',
+    'platform:manage', 'users:read', 'users:manage', 'datasets:read', 'datasets:manage', 'datasets:upload', 'ingestion:run',
     'processing:run', 'models:train', 'predictions:run', 'alerts:manage', 'reports:manage', 'support:manage',
     'feedback:manage', 'audit:read', 'system:read', 'system:manage', 'analytics:export',
   ],
   climate_analyst: [
-    'datasets:read', 'datasets:manage', 'ingestion:run', 'processing:run', 'models:train', 'predictions:run',
+    'datasets:read', 'datasets:manage', 'datasets:upload', 'ingestion:run', 'processing:run', 'models:train', 'predictions:run',
     'alerts:manage', 'reports:manage', 'support:read', 'feedback:create', 'analytics:export', 'system:read',
   ],
-  viewer: ['datasets:read', 'climate:read', 'reports:read', 'feedback:create', 'support:read'],
+  viewer: ['datasets:read', 'datasets:upload', 'climate:read', 'reports:read', 'feedback:create', 'support:read'],
 }
 
 /**

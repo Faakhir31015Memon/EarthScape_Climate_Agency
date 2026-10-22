@@ -1371,13 +1371,22 @@ export interface ModelRecord {
   evaluation_metrics: {
     mae?: number | null
     rmse?: number | null
-    mape?: number | null
+    mape_or_null?: number | null
     r2?: number | null
+    evaluated_points?: number
     baseline_mae?: number | null
     skill_vs_baseline?: number | null
+    seasonal_baseline_mae?: number | null
+    skill_vs_seasonal_baseline?: number | null
+    climatology_baseline_mae?: number | null
+    skill_vs_climatology_baseline?: number | null
+    mae_by_lead?: Record<string, number | null>
+    climatology_mae_by_lead?: Record<string, number | null>
+    skillful_lead_days?: number
     horizon_days?: number
     split_strategy?: string
   }
+  skillful_lead_days?: number
   artifact_uri?: string | null
   artifact_format?: string
   status: 'training' | 'candidate' | 'active' | 'retired' | 'failed'
@@ -1926,6 +1935,8 @@ export interface HealthResponse {
   schema_version: number
   uptime_seconds: number
   processing_mode: string
+  /** Deployment label from ``DEPLOYMENT_ENVIRONMENT``. */
+  environment?: string
   components: ComponentStatus[]
   background: { executor: string; active_jobs: number; queued_jobs: number }
   request_id?: string
@@ -1933,7 +1944,8 @@ export interface HealthResponse {
 }
 
 export interface SystemStatusResponse extends HealthResponse {
-  environment: Record<string, unknown>
+  environment: string
+  config_summary?: Record<string, unknown>
   collection_counts: Record<string, number>
   jobs: { ingestion: Record<string, number>; processing: Record<string, number>; reports: Record<string, number> }
   ml: { models: Record<string, number>; predictions: number; active_model?: string | null }
@@ -1942,7 +1954,6 @@ export interface SystemStatusResponse extends HealthResponse {
   import_compat?: Record<string, unknown>
   alert_monitor?: Record<string, unknown>
   ingestion_scheduler?: Record<string, unknown>
-  config_summary?: Record<string, unknown>
 }
 
 /** `GET /system/audit` item - measured: no `created_at`, no `actor_name`. */

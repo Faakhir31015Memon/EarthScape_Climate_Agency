@@ -14,6 +14,7 @@ import {
   Database,
   MapPin,
   Sparkles,
+  UploadCloud,
 } from 'lucide-react'
 import api from '../../services/api'
 import { useAsync } from '../../hooks/useAsync'
@@ -154,6 +155,27 @@ export default function DashboardPage() {
               <StatCard label="Unread notifications" value={formatNumber(totals?.unread_notifications ?? 0, 0)} icon={<Bell className="h-4 w-4" />} to="/app/notifications" />
               <StatCard label="Predictions generated" value={formatNumber(totals?.predictions_generated ?? 0, 0)} to="/app/forecasts" />
             </div>
+          </section>
+
+          {/* --------------------------------------------------------- import */}
+          <section aria-label="Import your own data">
+            <Panel
+              title="Import your own data"
+              description="Send a spreadsheet or data file; the backend stores it, detects the format, maps the columns and runs the import against this workspace."
+              actions={<Link to="/app/uploads" className="link text-xs">Import page</Link>}
+            >
+              <div className="flex flex-wrap items-center gap-3">
+                <Link to="/app/uploads" className="btn btn-primary btn-sm">
+                  <UploadCloud className="h-4 w-4" aria-hidden="true" /> Import a file
+                </Link>
+                <span className="flex flex-wrap items-center gap-1.5 text-xs subtle">
+                  Accepts
+                  {['csv', 'xlsx', 'xlsm', 'xltx', 'xltm', 'xls', 'xlsb', 'ods', 'parquet', 'json', 'txt'].map((format) => (
+                    <span key={format} className="badge badge-neutral mono">{format}</span>
+                  ))}
+                </span>
+              </div>
+            </Panel>
           </section>
 
           {/* --------------------------------------------- sync + current data */}

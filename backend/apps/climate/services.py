@@ -2540,6 +2540,8 @@ def pipeline_status() -> Dict[str, Any]:
 
 def quick_actions(role: str, *, name: str = "", has_data: bool = True) -> List[Dict[str, Any]]:
     viewer = [
+        {"id": "import-data-file", "label": "Import a data file (CSV, Excel, ODS, Parquet, JSON)",
+         "route": "/datasets/upload", "requires": "viewer", "enabled": True},
         {"id": "open-climate-explorer", "label": "Open the climate explorer",
          "route": "/climate/explorer", "requires": "viewer",
          "enabled": has_data,

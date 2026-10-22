@@ -185,9 +185,9 @@ export default function AdminOverviewPage() {
               <Row label="Processing mode">{humanise(data.processing_mode)}</Row>
               <Row label="Environment">
                 <span className="flex flex-wrap items-center gap-2">
-                  <span className="mono text-[12px]">{String(data.environment?.environment ?? 'not reported')}</span>
-                  <Badge tone={data.environment?.debug === true ? 'warning' : 'success'} title="DJANGO_DEBUG">
-                    {data.environment?.debug === true ? 'debug on' : 'debug off'}
+                  <span className="mono text-[12px]">{String(data.config_summary?.environment ?? 'not reported')}</span>
+                  <Badge tone={data.config_summary?.debug === true ? 'warning' : 'success'} title="DJANGO_DEBUG">
+                    {data.config_summary?.debug === true ? 'debug on' : 'debug off'}
                   </Badge>
                 </span>
               </Row>
@@ -286,9 +286,9 @@ export default function AdminOverviewPage() {
         <Panel title="Secret material" description="Masked configuration summaries only — the backend never returns a secret value." className="min-w-0">
           {data ? (
             <div className="space-y-2">
-              <MaskedValue label="MONGODB_URI" value={data.environment?.mongo_uri} />
-              <MaskedValue label="REDIS_URL" value={data.environment?.redis_url} />
-              <MaskedValue label="NOAA_API_KEY" value={data.environment?.noaa_api_key} />
+              <MaskedValue label="MONGODB_URI" value={data.config_summary?.mongo_uri} />
+              <MaskedValue label="REDIS_URL" value={data.config_summary?.redis_url} />
+              <MaskedValue label="NOAA_API_KEY" value={data.config_summary?.noaa_api_key} />
               <p className="mt-2 text-xs leading-relaxed subtle">
                 Values are produced by <span className="mono">env.mask_value()</span> on the server: length and a three-character
                 prefix at most. This page has no reveal control, and copy actions elsewhere exclude secret fields.
@@ -436,13 +436,13 @@ interface ReadinessItem {
 
 /**
  * Builds the production-readiness checklist from real API payloads only:
- * `SystemStatusResponse.environment` (masked env summary) and `SettingsResponse.env_derived`.
+ * `SystemStatusResponse.config_summary` (masked env summary) and `SettingsResponse.env_derived`.
  */
 function buildReadiness(
   status: SystemStatusResponse | null,
   derived?: SettingsResponse['env_derived'],
 ): { items: ReadinessItem[]; missing: number } {
-  const environment = status?.environment ?? {}
+  const environment = status?.config_summary ?? {}
   const items: ReadinessItem[] = []
 
   const atlasRequired = derived?.force_atlas_connection ?? maskedConfigured(environment.atlas_required) ?? Boolean(environment.atlas_required)
@@ -535,8 +535,8 @@ function buildReadiness(
   items.push({
     label: 'Debug off + explicit allowed hosts',
     envKey: 'DJANGO_DEBUG=false, DJANGO_ALLOWED_HOSTS, FRONTEND_ORIGIN',
-    configured: status ? status.environment?.debug === false : null,
-    detail: `CORS allow-list: ${(status?.environment?.allowed_hosts as string[] | undefined)?.join(', ') ?? 'not reported'}.`,
+    configured: status ? status.config_summary?.debug === false : null,
+    detail: `CORS allow-list: ${(status?.config_summary?.allowed_hosts as string[] | undefined)?.join(', ') ?? 'not reported'}.`,
     impact: 'HSTS and secure cookies are only emitted when DJANGO_DEBUG is false.',
   })
 

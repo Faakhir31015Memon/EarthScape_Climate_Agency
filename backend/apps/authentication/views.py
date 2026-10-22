@@ -185,6 +185,7 @@ ROLE_CAPABILITIES = {
         "users:manage",
         "datasets:read",
         "datasets:manage",
+        "datasets:upload",
         "ingestion:read",
         "ingestion:run",
         "processing:read",
@@ -210,6 +211,7 @@ ROLE_CAPABILITIES = {
     "climate_analyst": [
         "datasets:read",
         "datasets:manage",
+        "datasets:upload",
         "ingestion:read",
         "ingestion:run",
         "processing:read",
@@ -231,6 +233,7 @@ ROLE_CAPABILITIES = {
     "viewer": [
         "climate:read",
         "datasets:read",
+        "datasets:upload",
         "analytics:read",
         "alerts:read",
         "reports:read",

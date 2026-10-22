@@ -14,7 +14,7 @@ from pymongo.errors import DuplicateKeyError
 
 from common.db import collection, find, insert_one, now_utc, oid, update_one
 from common.exceptions import Conflict, NotFound, Unauthorized, ValidationError
-from common.security import hash_password, is_valid_email, normalize_email, password_problems, sanitize_text
+from common.security import hash_password, normalize_email, password_problems, sanitize_text, valid_email
 
 ROLES = ("administrator", "climate_analyst", "viewer")
 ROLE_ALIASES = {
@@ -116,7 +116,7 @@ def create_user(*, full_name: str, email: str, password: str, role: str = "viewe
     normalized = normalize_email(email)
     if len(clean_name) < 2:
         raise ValidationError("Full name must contain at least 2 characters.")
-    if not is_valid_email(normalized):
+    if not valid_email(normalized):
         raise ValidationError("Enter a valid email address.")
     problems = password_problems(password)
     if problems:

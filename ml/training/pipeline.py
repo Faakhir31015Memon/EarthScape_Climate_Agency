@@ -293,10 +293,12 @@ def run_training(*, target_variable: str,
     y_train = train_frame["y"].astype(float).to_numpy()
 
     # ------------------------------------------------------------- 7. baselines
-    progress("fitting naive and seasonal-naive baselines", 30)
+    progress("fitting naive, seasonal-naive and climatology baselines", 30)
     naive_pairs: List[Tuple[float, float]] = []
     seasonal_pairs: List[Tuple[float, float]] = []
-    for loc, (eval_days, actuals, _) in eval_sets.items():
+    climatology_pairs: List[Tuple[float, float]] = []
+    climatology_step_pairs: List[Tuple[int, float, float]] = []
+    for loc, (eval_days, actuals, template) in eval_sets.items():
         last_real = None
         for day in sorted(actuals):
             if day < split_day and actuals[day] is not None:
@@ -307,12 +309,24 @@ def run_training(*, target_variable: str,
         seasonal = seasonal_naive(actuals, (split_day - timedelta(days=1)).toordinal(), eval_days)
         seasonal_pairs.extend((actuals[day], seasonal[day]) for day in eval_days
                               if day in seasonal and actuals[day] is not None)
+        # The anchor a long-lead forecast can fall back to: the (region, month) climatology
+        # frozen from the training window - the same value the features were built from.
+        for day in eval_days:
+            anchor = template.baseline_mean(day.month)
+            if anchor is None or actuals.get(day) is None:
+                continue
+            climatology_pairs.append((actuals[day], anchor))
+            climatology_step_pairs.append(((day - split_day).days + 1, actuals[day], anchor))
     naive_mae = ml_metrics.mae(naive_pairs)
     seasonal_mae = ml_metrics.mae(seasonal_pairs)
+    climatology_mae = ml_metrics.mae(climatology_pairs)
+    climatology_by_lead = ml_metrics.mae_by_lead(climatology_step_pairs)
     baseline_payload = {
         "naive_baseline": ml_metrics.evaluate(naive_pairs),
         "seasonal_baseline": ml_metrics.evaluate(seasonal_pairs),
+        "climatology_baseline": ml_metrics.evaluate(climatology_pairs, naive_mae),
     }
+    climatology_bands = ml_metrics.per_step_residual_quantiles(climatology_step_pairs, eval_horizon)
 
     # ---------------------------------------- 8/9/10. fit, evaluate, uncertainty
     results: List[Dict[str, Any]] = []
@@ -358,6 +372,9 @@ def run_training(*, target_variable: str,
                 step_pairs.append(((day - split_day).days + 1, actual, predicted))
         measured = ml_metrics.evaluate(pairs, naive_mae)
         bands = ml_metrics.per_step_residual_quantiles(step_pairs, eval_horizon)
+        model_by_lead = ml_metrics.mae_by_lead(step_pairs)
+        skillful_lead = ml_metrics.skillful_lead_days(model_by_lead, climatology_by_lead,
+                                                      eval_horizon)
         uncertainty_method = UNCERTAINTY_METHOD if any(b is not None for b in bands) else None
         duration = round(time.monotonic() - algo_started, 2)
 
@@ -367,10 +384,16 @@ def run_training(*, target_variable: str,
             "estimator": estimator,
             "metrics": {**measured,
                         "seasonal_baseline_mae": seasonal_mae,
-                        "horizon_days": eval_horizon,
-                        "split_strategy": "chronological",
+                        "climatology_baseline_mae": climatology_mae,
                         "skill_vs_seasonal_baseline": ml_metrics.skill_vs_baseline(
-                            measured["mae"], seasonal_mae)},
+                            measured["mae"], seasonal_mae),
+                        "skill_vs_climatology_baseline": ml_metrics.skill_vs_baseline(
+                            measured["mae"], climatology_mae),
+                        "mae_by_lead": model_by_lead,
+                        "climatology_mae_by_lead": climatology_by_lead,
+                        "skillful_lead_days": skillful_lead,
+                        "horizon_days": eval_horizon,
+                        "split_strategy": "chronological"},
             "train_size": int(len(train_frame)),
             "test_size": int(len(pairs)),
             "uncertainty_bands": bands,
@@ -379,6 +402,8 @@ def run_training(*, target_variable: str,
             "duration_seconds": duration,
             "naive_baseline": baseline_payload["naive_baseline"],
             "seasonal_baseline": baseline_payload["seasonal_baseline"],
+            "climatology_baseline": baseline_payload["climatology_baseline"],
+            "climatology_uncertainty_bands": climatology_bands,
         })
 
     trained = [item for item in results if item.get("status") == "trained"]
@@ -397,7 +422,8 @@ def run_training(*, target_variable: str,
     comparison_table = ml_metrics.holdout_comparison_table([
         {"algorithm": item["algorithm"], "metrics": item["metrics"],
          "train_size": item["train_size"], "test_size": item["test_size"],
-         "naive_baseline": item["naive_baseline"], "seasonal_baseline": item["seasonal_baseline"]}
+         "naive_baseline": item["naive_baseline"], "seasonal_baseline": item["seasonal_baseline"],
+         "climatology_baseline": item["climatology_baseline"]}
         for item in trained])
 
     for item in trained:
@@ -415,6 +441,8 @@ def run_training(*, target_variable: str,
                            ("baselines", "covariates", "lags", "windows",
                             "anomaly_windows", "feature_names", "imputation") if key in preprocess},
             "uncertainty_bands": item["uncertainty_bands"],
+            "climatology_uncertainty_bands": item["climatology_uncertainty_bands"],
+            "skillful_lead_days": item["metrics"]["skillful_lead_days"],
             "evaluated_horizon_days": item["metrics"]["horizon_days"],
             "locations_in_scope": period["locations"],
             "model_name": doc["name"],
@@ -427,6 +455,7 @@ def run_training(*, target_variable: str,
         doc["artifact_uri"] = storage_paths.stored_key(artifact_path)
         doc["artifact_format"] = "joblib"
         doc["duration_seconds"] = item["duration_seconds"]
+        doc["skillful_lead_days"] = item["metrics"]["skillful_lead_days"]
         doc.pop("estimator", None)
 
         if precreated_by_algo.get(item["algorithm"]) is not None:

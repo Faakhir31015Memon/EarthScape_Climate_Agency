@@ -699,6 +699,7 @@ def _health_payload(*, include_counts: bool) -> Dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "uptime_seconds": round(time.monotonic() - START_MONOTONIC, 3),
         "processing_mode": _current_processing_mode(),
+        "environment": env.summary().get("environment", "development"),
         "components": components,
         "background": {
             "executor": background_tasks.backend(),

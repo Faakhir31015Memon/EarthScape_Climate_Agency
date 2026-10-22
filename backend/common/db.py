@@ -16,7 +16,7 @@ from bson.errors import InvalidId
 from pymongo import MongoClient
 from pymongo.errors import ConfigurationError, ConnectionFailure, OperationFailure, PyMongoError
 
-from common.env import ENV
+from common.env import ENV, resolve_mongodb_uri
 
 COLLECTIONS: dict[str, str] = {
     "users": "users",
@@ -63,11 +63,12 @@ def client() -> MongoClient:
     """Return a lazily created, process-wide pooled client."""
     with _lock:
         if _state["client"] is None:
-            uri = ENV.raw("MONGODB_URI")
+            uri = resolve_mongodb_uri()
             if not uri:
                 raise ConfigurationError(
-                    "MONGODB_URI is not configured. Copy .env.example to .env and set a MongoDB "
-                    "Atlas or local mongod connection string."
+                    "MONGODB_URI is not usable. Copy .env.example to .env and set MONGODB_URI "
+                    "together with MONGODB_ATLAS_USER / MONGODB_ATLAS_PASSWORD (a URI still "
+                    "holding a <username> placeholder counts as unset)."
                 )
             _state["client"] = MongoClient(
                 uri,

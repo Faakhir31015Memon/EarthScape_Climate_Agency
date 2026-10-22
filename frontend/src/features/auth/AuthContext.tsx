@@ -45,6 +45,7 @@ const ROLE_CAPABILITIES: Record<Role, string[]> = {
     'users:manage',
     'datasets:read',
     'datasets:manage',
+    'datasets:upload',
     'ingestion:read',
     'ingestion:run',
     'processing:read',
@@ -70,6 +71,7 @@ const ROLE_CAPABILITIES: Record<Role, string[]> = {
   climate_analyst: [
     'datasets:read',
     'datasets:manage',
+    'datasets:upload',
     'ingestion:read',
     'ingestion:run',
     'processing:read',
@@ -91,6 +93,7 @@ const ROLE_CAPABILITIES: Record<Role, string[]> = {
   viewer: [
     'climate:read',
     'datasets:read',
+    'datasets:upload',
     'analytics:read',
     'alerts:read',
     'reports:read',

@@ -25,7 +25,10 @@ from common.logging_config import get_logger
 logger = get_logger("earthscape.uploads")
 
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
-EXTENSIONS = {"csv", "tsv", "txt", "json", "jsonl", "xls", "xlsx"}
+EXTENSIONS = {"csv", "tsv", "txt", "json", "jsonl",
+              "xls", "xlsx", "xlsm", "xlsb", "xltx", "xltm", "ods"}
+SPREADSHEET_FORMATS = {"xls", "xlsx", "xlsm", "xlsb", "xltx", "xltm", "ods"}
+ZIP_FORMATS = {"xlsx", "xlsm", "xltx", "xltm", "ods"}
 MAX_PREVIEW_COLUMNS = 40
 UPLOAD_ROOT = Path(settings.APP.get("UPLOAD_TEMP_DIR", "artifacts/uploads"))
 
@@ -74,8 +77,8 @@ def detect_format(filename: str) -> str:
         return "csv"
     if ext == "tsv":
         return "tsv"
-    if ext in {"xls", "xlsx"}:
-        return "excel"
+    if ext in SPREADSHEET_FORMATS:
+        return ext
     if ext == "jsonl":
         return "jsonl"
     if ext == "json":
@@ -104,11 +107,11 @@ def store_upload(django_file) -> StoredFile:
         pass
     if head.startswith(b"%PDF"):
         raise ValidationError("That file is a PDF, not a supported data file.", code="content_mismatch")
-    if head.startswith(b"MZ") or (head.startswith(b"PK\x03\x04") and fmt != "xlsx"):
+    if head.startswith(b"MZ") or (head.startswith(b"PK\x03\x04") and fmt not in ZIP_FORMATS):
         raise ValidationError("File content does not match an allowed data format.", code="content_mismatch")
 
     ref = f"upl_{uuid.uuid4().hex[:16]}"
-    path = _upload_root() / f"{ref}.{fmt if fmt != 'excel' else original_name.rsplit('.', 1)[-1]}"
+    path = _upload_root() / f"{ref}.{fmt}"
     digest = hashlib.sha256()
     written = 0
     with path.open("wb") as handle:
@@ -161,8 +164,7 @@ def resolve(ref: str) -> StoredFile:
         raise ValidationError("Validation session not found. Upload the file again.",
                               code="upload_not_found")
     path = matches[0]
-    fmt = path.suffix.lstrip(".")
-    fmt = {"xls": "excel", "xlsx": "excel"}.get(fmt, fmt)
+    fmt = path.suffix.lstrip(".").lower()
     return StoredFile(
         ref=safe,
         path=path,
@@ -214,8 +216,8 @@ def iter_rows(stored: StoredFile, max_rows: int | None = None) -> Iterator[dict]
         yield from _iter_jsonl(stored.path, limit)
     elif stored.fmt == "json":
         yield from _iter_json_doc(stored.path, limit)
-    elif stored.fmt == "excel":
-        yield from _iter_excel(stored.path, limit)
+    elif stored.fmt in SPREADSHEET_FORMATS or stored.fmt == "excel":
+        yield from _iter_spreadsheet(stored.path, stored.fmt, limit)
     else:
         raise ValidationError(f"Cannot read format '{stored.fmt}'.", code="unsupported_format")
 
@@ -280,25 +282,16 @@ def _iter_json_doc(path: Path, limit: int) -> Iterator[dict]:
                 yield row
 
 
-def _iter_excel(path: Path, limit: int) -> Iterator[dict]:
-    from openpyxl import load_workbook
+def _iter_spreadsheet(path: Path, fmt: str, limit: int) -> Iterator[dict]:
+    """Stream any supported workbook through the shared file_import readers."""
+    from apps.datasets import file_import
 
-    workbook = load_workbook(filename=str(path), read_only=True, data_only=True)
-    sheet = workbook[workbook.sheetnames[0]]
-    header: list[str] | None = None
-    emitted = 0
+    reader_format = "xlsx" if fmt == "excel" else fmt
     try:
-        for raw in sheet.iter_rows(values_only=True):
-            if header is None:
-                header = [str(col).strip() if col is not None else f"column_{i}"
-                          for i, col in enumerate(raw)]
-                continue
-            if emitted >= limit:
-                break
-            yield {header[i]: (raw[i] if i < len(raw) else None) for i in range(len(header))}
-            emitted += 1
-    finally:
-        workbook.close()
+        for _, record in file_import.open_file(str(path), reader_format, max_rows=limit):
+            yield record
+    except file_import.FileImportError as exc:
+        raise ValidationError(str(exc), code="content_mismatch") from exc
 
 
 def _column_type(values: list) -> str:

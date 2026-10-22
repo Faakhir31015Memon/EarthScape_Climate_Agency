@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { CloudUpload, Database, ServerCog, X } from 'lucide-react'
+import { Database, ServerCog, X } from 'lucide-react'
 import api from '../services/api'
 import { useAsync } from '../hooks/useAsync'
 import { humanise } from '../lib/format'
 
 /**
- * Honest infrastructure status: when Atlas or a cluster is not configured the platform
- * says so instead of pretending production services are live.
+ * A warning strip for the one infrastructure state a visitor can act on: the application
+ * database is not the configured Atlas cluster. Optional engines (Hadoop, Spark, HDFS,
+ * Kafka) degrade on their own pages and are not announced to every visitor.
  */
 export function EnvironmentBanner({ variant = 'app' }: { variant?: 'app' | 'public' }) {
   const [dismissed, setDismissed] = useState(false)
@@ -14,10 +15,7 @@ export function EnvironmentBanner({ variant = 'app' }: { variant?: 'app' | 'publ
 
   if (dismissed || !data) return null
   const databaseMode = data.database?.mode ?? 'unknown'
-  const processingMode = data.processing_mode ?? 'unknown'
-  const atlas = databaseMode === 'atlas'
-  const hdfs = processingMode.includes('hdfs') || processingMode === 'cluster'
-  if (atlas && hdfs) return null
+  if (databaseMode === 'atlas') return null
 
   return (
     <div
@@ -27,21 +25,13 @@ export function EnvironmentBanner({ variant = 'app' }: { variant?: 'app' | 'publ
     >
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-5 gap-y-1">
         <span className="inline-flex items-center gap-1.5 font-semibold">
-          <ServerCog className="h-3.5 w-3.5" aria-hidden="true" /> Development environment
+          <ServerCog className="h-3.5 w-3.5" aria-hidden="true" /> {humanise(data.environment ?? 'unknown')} environment
         </span>
-        {!atlas ? (
-          <span className="inline-flex flex-wrap items-center gap-1.5">
-            <Database className="h-3.5 w-3.5" aria-hidden="true" />
-            Document store: <strong>{humanise(databaseMode)}</strong> — set <span className="kbd">MONGODB_URI</span> and{' '}
-            <span className="kbd">FORCE_ATLAS_CONNECTION=true</span> for Atlas.
-          </span>
-        ) : null}
-        {!hdfs ? (
-          <span className="inline-flex flex-wrap items-center gap-1.5">
-            <CloudUpload className="h-3.5 w-3.5" aria-hidden="true" />
-            Analytical storage: <strong>{humanise(processingMode)}</strong> — Hadoop/Spark cluster not detected.
-          </span>
-        ) : null}
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          <Database className="h-3.5 w-3.5" aria-hidden="true" />
+          Document store: <strong>{humanise(databaseMode)}</strong> — set <span className="kbd">MONGODB_URI</span> and{' '}
+          <span className="kbd">FORCE_ATLAS_CONNECTION=true</span> for Atlas.
+        </span>
         <button type="button" className="ml-auto subtle hover:text-[var(--text)]" onClick={() => setDismissed(true)} aria-label="Hide environment notice">
           <X className="h-3.5 w-3.5" />
         </button>

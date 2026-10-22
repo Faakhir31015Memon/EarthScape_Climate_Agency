@@ -142,7 +142,9 @@ MAX_UPLOAD_ROWS = env.get_int("MAX_UPLOAD_ROWS", 500000)
 DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_BYTES
 FILE_UPLOAD_MAX_MEMORY_SIZE = min(10_485_760, MAX_UPLOAD_BYTES)
 ALLOWED_UPLOAD_EXTENSIONS = env.get_list(
-    "ALLOWED_UPLOAD_EXTENSIONS", [".csv", ".json", ".xlsx", ".xls", ".parquet", ".txt", ".nc"]
+    "ALLOWED_UPLOAD_EXTENSIONS",
+    [".csv", ".json", ".txt", ".nc", ".parquet",
+     ".xls", ".xlsx", ".xlsm", ".xlsb", ".xltx", ".xltm", ".ods"],
 )
 
 # ----------------------------------------------------------- runtime defaults

@@ -100,6 +100,15 @@ def mask_value(value: Optional[str]) -> str:
     return f"configured ({value[:3]}…{len(value)} chars)"
 
 
+def usable_mongodb_uri() -> Optional[str]:
+    """Resolved Atlas URI, or None while placeholders remain unfilled."""
+    try:
+        from common.env import resolve_mongodb_uri
+    except ImportError:  # pragma: no cover - backend must be on sys.path
+        return get_raw("MONGODB_URI")
+    return resolve_mongodb_uri() or None
+
+
 def validate_startup(*, require_atlas: bool = False) -> List[str]:
     """Validate configuration. Returns human-safe warnings, raises on hard errors."""
     warnings: List[str] = []
@@ -109,15 +118,18 @@ def validate_startup(*, require_atlas: bool = False) -> List[str]:
             "DJANGO_SECRET_KEY is required. Copy .env.example to .env and set it."
         )
 
-    uri = get_raw("MONGODB_URI")
+    uri = usable_mongodb_uri()
     if require_atlas and not uri:
         raise ConfigurationError(
-            "MONGODB_URI is required when FORCE_ATLAS_CONNECTION=true."
+            "MONGODB_URI is required when FORCE_ATLAS_CONNECTION=true. Set "
+            "MONGODB_ATLAS_USER / MONGODB_ATLAS_PASSWORD if the URI still holds placeholders."
         )
     if not uri:
         warnings.append(
-            "MONGODB_URI is not configured - the backend runs in local document-store "
-            "mode (see backend/common/database.py). Set MONGODB_URI to use MongoDB Atlas."
+            "MONGODB_URI is not usable (missing, or a <username>/<password> placeholder was "
+            "never filled) - the backend runs in local document-store mode "
+            "(see backend/common/database.py). Set MONGODB_URI plus MONGODB_ATLAS_USER to use "
+            "MongoDB Atlas."
         )
 
     if get_bool("DJANGO_DEBUG") and get_bool("FORCE_ATLAS_CONNECTION"):
@@ -143,7 +155,7 @@ def summary() -> Dict[str, Any]:
         "debug": get_bool("DJANGO_DEBUG"),
         "allowed_hosts": get_list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"]),
         "mongo_database": get_str("MONGODB_DATABASE", "earthscape_climate"),
-        "mongo_uri": mask_value(get_raw("MONGODB_URI")),
+        "mongo_uri": mask_value(usable_mongodb_uri()),
         "atlas_required": get_bool("FORCE_ATLAS_CONNECTION"),
         "hdfs_endpoint": get_raw("HDFS_ENDPOINT") or "not configured",
         "spark_master": get_raw("SPARK_MASTER") or "not configured",

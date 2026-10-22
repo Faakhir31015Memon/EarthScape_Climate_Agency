@@ -1,0 +1,4 @@
+﻿observation_date,station,latitude,longitude,temperature_c,precipitation_mm
+2024-01-01,Karachi-CLB,24.8607,67.0011,19.4,0.0
+2024-01-02,Karachi-CLB,24.8607,67.0011,20.1,0.4
+2024-01-03,Karachi-CLB,24.8607,67.0011,21.3,0.0

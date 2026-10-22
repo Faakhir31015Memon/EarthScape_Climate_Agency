@@ -129,12 +129,15 @@ export function severityTone(severity?: Severity | string | null): 'neutral' | '
   }
 }
 
+const PROPER_NAMES: Record<string, string> = { pyspark: 'PySpark', mapreduce: 'MapReduce' }
+
 export function humanise(value?: string | null): string {
   if (!value) return ''
   return value
     .replaceAll('_', ' ')
     .split(' ')
-    .map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .map((word, index) => PROPER_NAMES[word.toLowerCase()]
+      ?? (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
     .join(' ')
 }
 

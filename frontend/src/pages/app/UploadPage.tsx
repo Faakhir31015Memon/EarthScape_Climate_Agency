@@ -93,7 +93,7 @@ function fieldLabel(field: string): string {
 export default function UploadPage() {
   const { can } = useAuth()
   const toast = useToast()
-  const canUpload = can('datasets:manage')
+  const canUpload = can('datasets:upload')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -207,11 +207,13 @@ export default function UploadPage() {
 
   const formatRule = useMemo(() => {
     if (!extension || !formatsState.data) return null
-    const id = extension === '.xls' || extension === '.xlsx' ? 'xlsx' : extension.replace('.', '')
+    const id = extension.replace('.', '')
     return formatsState.data.formats.find((item) => item.format === id) ?? null
   }, [extension, formatsState.data])
 
-  const acceptList = allowedExtensions.length > 0 ? allowedExtensions.join(',') : '.csv,.json,.xlsx,.xls,.parquet'
+  const acceptList = allowedExtensions.length > 0
+    ? allowedExtensions.join(',')
+    : '.csv,.json,.txt,.xls,.xlsx,.xlsm,.xlsb,.xltx,.xltm,.ods,.parquet'
 
   /* ------------------------------------------------------------ actions */
 
@@ -426,8 +428,8 @@ export default function UploadPage() {
       {!canUpload ? (
         <EmptyState
           tone="warning"
-          title="Uploading requires the datasets:manage capability"
-          description="Only administrators and climate analysts can register datasets. Ask an administrator to grant your account the datasets:manage capability."
+          title="Importing requires the datasets:upload capability"
+          description="Your session has not been issued the datasets:upload capability. Sign out and sign in again to refresh it; every signed-in account can import its own data files."
           action={
             <Link to="/app/datasets" className="btn btn-secondary btn-sm">
               Back to the dataset library

@@ -354,10 +354,18 @@ function ModelDetail({
             items={[
               { label: 'MAE', value: <Num value={metrics.mae} unit={unitOf(model)} /> },
               { label: 'RMSE', value: <Num value={metrics.rmse} unit={unitOf(model)} /> },
-              { label: 'MAPE', value: <Num value={metrics.mape} unit="%" /> },
+              { label: 'MAPE', value: <Num value={metrics.mape_or_null} unit="%" /> },
               { label: 'R²', value: <Num value={metrics.r2} /> },
               { label: 'Baseline MAE', value: <Num value={metrics.baseline_mae} unit={unitOf(model)} /> },
               { label: 'Skill vs baseline', value: <Num value={metrics.skill_vs_baseline} /> },
+              { label: 'Climatology MAE', value: <Num value={metrics.climatology_baseline_mae} unit={unitOf(model)} /> },
+              { label: 'Skill vs climatology', value: <Num value={metrics.skill_vs_climatology_baseline} /> },
+              {
+                label: 'Trustworthy lead',
+                value: metrics.skillful_lead_days != null
+                  ? `${metrics.skillful_lead_days} day${metrics.skillful_lead_days === 1 ? '' : 's'} (then climatology)`
+                  : '—',
+              },
               { label: 'Split strategy', value: metrics.split_strategy ? <Mono>{metrics.split_strategy}</Mono> : '—' },
               { label: 'Horizon', value: metrics.horizon_days != null ? `${metrics.horizon_days} days` : '—' },
             ]}

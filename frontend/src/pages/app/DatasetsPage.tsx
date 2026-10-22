@@ -51,7 +51,7 @@ const SOURCE_OPTIONS: { value: SourceType; label: string }[] = [
 export default function DatasetsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { can, hasRole } = useAuth()
+  const { can } = useAuth()
 
   const [term, setTerm] = useState(searchParams.get('query') ?? '')
   const debouncedTerm = useDebouncedValue(term, 350)
@@ -109,7 +109,7 @@ export default function DatasetsPage() {
     return map
   }, [jobsState.data])
 
-  const canUpload = can('datasets:manage') || hasRole('administrator', 'climate_analyst')
+  const canUpload = can('datasets:upload')
 
   const columns = useMemo<Column<Dataset>[]>(
     () => [
@@ -182,16 +182,16 @@ export default function DatasetsPage() {
             <RefreshButton onClick={() => void state.refetch()} busy={state.refreshing} />
             {canUpload ? (
               <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate('/app/uploads')}>
-                <Plus className="h-4 w-4" aria-hidden="true" /> Upload dataset
+                <Plus className="h-4 w-4" aria-hidden="true" /> Import data
               </button>
             ) : (
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 disabled
-                title="Uploading datasets requires the datasets:manage capability (analyst or administrator). Viewers can browse but not add data."
+                title="This session has not been issued the datasets:upload capability — sign out and sign in again to refresh it."
               >
-                <Upload className="h-4 w-4" aria-hidden="true" /> Upload dataset
+                <Upload className="h-4 w-4" aria-hidden="true" /> Import data
               </button>
             )}
           </div>

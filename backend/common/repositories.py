@@ -128,8 +128,12 @@ class Repository:
 
     def stream(self, query: Dict[str, Any], projection: Optional[Dict[str, Any]] = None,
                sort: Optional[Sequence[Tuple[str, int]]] = None, batch_size: int = 2000):
-        """Server-side cursor for large exports / ML feature builds."""
-        cursor = self.coll.find(query, projection, no_cursor_timeout=True)
+        """Server-side cursor for large exports / ML feature builds.
+
+        Atlas shared tiers reject pinned (noTimeout) cursors outright, so the cursor is
+        left unpinned here; the batch size keeps it active while a caller reads in order.
+        """
+        cursor = self.coll.find(query, projection)
         if sort:
             cursor = cursor.sort(list(sort))
         return (_utc_moments(document) for document in cursor.batch_size(batch_size))

@@ -19,7 +19,8 @@ from rest_framework.response import Response
 
 from apps.datasets import file_import, importer, serializers as dataset_serializers
 from common import audit, storage_paths, validators
-from common.api import ADMINISTRATOR, CLIMATE_ANALYST, AdministratorOrAnalyst, ApiError, IsAdministrator
+from common.api import ADMINISTRATOR, CLIMATE_ANALYST, ApiError, IsAdministrator, \
+    IsAuthenticatedAccount
 from common.repositories import datasets as datasets_repository, ingestion_jobs, maybe_object_id, \
     serialize, utcnow
 from common.views import AuthenticatedView, bool_param, int_param, str_param
@@ -28,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 SOURCE_TYPES = ("nasa_power", "noaa", "live_api", "university_upload", "sample")
 STATUSES = ("draft", "validating", "validated", "ingesting", "ready", "failed", "archived")
-FORMATS = ("csv", "json", "xlsx", "parquet", "api")
+FORMATS = ("csv", "json", "xlsx", "xlsm", "xltx", "xltm", "xls", "xlsb", "ods",
+           "parquet", "api")
 
 VALIDATE_ROW_CAP = 50000
 PREVIEW_READ_CAP = 400
@@ -84,7 +86,9 @@ class DatasetListView(AuthenticatedView):
 
 # ----------------------------------------------------------------------- upload
 class DatasetUploadView(AuthenticatedView):
-    permission_classes = [AdministratorOrAnalyst]
+    # Bringing your own data file is the platform's core user action, so every signed-in
+    # role may do it; archive/delete and other administrative writes stay role-gated.
+    permission_classes = [IsAuthenticatedAccount]
 
     def post(self, request):
         user = self.current_user(request)
@@ -189,7 +193,7 @@ class DatasetDetailView(AuthenticatedView):
 
 # ------------------------------------------------------------------- validate
 class DatasetValidateView(AuthenticatedView):
-    permission_classes = [AdministratorOrAnalyst]
+    permission_classes = [IsAuthenticatedAccount]
 
     def post(self, request, dataset_id: str):
         user = self.current_user(request)
@@ -237,7 +241,7 @@ class DatasetPreviewView(AuthenticatedView):
 
 # --------------------------------------------------------------------- ingest
 class DatasetIngestView(AuthenticatedView):
-    permission_classes = [AdministratorOrAnalyst]
+    permission_classes = [IsAuthenticatedAccount]
 
     def post(self, request, dataset_id: str):
         user = self.current_user(request)
@@ -332,7 +336,7 @@ class DatasetDownloadView(AuthenticatedView):
 
 # ------------------------------------------------------------- column suggestion
 class ColumnSuggestionView(AuthenticatedView):
-    permission_classes = [AdministratorOrAnalyst]
+    permission_classes = [IsAuthenticatedAccount]
 
     def post(self, request):
         serializer = dataset_serializers.ColumnSuggestionSerializer(data=request.data)
@@ -383,8 +387,8 @@ def _present(dataset: Optional[Dict[str, Any]], user) -> Dict[str, Any]:
         dataset.get("uploaded_by") == user.id
     if not include_storage:
         dataset = {key: value for key, value in dataset.items() if key != "storage_uri"}
-    dataset["can_edit"] = role in (ADMINISTRATOR, CLIMATE_ANALYST)
     dataset["is_owner"] = str(dataset.get("uploaded_by")) == str(user.id)
+    dataset["can_edit"] = role in (ADMINISTRATOR, CLIMATE_ANALYST) or dataset["is_owner"]
     return dataset
 
 
@@ -412,8 +416,15 @@ def _require_read(user, dataset, *, allow_public: bool = False) -> None:
 
 
 def _require_write(user, dataset) -> None:
-    if user.role not in (ADMINISTRATOR, CLIMATE_ANALYST):
-        raise ApiError("permission_denied", "Climate analyst or administrator role required.", status=403)
+    if user.role in (ADMINISTRATOR, CLIMATE_ANALYST):
+        return
+    # A viewer owns the import they started: correcting its mapping, validating or
+    # re-running it must not require an analyst role.
+    if str(dataset.get("uploaded_by")) == str(user.id):
+        return
+    raise ApiError("permission_denied",
+                   "Only an administrator, a climate analyst or the account that uploaded "
+                   "this dataset can change it.", status=403)
 
 
 def _storage_path(dataset: Dict[str, Any]) -> Optional[Path]:
@@ -465,9 +476,12 @@ def _validate_metadata(request) -> Dict[str, Any]:
         "default_location_code": _first(data, "default_location_code", ""),
         "default_region_code": _first(data, "default_region_code", ""),
         "default_country": _first(data, "default_country", ""),
-        "default_latitude": _first(data, "default_latitude", "") or "",
-        "default_longitude": _first(data, "default_longitude", "") or "",
     }
+    # An omitted coordinate must stay absent: FloatField rejects the empty string.
+    for field in ("default_latitude", "default_longitude"):
+        value = str(_first(data, field, "") or "").strip()
+        if value:
+            coerced[field] = value
     serializer = dataset_serializers.DatasetUploadMetadataSerializer(data=coerced)
     serializer.is_valid(raise_exception=True)
     return serializer.validated_data
@@ -492,6 +506,19 @@ def _resolve_mapping(metadata: Dict[str, Any], headers: List[str]) -> Dict[str, 
     cleaned = {field_name: header for field_name, header in mapping.items()
                if header in header_set}
     return cleaned
+
+
+def _stored_format(detected: str, file_name: str) -> str:
+    """Label a dataset with the format a reader will use.
+
+    An encrypted container hides its real type, so the declared extension carries it;
+    ``sniff_format`` already rejects an extension that cannot hold the sniffed content.
+    """
+    if detected == "encrypted":
+        extension = Path(file_name).suffix.lstrip(".").lower()
+        if extension in FORMATS:
+            return extension
+    return detected if detected in FORMATS else "csv"
 
 
 def _create_dataset_document(user, metadata, stored, detected, headers, mapping) -> Dict[str, Any]:
@@ -528,7 +555,7 @@ def _create_dataset_document(user, metadata, stored, detected, headers, mapping)
         "source_url": metadata.get("source_url") or None,
         "file_name": Path(stored["original_name"]).name,
         "storage_uri": storage_paths.stored_key(stored["path"]),
-        "format": detected if detected in FORMATS else "csv",
+        "format": _stored_format(detected, stored["original_name"]),
         "schema_version": validators.SCHEMA_VERSION,
         "geographic_coverage": coverage,
         "temporal_coverage": {"start": None, "end": None, "years": [], "frequency": "unknown"},
@@ -675,7 +702,28 @@ def _format_documentation() -> List[Dict[str, Any]]:
          "notes": "Arrays and NDJSON stream without loading the whole file; other shapes are size-guarded."},
         {"format": "xlsx", "required_columns": required_core,
          "optional_columns": dataset_serializers.MAPPABLE_FIELDS, "unit_rules": _unit_rules(),
-         "notes": "First worksheet, read_only streaming; header on the first row."},
+         "notes": "First worksheet, header on the first row; values are read, not formulas. The "
+                  "same reader also accepts .xlsm, .xltx and .xltm."},
+        {"format": "xlsm", "required_columns": required_core,
+         "optional_columns": dataset_serializers.MAPPABLE_FIELDS, "unit_rules": _unit_rules(),
+         "notes": "Macro-enabled workbook: only cell values are read and the macro stream is "
+                  "never executed."},
+        {"format": "xltx", "required_columns": required_core,
+         "optional_columns": dataset_serializers.MAPPABLE_FIELDS, "unit_rules": _unit_rules(),
+         "notes": "OOXML worksheet template; .xltm is read the same way."},
+        {"format": "xltm", "required_columns": required_core,
+         "optional_columns": dataset_serializers.MAPPABLE_FIELDS, "unit_rules": _unit_rules(),
+         "notes": "Macro-enabled template workbook: only cell values are read."},
+        {"format": "xls", "required_columns": required_core,
+         "optional_columns": dataset_serializers.MAPPABLE_FIELDS, "unit_rules": _unit_rules(),
+         "notes": "Legacy BIFF workbook via xlrd; capped at 256 MB because it is parsed whole."},
+        {"format": "xlsb", "required_columns": required_core,
+         "optional_columns": dataset_serializers.MAPPABLE_FIELDS, "unit_rules": _unit_rules(),
+         "notes": "Excel binary workbook streamed with pyxlsb, first sheet."},
+        {"format": "ods", "required_columns": required_core,
+         "optional_columns": dataset_serializers.MAPPABLE_FIELDS, "unit_rules": _unit_rules(),
+         "notes": "LibreOffice/OpenDocument spreadsheet; repeated empty columns are capped by "
+                  "ODS_MAX_COLUMN_REPEAT."},
         {"format": "parquet", "required_columns": required_core,
          "optional_columns": dataset_serializers.MAPPABLE_FIELDS, "unit_rules": _unit_rules(),
          "notes": "Streamed row-group batches via PyArrow when available."},

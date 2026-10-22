@@ -52,6 +52,44 @@ def skill_vs_baseline(model_mae: Optional[float], baseline_mae: Optional[float])
     return round(1.0 - model_mae / baseline_mae, 4)
 
 
+# Coarse lead-time axis. A recursive forecast is only trusted as far as it demonstrably
+# removes error against the climatology anchor, and that crossover is read off these
+# buckets (see ``skillful_lead_days`` and ml.inference.predictor.forecast).
+LEAD_BUCKETS: Tuple[Tuple[str, int], ...] = (
+    ("1-7d", 7), ("8-14d", 14), ("15-30d", 30), ("31-60d", 60),
+    ("61-90d", 90), ("91-180d", 180), ("181-365d", 365), ("366d+", 36500),
+)
+
+
+def mae_by_lead(step_pairs: Sequence[Tuple[int, float, float]],
+                buckets: Sequence[Tuple[str, int]] = LEAD_BUCKETS) -> Dict[str, Optional[float]]:
+    """MAE of a forecaster inside each lead-time bucket; buckets with no points stay None."""
+    groups: Dict[str, List[Tuple[float, float]]] = {}
+    for step, actual, predicted in step_pairs:
+        for name, upper in buckets:
+            if int(step) <= upper:
+                groups.setdefault(name, []).append((actual, predicted))
+                break
+    return {name: (mae(groups[name]) if name in groups else None) for name, _ in buckets}
+
+
+def skillful_lead_days(model_by_lead: Dict[str, Optional[float]],
+                       anchor_by_lead: Dict[str, Optional[float]],
+                       horizon: int,
+                       buckets: Sequence[Tuple[str, int]] = LEAD_BUCKETS) -> int:
+    """Last lead the model still wins, counting from day 1 and stopping at the first loss."""
+    trusted = 0
+    for name, upper in buckets:
+        model_mae_value = model_by_lead.get(name)
+        anchor_mae_value = anchor_by_lead.get(name)
+        if model_mae_value is None or anchor_mae_value is None:
+            break
+        if model_mae_value > anchor_mae_value:
+            break
+        trusted = min(upper, horizon) if horizon > 0 else upper
+    return trusted
+
+
 def residual_quantiles(pairs: Sequence[Tuple[float, float]],
                        level: float = 0.95) -> Tuple[Optional[float], Optional[float]]:
     data = _finite_pairs(pairs)
@@ -128,7 +166,8 @@ def holdout_comparison_table(run_results: Sequence[Dict[str, Any]]) -> List[Dict
             "skill_vs_naive": metrics.get("skill_vs_baseline"),
         })
     for key, label in (("naive_baseline", "baseline: naive persistence"),
-                       ("seasonal_baseline", "baseline: seasonal-naive (365 d)")):
+                       ("seasonal_baseline", "baseline: seasonal-naive (365 d)"),
+                       ("climatology_baseline", "baseline: stored-record (region, month) climatology")):
         metrics = (run_results[0].get(key) or {}) if run_results else {}
         table.append({
             "model": label, "train_size": None,

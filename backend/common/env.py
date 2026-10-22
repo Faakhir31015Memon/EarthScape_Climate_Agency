@@ -91,6 +91,35 @@ class EnvFile:
 
 ENV = EnvFile([REPO_ROOT / ".env", BACKEND_DIR / ".env"])
 
+# Atlas connection strings copied from the console arrive with the credential slots
+# left blank ("mongodb://<db_username>:<password>@host/..."). Keeping the placeholders
+# in .env and the real values in their own keys means the secret never has to be
+# edited inline and a half-filled URI fails loudly instead of silently.
+_USER_PLACEHOLDERS = ("<db_username>", "<username>", "<user>", "<atlas_user>")
+_PASSWORD_PLACEHOLDERS = ("<db_password>", "<password>", "<pass>")
+
+
+def resolve_mongodb_uri() -> str:
+    """Return ``MONGODB_URI`` with placeholder credentials substituted, or ""."""
+    uri = ENV.raw("MONGODB_URI")
+    if not uri:
+        return ""
+    user = ENV.raw("MONGODB_ATLAS_USER")
+    password = ENV.raw("MONGODB_ATLAS_PASSWORD")
+    for placeholder in _USER_PLACEHOLDERS:
+        if placeholder in uri:
+            if not user:
+                return ""
+            uri = uri.replace(placeholder, user)
+            break
+    for placeholder in _PASSWORD_PLACEHOLDERS:
+        if placeholder in uri:
+            if not password:
+                return ""
+            uri = uri.replace(placeholder, password)
+            break
+    return uri
+
 
 def development_signing_key() -> str:
     """Persist a local-only signing key so dev tokens survive a server restart.
@@ -178,14 +207,17 @@ def startup_status() -> list[ServiceStatus]:
     """Human-readable picture of which integrations are actually usable right now."""
     statuses: list[ServiceStatus] = []
 
-    mongo_uri = ENV.raw("MONGODB_URI")
+    mongo_uri = resolve_mongodb_uri()
     statuses.append(
         ServiceStatus(
             name="mongodb",
             configured=bool(mongo_uri),
             required=True,
             detail=(f"Target { _split_uri(mongo_uri)[0] } / db {ENV.raw('MONGODB_DATABASE', 'earthscape_climate')}"
-                    if mongo_uri else "MONGODB_URI is not set"),
+                    if mongo_uri else
+                    ("MONGODB_URI still holds a <username>/<password> placeholder - set "
+                     "MONGODB_ATLAS_USER / MONGODB_ATLAS_PASSWORD"
+                     if ENV.raw("MONGODB_URI") else "MONGODB_URI is not set")),
             hint="Point MONGODB_URI at MongoDB Atlas or a local mongod, then run scripts/migrate_mongo.py.",
         )
     )

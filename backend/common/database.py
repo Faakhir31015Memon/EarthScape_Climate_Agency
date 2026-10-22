@@ -35,6 +35,7 @@ from bson.codec_options import CodecOptions
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
 
+from common.env import resolve_mongodb_uri
 from config import env
 
 logger = logging.getLogger(__name__)
@@ -117,10 +118,14 @@ class Database:
                     uri,
                     maxPoolSize=env.get_int("MONGODB_MAX_POOL_SIZE", 50),
                     minPoolSize=env.get_int("MONGODB_MIN_POOL_SIZE", 0),
-                    serverSelectionTimeoutMS=env.get_int("MONGODB_SERVER_TIMEOUT_MS", 5000),
-                    connectTimeoutMS=env.get_int("MONGODB_CONNECT_TIMEOUT_MS", 5000),
+                    # The shared Atlas tier needs longer than five seconds to elect a new
+                    # primary and to finish a TLS handshake to a shard; timing out inside
+                    # those windows is what turned ordinary failovers into HTTP 500s.
+                    serverSelectionTimeoutMS=env.get_int("MONGODB_SERVER_TIMEOUT_MS", 15000),
+                    connectTimeoutMS=env.get_int("MONGODB_CONNECT_TIMEOUT_MS", 20000),
                     socketTimeoutMS=env.get_int("MONGODB_SOCKET_TIMEOUT_MS", 30000),
-                    codec_options=CodecOptions(tz_aware=True, tzinfo=timezone.utc),
+                    tz_aware=True,
+                    tzinfo=timezone.utc,
                     retryWrites=True,
                 )
                 client.admin.command("ping")
@@ -222,7 +227,7 @@ def get_database() -> Database:
         with _INIT_LOCK:
             if _DATABASE is None:
                 _DATABASE = Database(
-                    uri=env.get_raw("MONGODB_URI"),
+                    uri=resolve_mongodb_uri(),
                     database_name=env.get_str("MONGODB_DATABASE", "earthscape_climate"),
                     force_atlas=env.get_bool("FORCE_ATLAS_CONNECTION"),
                 )

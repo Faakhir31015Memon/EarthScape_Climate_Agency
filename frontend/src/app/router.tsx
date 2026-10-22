@@ -110,22 +110,8 @@ function RoutedViews() {
               <Route path="anomalies" element={<AnomaliesPage />} />
               <Route path="datasets" element={<DatasetsPage />} />
               <Route path="datasets/:datasetId" element={<DatasetDetailPage />} />
-              <Route
-                path="uploads"
-                element={
-                  <RequireRole roles={['administrator', 'climate_analyst']}>
-                    <UploadPage />
-                  </RequireRole>
-                }
-              />
-              <Route
-                path="ingestion"
-                element={
-                  <RequireRole roles={['administrator', 'climate_analyst']}>
-                    <IngestionJobsPage />
-                  </RequireRole>
-                }
-              />
+              <Route path="uploads" element={<UploadPage />} />
+              <Route path="ingestion" element={<IngestionJobsPage />} />
               <Route path="processing" element={<ProcessingMonitorPage />} />
               <Route
                 path="big-data"

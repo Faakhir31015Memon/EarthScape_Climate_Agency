@@ -68,11 +68,29 @@ seeding, and (for the real data path) a MongoDB Atlas cluster.
 
 ```bash
 cp .env.example .env           # then set MONGODB_URI / DJANGO_SECRET_KEY / JWT_SIGNING_KEY
+# Paste the Atlas connection string verbatim (mongodb:// shard list or mongodb+srv form),
+# leave its <db_username>/<db_password> placeholders in place and fill the two keys below it:
+#   MONGODB_ATLAS_USER=<atlas username>      MONGODB_ATLAS_PASSWORD=<atlas password>
+.venv/Scripts/python.exe scripts/verify_atlas.py                   # ping Atlas, show masked URI
 .venv/Scripts/python.exe backend/scripts/bootstrap_platform.py   # collections, indexes, accounts
 .venv/Scripts/python.exe backend/manage.py runserver 0.0.0.0:8000
 .venv/Scripts/python.exe backend/scripts/seed_real_data.py       # real observations only
 cd frontend && npm install && npm run dev                        # http://localhost:5173
 ```
+
+#### Importing your own files
+
+`.csv`, `.txt`, `.json`/NDJSON, `.xlsx`, `.xlsm`, `.xltx`, `.xltm`, `.xls`, `.xlsb`,
+`.ods` (LibreOffice), `.parquet` and password-protected workbooks can all be uploaded
+from the app or imported straight into MongoDB from the shell:
+
+```bash
+.venv/Scripts/python.exe scripts/import_spreadsheet.py path/to/file.xlsb --collection raw_imports
+.venv/Scripts/python.exe scripts/import_spreadsheet.py path/to/*.ods --dry-run   # read, don't write
+```
+
+Encrypted uploads need `UPLOAD_FILE_PASSWORD` in `.env`; macros in `.xlsm`/`.xltm` are
+never executed. `sample-data/format-fixtures/` holds one example file per format.
 
 Sign-in credentials are generated randomly by `bootstrap_platform.py` and
 printed once into `backend/.data/bootstrap-credentials.txt` (git-ignored). There
@@ -99,6 +117,9 @@ Container deployment, cluster profile, backups and Airflow are covered in
 `.env.example` documents every setting. The platform reports its own state
 truthfully rather than assuming infrastructure exists:
 
+- A `MONGODB_URI` that still contains a `<db_username>` / `<password>` placeholder is
+  treated as **not configured** rather than sent to the server as a literal username;
+  `/api/v1/health` and `scripts/verify_atlas.py` say which key is missing.
 - If Atlas is unreachable and `FORCE_ATLAS_CONNECTION=false`, the API uses the
   clearly labelled `local-development` document store with JSON snapshots, and
   every screen plus the EnvironmentBanner says so. Production should set
@@ -130,7 +151,7 @@ privacy, terms.
 **Auth** — login, register (viewer-only unless admin-created), forgot/reset
 password, profile & preferences.
 **Analyst app** — dashboard, analytics explorer, observation history, map view,
-anomaly explorer, datasets, dataset detail, CSV/JSON/Excel/Parquet upload,
+anomaly explorer, datasets, dataset detail, CSV/JSON/Excel/ODS/Parquet upload,
 ingestion jobs, processing monitor, big-data (HDFS/Spark) page, ML lab, model
 registry, forecast explorer, alerts, notifications, reports, saved analyses,
 support tickets.

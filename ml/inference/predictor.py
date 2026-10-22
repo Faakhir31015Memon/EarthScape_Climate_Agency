@@ -257,9 +257,19 @@ def forecast(*, model_document: Dict[str, Any], observations: Sequence[Dict[str,
 
     feature_names = artifact["preprocess"]["feature_names"]
     forecast_dates = [origin + timedelta(days=step) for step in range(1, horizon_days + 1)]
+    # A recursive forecast fed only its own outputs decays toward a fixed point, so beyond
+    # the lead the holdout proved useful the seasonal climatology is used instead. Artifacts
+    # trained before that crossover was measured keep the previous fully-recursive behaviour.
+    declared_skill = artifact.get("skillful_lead_days")
+    skillful_lead = horizon_days if declared_skill is None else max(0, int(declared_skill))
     per_location: Dict[str, List[float]] = {}
     for loc, hist in usable.items():
-        per_location[loc] = recursive_forecast(artifact["model"], hist, feature_names, forecast_dates)
+        recursive = recursive_forecast(artifact["model"], hist, feature_names, forecast_dates)
+        series: List[float] = []
+        for lead, (day, value) in enumerate(zip(forecast_dates, recursive), start=1):
+            anchor = None if lead <= skillful_lead else hist.baseline_mean(day.month)
+            series.append(anchor if anchor is not None else value)
+        per_location[loc] = series
 
     # precipitation is physically bounded below by zero; clamp and disclose it.
     clamped = target == "precipitation_mm"
@@ -272,12 +282,18 @@ def forecast(*, model_document: Dict[str, Any], observations: Sequence[Dict[str,
         means.append(round(mean, 3))
 
     bands = artifact.get("uncertainty_bands") or []
+    climatology_bands = artifact.get("climatology_uncertainty_bands") or []
     uncertainty_available = bool(bands) and any(band is not None for band in bands)
+    climatology_available = bool(climatology_bands) and any(band is not None
+                                                            for band in climatology_bands)
     values: List[Dict[str, Any]] = []
     for i, day in enumerate(forecast_dates):
-        band = bands[i] if i < len(bands) else None
+        anchored = (i + 1) > skillful_lead
+        source = climatology_bands if anchored else bands
+        usable_bands = climatology_available if anchored else uncertainty_available
+        band = source[i] if usable_bands and i < len(source) else None
         lower = upper = None
-        if band and uncertainty_available:
+        if band:
             lower, upper = round(means[i] + band[0], 3), round(means[i] + band[1], 3)
             if clamped:
                 lower = max(lower, 0.0)
@@ -287,6 +303,7 @@ def forecast(*, model_document: Dict[str, Any], observations: Sequence[Dict[str,
             "unit": METRIC_UNITS[target],
             "lower_bound": lower,
             "upper_bound": upper,
+            "method": "climatology_anchor" if anchored else "ml_recursive",
         })
 
     now = datetime.now(timezone.utc)
@@ -307,6 +324,14 @@ def forecast(*, model_document: Dict[str, Any], observations: Sequence[Dict[str,
             "station values are point observations, not a regional reanalysis.")
     if clamped:
         caveats.append("Negative precipitation predictions were clamped to zero (physically bounded metric).")
+    if declared_skill is not None and skillful_lead < horizon_days:
+        caveats.append(
+            f"Days 1-{skillful_lead} come from the recursive {model_document.get('algorithm')} model "
+            f"(holdout MAE {evaluation_snapshot.get('mae')} {METRIC_UNITS[target]}); beyond that the "
+            f"model stopped beating the stored-record climatology on the same holdout "
+            f"(MAE {evaluation_snapshot.get('climatology_baseline_mae')} {METRIC_UNITS[target]}), so "
+            "later days are the climatology anchor. Long-lead values describe the expected seasonal "
+            "cycle, not a day-by-day prediction.")
     if not uncertainty_available:
         caveats.append("No uncertainty band: the training holdout did not provide enough residuals "
                        "for an honest empirical envelope.")
@@ -324,7 +349,11 @@ def forecast(*, model_document: Dict[str, Any], observations: Sequence[Dict[str,
         "forecast_origin_date": origin.isoformat(),
         "values": values,
         "units": METRIC_UNITS[target],
-        "method": f"{model_document.get('algorithm')} - recursive single-step multi-day daily forecast",
+        "skillful_lead_days": skillful_lead,
+        "method": (f"{model_document.get('algorithm')} - recursive single-step multi-day daily "
+                   f"forecast to day {skillful_lead}, climatology anchor beyond"
+                   if declared_skill is not None and skillful_lead < horizon_days else
+                   f"{model_document.get('algorithm')} - recursive single-step multi-day daily forecast"),
         "training_period": model_document.get("training_period"),
         "evaluation_metrics_snapshot": evaluation_snapshot,
         "data_freshness_days": freshness,

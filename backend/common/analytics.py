@@ -15,12 +15,14 @@ import math
 import statistics
 from collections import defaultdict
 from datetime import datetime, timezone
+from itertools import islice
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
 from common import validators
-from common.repositories import analytics_summaries, climate_observations, utcnow
+from common.repositories import (HARD_RESULT_LIMIT, analytics_summaries,
+                                 climate_observations, utcnow)
 
 METRICS = list(validators.RANGE_LIMITS)
 
@@ -116,8 +118,14 @@ def fetch_observations(criteria: Dict[str, Any],
     fields.update({metric: 1 for metric in METRICS})
     if projection:
         fields = projection
+    sort = [("observation_date", 1)]
+    if limit > HARD_RESULT_LIMIT:
+        # Training and export windows ask for everything they hold. ``find()`` caps at
+        # HARD_RESULT_LIMIT, which with an ascending sort would silently drop the newest
+        # days - the exact rows a forecast needs - so a wide window streams instead.
+        return list(islice(climate_observations.stream(query, projection=fields, sort=sort), limit))
     return climate_observations.find(query, projection=fields,
-                                     sort=[("observation_date", 1)], limit=limit)
+                                     sort=sort, limit=limit)
 
 
 def to_frame(observations: List[Dict[str, Any]]) -> pd.DataFrame:
