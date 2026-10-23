@@ -147,7 +147,7 @@ const REPO_DOCS = [
   { path: 'infrastructure/README.md', note: 'Container deployment, cluster profile, backups and Airflow scheduling.' },
   { path: 'data-pipeline/mapreduce/README.md', note: 'Streaming mapper/reducer contract and how a job is run locally or on a cluster.' },
   { path: 'ml/README.md', note: 'Feature build, training, evaluation and inference layout.' },
-  { path: 'sample-data/README.md', note: 'Labelled synthetic reference file used by the upload, ingestion and workflow defaults.' },
+  { path: 'sample-data/README.md', note: 'What is real in this repository: the six city CSVs are provider-retrieved data, and no synthetic corpus ships here.' },
   { path: 'docs/EarthScape-Climate-Agency-Project-Report.docx', note: 'Project report: architecture, modules, testing evidence, user and administrator guidance.' },
 ]
 

@@ -192,9 +192,12 @@ index on `coordinates`, and a sparse index on `quality_flags`.
 | `ingested_at` | date | write time |
 | `schema_version` | int | validator requires BSON int; currently `3` |
 
-Synthetic pipeline-verification records are distinguishable by
-`dataset_id = "synthetic-stress"`, `source_name = "synthetic-generator"` and
-`unit_audit = "synthetic-canonical"`; no supported code path writes them here.
+This repository ships no synthetic corpus. `ml/datasets/loader.py` still rejects
+any file whose name advertises synthesis (`_is_synthetic()`), and the
+`dataset_id = "synthetic-stress"` / `source_name = "synthetic-generator"` /
+`unit_audit = "synthetic-canonical"` markers identify the records that old
+generators produced — none of those code paths exist any more, and no such row is
+present in the live collection.
 
 ---
 
