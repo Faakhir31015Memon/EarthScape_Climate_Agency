@@ -4,9 +4,9 @@
 What it actually does:
 
 1. Exports ``climate_observations`` from MongoDB to a JSON-lines file in the
-   data lake (validated layer, per-run partition). If the collection is empty
-   it can fall back to the synthetic ``example-input.jsonl`` - clearly labelled
-   as such in the run metadata.
+   data lake (validated layer, per-run partition). If the export fails or the
+   collection is empty the run aborts with an explicit error - there is no
+   example/fallback input, so a job can never report fabricated rows.
 2. Executes the streaming job:
    * when ``HADOOP_BIN`` (or a ``hadoop`` on PATH) is configured *and* an HDFS
      endpoint answers, it builds and runs the real ``hadoop jar hadoop-streaming-*.jar``
@@ -80,17 +80,12 @@ def export_observations(log: list, *, dataset_id: str | None, limit: int) -> tup
                 handle.write(json.dumps(record, default=str) + "\n")
                 rows += 1
     except Exception as exc:  # noqa: BLE001 - export failure must be explicit
-        _log(log, f"MongoDB export unavailable ({str(exc)[:120]}); using synthetic example input")
-        input_path = HERE / "example-input.jsonl"
-        rows = sum(1 for line in input_path.read_text(encoding="utf-8").splitlines()
-                   if line.strip() and not line.startswith("#"))
-        source = "synthetic-example-input (NOT climate truth)"
+        raise RuntimeError(
+            f"observation export from MongoDB failed ({str(exc)[:160]}); "
+            "the run is aborted rather than fed example input") from exc
     if rows == 0:
-        _log(log, "climate_observations returned 0 rows; using synthetic example input for the run")
-        input_path = HERE / "example-input.jsonl"
-        rows = sum(1 for line in input_path.read_text(encoding="utf-8").splitlines()
-                   if line.strip() and not line.startswith("#"))
-        source = "synthetic-example-input (NOT climate truth, collection was empty)"
+        raise RuntimeError(
+            "climate_observations returned 0 rows for this dataset; nothing to aggregate")
     return input_path, rows, source
 
 
@@ -244,18 +239,20 @@ def main(argv=None) -> int:
     parser.add_argument("--limit", type=int, default=200000)
     parser.add_argument("--force-local", action="store_true",
                         help="skip the Hadoop probe and run the local streaming simulation")
-    parser.add_argument("--allow-example-input", action="store_true")
     parser.add_argument("--json", action="store_true", help="print the machine-readable summary")
     args = parser.parse_args(argv)
 
     log: list = []
     spec = JOBS[args.job]
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "Z"
-    input_path, input_rows, input_source = export_observations(
-        log, dataset_id=args.dataset_id, limit=args.limit)
-    if input_source.startswith("synthetic") and not args.allow_example_input and \
-            "collection was empty" not in input_source:
-        _log(log, "refusing to report example input as production data; pass --allow-example-input")
+    try:
+        input_path, input_rows, input_source = export_observations(
+            log, dataset_id=args.dataset_id, limit=args.limit)
+    except RuntimeError as exc:
+        _log(log, str(exc))
+        print(json.dumps({"run_id": run_id, "job": args.job, "success": False,
+                          "error": str(exc), "log_lines": log[-50:]}, default=str))
+        return 1
 
     lake_info: dict = {"mode": "unavailable", "output_keys": [], "error": None}
     try:

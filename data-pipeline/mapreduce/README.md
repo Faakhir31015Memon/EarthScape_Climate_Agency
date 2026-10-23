@@ -42,10 +42,9 @@ python run_streaming_job.py --force-local
 `run_streaming_job.py --force-local` executes the identical mapper/sort/reducer
 subprocess pipeline against the MongoDB export and labels the run
 `processing_mode: "local-streaming-simulated"` - it never reports that Hadoop
-ran when it did not. When the collection is empty it falls back to
-`example-input.jsonl`, which is a clearly labelled **synthetic contract example,
-not climate truth**, and the run is tagged with that source so it cannot be
-mistaken for production data.
+ran when it did not. If the export fails or the collection yields zero rows the
+run **aborts with an explicit error**; there is no example or synthetic fallback
+input in this repository that a job could silently substitute.
 
 The platform's admin pipeline page runs this job through
 `backend/apps/processing/runner.py`; the workflow's output lands in the local

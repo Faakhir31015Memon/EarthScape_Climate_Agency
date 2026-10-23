@@ -20,7 +20,7 @@ Submission on a real cluster (see README.md)::
 
 Local verification::
 
-    python3 temperature_aggregation_mapper.py < example-input.jsonl | sort | \\
+    python3 temperature_aggregation_mapper.py < observations.jsonl | sort | \\
       python3 temperature_aggregation_reducer.py
 """
 from __future__ import annotations

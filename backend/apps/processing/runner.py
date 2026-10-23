@@ -99,8 +99,6 @@ def _execute_mapreduce(job_id: str, entry: Dict[str, Any], parameters: Dict[str,
         command += ["--dataset-id", dataset_id]
     if parameters.get("force_local"):
         command.append("--force-local")
-    if parameters.get("allow_example_input"):
-        command.append("--allow-example-input")
     result = _run_subprocess(command, cwd=REPO_ROOT, timeout=DEFAULT_MR_TIMEOUT)
     stdout = (result["stdout"] or "").strip()
     summary: Optional[Dict[str, Any]] = None

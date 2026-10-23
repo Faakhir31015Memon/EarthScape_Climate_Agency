@@ -4,7 +4,7 @@ Covers every reader the upload API accepts - .csv, .txt, .json/.ndjson, .xlsx, .
 .xltx, .xltm, .xls, .xlsb, .ods (including password-protected workbooks) and .parquet -
 and writes the records as documents through the same PyMongo gateway the backend uses.
 
-    python scripts/import_spreadsheet.py sample-data/format-fixtures/karachi_daily.ods
+    python scripts/import_spreadsheet.py /path/to/observations.ods
     python scripts/import_spreadsheet.py book.xlsb --collection raw_uploads --batch 2000
     python scripts/import_spreadsheet.py data.xlsx --dry-run --limit 50
 

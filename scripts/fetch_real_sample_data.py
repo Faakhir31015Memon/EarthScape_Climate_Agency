@@ -128,9 +128,8 @@ def write_readme(retrieved_at: str, start: str, end: str, per_city: dict):
                      f"| {info['rejected']} | {info['status']} |")
     lines += [
         "",
-        "Also in this folder: `SYNTHETIC_high_volume.csv` — see its `.meta.json` sidecar; that file",
-        "is **synthetic** (deterministic test data for volume testing) and must never be presented",
-        "as climate truth.",
+        "Nothing else ships in this folder: there is no synthetic or example dataset here, and",
+        "no workflow uses this directory as an input default.",
         "",
     ]
     (root / "README.md").write_text("\n".join(lines), encoding="utf-8")

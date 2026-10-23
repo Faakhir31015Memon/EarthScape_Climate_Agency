@@ -81,13 +81,6 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
                 "label": "Skip Hadoop probe",
                 "help": "Run the local streaming simulation without checking hadoop first.",
             },
-            "allow_example_input": {
-                "type": "bool",
-                "required": False,
-                "default": False,
-                "label": "Allow example input",
-                "help": "Fall back to the synthetic example-input file if MongoDB is empty.",
-            },
         },
     },
     "mapreduce.temperature_aggregation": {
@@ -113,10 +106,6 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
                 "type": "bool", "required": False, "default": False,
                 "label": "Skip Hadoop probe",
             },
-            "allow_example_input": {
-                "type": "bool", "required": False, "default": False,
-                "label": "Allow example input",
-            },
         },
     },
     "spark.export_observations_to_lake": {
@@ -136,9 +125,9 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
         "parameter_spec": {
             "input_path": {
                 "type": "str", "required": False,
-                "default": "sample-data/generated/synthetic_observations_2022-01-01_400d.jsonl",
                 "label": "Input file or lake prefix",
-                "help": "Absolute file path or data-lake key. Empty falls back to the sample input.",
+                "help": "Absolute path to a real observation export, or a data-lake key. "
+                        "There is no sample fallback - the job fails when this is empty.",
             },
             "dataset_id": _dataset_id_param(),
             "persist_summaries": {
@@ -163,8 +152,8 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
         "parameter_spec": {
             "input_path": {
                 "type": "str", "required": False,
-                "default": "sample-data/generated/synthetic_observations_2022-01-01_400d.jsonl",
                 "label": "Input file or lake prefix",
+                "help": "Absolute path to a real observation export, or a data-lake key.",
             },
             "dataset_id": _dataset_id_param(),
         },
@@ -187,8 +176,8 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
         "parameter_spec": {
             "input_path": {
                 "type": "str", "required": False,
-                "default": "sample-data/generated/synthetic_observations_2022-01-01_400d.jsonl",
                 "label": "Input file or lake prefix",
+                "help": "Absolute path to a real observation export, or a data-lake key.",
             },
             "dataset_id": _dataset_id_param(),
             "mapreduce_output_path": {
@@ -215,8 +204,8 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
         "parameter_spec": {
             "input_path": {
                 "type": "str", "required": False,
-                "default": "sample-data/generated/synthetic_observations_2022-01-01_400d.jsonl",
                 "label": "Input file or lake prefix",
+                "help": "Absolute path to a real observation export, or a data-lake key.",
             },
             "dataset_id": _dataset_id_param(),
             "metric": {

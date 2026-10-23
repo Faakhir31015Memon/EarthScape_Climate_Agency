@@ -49,7 +49,7 @@ are MongoDB collections accessed through PyMongo repositories
 | `frontend/` | Vite + React + TS app: `src/app` (router, nav), `src/pages`, `src/components`, `src/features`, `src/services`, `src/hooks`, `src/lib` |
 | `data-pipeline/` | `mapreduce/` Hadoop Streaming jobs + local runner, `spark/` PySpark jobs, `schemas/`, `tools/` |
 | `ml/` | `features/`, `training/`, `evaluation/`, `anomaly/`, `inference/` |
-| `sample-data/` | **Labelled synthetic** rows (`generated/`) used only to exercise the pipeline — `sample-data/README.md` and each `.meta.json` state that they are not climate evidence. These files are also the default input for the big-data workflows when a collection is empty. Real observations come from the NASA POWER connector, never from this directory |
+| `sample-data/` | **Real retrieved climate only**: six city CSVs pulled from the Open-Meteo archive by `scripts/fetch_real_sample_data.py`. The synthetic stress/generator files that used to live here have been removed, and no workflow uses this directory as an input default — the platform's observations come from MongoDB Atlas (NASA POWER connector or user uploads) |
 | `infrastructure/` | Dockerfiles, nginx site, Airflow DAG, backup/restore scripts |
 | `docker-compose.yml` | backend · worker · scheduler · frontend · redis · optional Hadoop/Spark profile |
 | `scripts/` | `dev.sh` local launch helpers · `md2docx.py` report converter |
@@ -90,7 +90,8 @@ from the app or imported straight into MongoDB from the shell:
 ```
 
 Encrypted uploads need `UPLOAD_FILE_PASSWORD` in `.env`; macros in `.xlsm`/`.xltm` are
-never executed. `sample-data/format-fixtures/` holds one example file per format.
+never executed. Upload formats are proved with real files — no fixture copies ship in
+the repository.
 
 Sign-in credentials are generated randomly by `bootstrap_platform.py` and
 printed once into `backend/.data/bootstrap-credentials.txt` (git-ignored). There
