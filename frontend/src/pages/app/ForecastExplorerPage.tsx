@@ -40,6 +40,7 @@ export default function ForecastExplorerPage() {
   const activeModels = useAsync(() => api.models.list({ status: 'active', page_size: 50 }), [])
   // GET /predictions/ returns {items, note} with no pagination keys.
   const history = useAsync(() => api.predictions.list({ limit: 25 }), [])
+  const catalogue = useAsync(() => api.models.catalogue(), [])
 
   const [scopeType, setScopeType] = useState<ScopeType>('region')
   const [scopeValue, setScopeValue] = useState('')
@@ -61,6 +62,15 @@ export default function ForecastExplorerPage() {
 
   const scopeInvalid = !scopeValue
   const canGenerate = canRun && Boolean(modelId) && Boolean(scopeValue) && !generating
+
+  // The backend publishes the ceiling it will accept; a forecast beyond the model's
+  // skillful lead is served by the climatology anchor, which is stated per run.
+  const maxHorizon = catalogue.data?.horizon.max_forecast_horizon_days ?? 90
+  const setHorizonDays = (days: number) => {
+    if (!Number.isFinite(days)) return
+    setHorizon(Math.min(Math.max(Math.round(days), 1), maxHorizon))
+  }
+  const horizonSuffix = horizon >= 365 ? ` (${(horizon / 365.25).toFixed(1)} years)` : ''
 
   const historyRows = history.data?.items ?? []
 
@@ -219,8 +229,14 @@ export default function ForecastExplorerPage() {
         </div>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <Field label={`Forecast horizon: ${horizon} day${horizon === 1 ? '' : 's'}`} htmlFor="fx-horizon" hint="Slider limited to 1–90 days.">
-            <input id="fx-horizon" type="range" min={1} max={90} value={horizon} onChange={(event) => setHorizon(Number(event.target.value))} disabled={!canRun} className="w-full accent-[var(--brand)]" />
+          <Field label={`Forecast horizon: ${horizon} day${horizon === 1 ? '' : 's'}${horizonSuffix}`} htmlFor="fx-horizon" hint={`This deployment accepts 1–${maxHorizon} days.`}>
+            <input id="fx-horizon" type="range" min={1} max={maxHorizon} value={horizon} onChange={(event) => setHorizon(Number(event.target.value))} disabled={!canRun} className="w-full accent-[var(--brand)]" />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input id="fx-horizon-days" type="number" min={1} max={maxHorizon} value={horizon} onChange={(event) => setHorizonDays(Number(event.target.value))} disabled={!canRun} className="input w-28" aria-label="Forecast horizon in days" />
+              {[365, 730, 1095].filter((days) => days <= maxHorizon).map((days) => (
+                <button key={days} type="button" className="btn btn-ghost btn-sm" onClick={() => setHorizonDays(days)} disabled={!canRun} title={`${days / 365} year ahead`}>{days / 365}y</button>
+              ))}
+            </div>
           </Field>
           <div className="flex items-end">
             <button

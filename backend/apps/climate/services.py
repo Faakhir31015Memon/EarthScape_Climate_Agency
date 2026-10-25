@@ -3,19 +3,19 @@
 Every value produced here is read out of MongoDB. Two mechanisms are used
 deliberately:
 
-* **aggregation pipelines** (``$match`` / ``$group`` / ``$sort`` / ``$limit`` /
-  ``$project`` over stored fields) for set-wide aggregates such as per-region
-  statistics, per-station counts and per-month totals;
-* the shared :mod:`common.analytics` kernel for anything that needs the
-  observation documents themselves (trend buckets, correlations, anomaly
-  detection, coverage), so the API and the PySpark/MapReduce outputs stay
-  numerically identical.
+* **aggregation pipelines** (``$match`` / ``$group`` / ``$facet`` / ``$project`` over
+  stored fields) for set-wide aggregates such as per-region statistics, per-station
+  counts, trend buckets and coverage;
+* the shared :mod:`common.analytics` kernel as the fallback for any grouping or
+  frequency the pipelines do not model (correlations, anomaly detection), so the API
+  and the PySpark/MapReduce outputs stay numerically identical.
 
 Pipelines only use stages supported by both Atlas and the local document store,
 and they only touch *stored* fields - ``observation_date`` is a ``YYYY-MM-DD``
 string, so month bucketing uses ``$substr``/``year``/``month`` instead of date
-operators. Empty collections produce empty lists plus a ``reason``; nothing is
-invented.
+operators, and weekly or ordered buckets are folded and sorted in Python because the
+shared tier cannot sort tens of thousands of keys on the server. Empty collections
+produce empty lists plus a ``reason``; nothing is invented.
 """
 from __future__ import annotations
 
@@ -643,6 +643,54 @@ def yearly_region_normals(criteria: Dict[str, Any], metric: str, *,
     return out
 
 
+ANNUAL_GROUP_FIELDS = {"none": None, "region": "region_code", "location": "location_code",
+                       "country": "country"}
+
+
+def annual_group_totals(criteria: Dict[str, Any], metric: str, *,
+                        group_by: str = "none") -> List[Dict[str, Any]]:
+    """One row per (group, year) with the count, total, mean, min and max.
+
+    The historical explorer used to receive every daily document to build these
+    numbers; grouping on the server keeps a platform-wide window at one row per
+    station-year instead of the whole observation collection.
+    """
+    field = ANNUAL_GROUP_FIELDS.get(group_by, "region_code")
+    scoped = dict(criteria)
+    scoped[metric] = {"$ne": None}
+    identifier: Dict[str, Any] = {"year": "$year"}
+    if field:
+        identifier["group"] = f"${field}"
+    pipeline = [
+        _match_stage(scoped),
+        {"$group": {
+            "_id": identifier,
+            "observation_count": {"$sum": 1},
+            "total": {"$sum": f"${metric}"},
+            "mean": {"$avg": f"${metric}"},
+            "min": {"$min": f"${metric}"},
+            "max": {"$max": f"${metric}"},
+        }},
+    ]
+    out: List[Dict[str, Any]] = []
+    for row in climate_observations.aggregate(pipeline, allow_disk_use=True):
+        key = row.get("_id") or {}
+        year = key.get("year")
+        if not isinstance(year, int) or year <= 0:
+            continue
+        value = key.get("group")
+        out.append({
+            "group": str(value) if value else "GLOBAL",
+            "year": year,
+            "observation_count": int(row.get("observation_count") or 0),
+            "total": row.get("total"),
+            "mean": row.get("mean"),
+            "min": row.get("min"),
+            "max": row.get("max"),
+        })
+    return out
+
+
 def status_breakdown(repository: repositories.Repository,
                      criteria: Optional[Dict[str, Any]] = None, *,
                      field: str = "status") -> Dict[str, int]:
@@ -725,6 +773,276 @@ def _iso(value: Any) -> Any:
 
 
 # --------------------------------------------------------------------- trends
+AGGREGATED_FREQUENCIES = ("daily", "weekly", "monthly", "annual")
+TREND_GROUP_FIELDS = {"region": "region_code", "location": "location_code", "country": "country"}
+TREND_PERIOD_FIELDS = {"daily": ("d",), "weekly": ("wy", "ww"), "monthly": ("y", "m"),
+                       "annual": ("y",)}
+
+
+def _coverage_zero() -> Dict[str, Any]:
+    """The empty coverage report, identical to ``analytics.coverage_report([])``."""
+    return {"observation_count": 0, "completeness": {}, "flagged": {}, "date_range": None,
+            "locations": 0, "regions": 0, "datasets": 0, "sources": []}
+
+
+def _coverage_accumulators(*, group_field: Optional[str]) -> Dict[str, Any]:
+    """One ``$group`` body that measures everything ``coverage_report`` reports."""
+    stage: Dict[str, Any] = {
+        "_id": None if group_field is None else {"scope": f"${group_field}"},
+        "observation_count": {"$sum": 1},
+        "first_date": {"$min": "$observation_date"},
+        "last_date": {"$max": "$observation_date"},
+        "flagged_rows": {"$sum": {"$cond": [
+            {"$gt": [{"$size": {"$ifNull": ["$quality_flags", []]}}, 0]}, 1, 0]}},
+        "locations": {"$addToSet": "$location_code"},
+        "regions": {"$addToSet": "$region_code"},
+        "datasets": {"$addToSet": "$dataset_id"},
+        "sources": {"$addToSet": "$source_name"},
+    }
+    for name in analytics.METRICS:
+        stage[f"populated_{name}"] = {"$sum": {"$cond": [
+            {"$ne": [f"${name}", None]}, 1, 0]}}
+    return stage
+
+
+def _coverage_document(row: Dict[str, Any], flags: Dict[str, int]) -> Dict[str, Any]:
+    count = int(row.get("observation_count") or 0)
+    if not count:
+        return _coverage_zero()
+    completeness: Dict[str, Any] = {}
+    for name in analytics.METRICS:
+        populated = int(row.get(f"populated_{name}") or 0)
+        completeness[name] = {
+            "populated": populated,
+            "missing": count - populated,
+            "pct": analytics._round(populated / count * 100, 1),
+        }
+    flagged_rows = int(row.get("flagged_rows") or 0)
+    dates = [value for value in (row.get("first_date"), row.get("last_date")) if value]
+    return {
+        "observation_count": count,
+        "completeness": completeness,
+        "flagged": flags,
+        "flagged_row_count": flagged_rows,
+        "flagged_row_pct": analytics._round(flagged_rows / count * 100, 1),
+        "date_range": {"start": min(dates), "end": max(dates)} if dates else None,
+        "locations": len(row.get("locations") or []),
+        "regions": len(row.get("regions") or []),
+        "datasets": len(row.get("datasets") or []),
+        "sources": sorted(str(value) for value in (row.get("sources") or []) if value),
+    }
+
+
+def coverage_scopes(criteria: Dict[str, Any], *, group_field: Optional[str] = None
+                    ) -> List[Tuple[Optional[str], Dict[str, Any]]]:
+    """Coverage measured inside MongoDB, optionally split by one field.
+
+    The kernel's :func:`analytics.coverage_report` needs every document in the window.
+    With tens of thousands of observations on the Atlas shared tier that read is the
+    slowest thing the platform does, so the same numbers are aggregated on the server
+    and only the summary is transferred.
+    """
+    flag_id: Any = ({"scope": f"${group_field}", "flag": "$quality_flags"}
+                    if group_field else {"flag": "$quality_flags"})
+    pipeline = [
+        _match_stage(criteria),
+        {"$facet": {
+            "totals": [{"$group": _coverage_accumulators(group_field=group_field)}],
+            "flags": [{"$unwind": "$quality_flags"},
+                      {"$group": {"_id": flag_id, "count": {"$sum": 1}}}],
+        }},
+    ]
+    face = climate_observations.aggregate(pipeline)
+    if not face:
+        return []
+    flag_counts: Dict[str, Dict[str, int]] = {}
+    for entry in face[0].get("flags") or []:
+        identifier = entry.get("_id") or {}
+        bucket = str(identifier.get("scope")) if group_field else ""
+        flag_counts.setdefault(bucket, {})[str(identifier.get("flag"))] = int(entry.get("count") or 0)
+    out: List[Tuple[Optional[str], Dict[str, Any]]] = []
+    for row in face[0].get("totals") or []:
+        scope = (row.get("_id") or {}).get("scope") if group_field else None
+        flags = flag_counts.get(str(scope) if group_field else "", {})
+        out.append((scope, _coverage_document(row, flags)))
+    return out
+
+
+def coverage_from_database(criteria: Dict[str, Any]) -> Dict[str, Any]:
+    scopes = coverage_scopes(criteria)
+    return scopes[0][1] if scopes else _coverage_zero()
+
+
+def _trend_period_key(frequency: str) -> Dict[str, Any]:
+    if frequency in ("daily", "weekly"):
+        return {"d": "$observation_date"}
+    if frequency == "monthly":
+        return {"y": "$year", "m": "$month"}
+    return {"y": "$year"}
+
+
+def _trend_period_label(frequency: str, key: Dict[str, Any]) -> str:
+    if frequency == "daily":
+        return str(key.get("d"))
+    if frequency == "weekly":
+        return f"{int(key['wy'])}-W{int(key['ww']):02d}"
+    if frequency == "monthly":
+        return f"{int(key['y']):04d}-{int(key['m']):02d}"
+    return str(int(key["y"]))
+
+
+def _trend_sort_key(row: Dict[str, Any], *, group_field: Optional[str],
+                    period_fields: Sequence[str]) -> Tuple[Any, ...]:
+    scope = (str((row.get("_id") or {}).get("k")),) if group_field else ()
+    key = row.get("_id") or {}
+    parts: List[Any] = []
+    for name in period_fields:
+        value = key.get(name)
+        if value is None:
+            value = "" if name == "d" else 0
+        parts.append(value)
+    return (*scope, *parts)
+
+
+def _roll_up_to_iso_weeks(buckets: List[Dict[str, Any]], *,
+                          group_field: Optional[str]) -> List[Dict[str, Any]]:
+    """Combine daily buckets into the weeks the kernel's ``W-SUN`` grouper builds.
+
+    ``W-SUN`` bins end on Sunday, which is exactly a Monday-to-Sunday ISO week, so the
+    week a day belongs to can be read off its own date and the daily sums added up.
+    """
+    merged: Dict[Tuple[Any, int, int], Dict[str, Any]] = {}
+    for row in buckets:
+        raw = str((row.get("_id") or {}).get("d"))
+        try:
+            iso = date.fromisoformat(raw).isocalendar()
+        except ValueError:
+            continue
+        scope = (row.get("_id") or {}).get("k") if group_field else None
+        bucket = merged.get((scope, iso[0], iso[1]))
+        if bucket is None:
+            identifier: Dict[str, Any] = {"wy": iso[0], "ww": iso[1]}
+            if group_field:
+                identifier = {"k": scope, **identifier}
+            bucket = merged[(scope, iso[0], iso[1])] = {
+                "_id": identifier, "observation_count": 0, "value_sum": 0,
+                "value_sumsq": 0, "value_count": 0, "min": None, "max": None,
+            }
+        for name in ("observation_count", "value_sum", "value_sumsq", "value_count"):
+            bucket[name] += row.get(name) or 0
+        for name in ("min", "max"):
+            value = row.get(name)
+            if value is None:
+                continue
+            current = bucket[name]
+            bucket[name] = value if current is None else (min(current, value) if name == "min"
+                                                          else max(current, value))
+    return list(merged.values())
+
+
+def trend_series_from_database(criteria: Dict[str, Any], metric: str, *,
+                               frequency: str, group_by: Optional[str],
+                               require_baseline: bool = True) -> Dict[str, Any]:
+    """:func:`analytics.trend_series` computed by MongoDB rather than in Python.
+
+    Raises :class:`analytics.InsufficientData` with the same message the kernel raises,
+    so the caller's availability contract is unchanged. ``None`` is returned when the
+    frequency or grouping is outside what this path models and the caller must fall
+    back to the row-based kernel.
+    """
+    if frequency not in AGGREGATED_FREQUENCIES:
+        return None  # type: ignore[return-value]
+    if group_by not in (None, *TREND_GROUP_FIELDS):
+        return None  # type: ignore[return-value]
+    group_field = TREND_GROUP_FIELDS.get(str(group_by)) if group_by else None
+    stage_key = dict(_trend_period_key("daily" if frequency == "weekly" else frequency))
+    if group_field:
+        stage_key = {"k": f"${group_field}", **stage_key}
+    pipeline = [_match_stage(criteria)]
+    if group_field:
+        pipeline.append({"$match": {group_field: {"$ne": None}}})
+    has_value = {"$ne": [f"${metric}", None]}
+    pipeline += [
+        {"$group": {
+            "_id": stage_key,
+            "observation_count": {"$sum": 1},
+            "value_sum": {"$sum": {"$cond": [has_value, f"${metric}", 0]}},
+            "value_sumsq": {"$sum": {"$cond": [has_value,
+                                               {"$multiply": [f"${metric}", f"${metric}"]}, 0]}},
+            "value_count": {"$sum": {"$cond": [has_value, 1, 0]}},
+            "min": {"$min": f"${metric}"},
+            "max": {"$max": f"${metric}"},
+        }},
+    ]
+    buckets = climate_observations.aggregate(pipeline, allow_disk_use=True)
+    # The buckets are ordered in Python: a ``$sort`` over tens of thousands of period
+    # keys exceeds the server's in-memory sort limit on the shared Atlas tier. Weekly
+    # trends are ordered *before* being folded, so the accumulated sums always run in
+    # the same sequence and a period cannot flip its last decimal between requests.
+    buckets.sort(key=lambda row: _trend_sort_key(
+        row, group_field=group_field,
+        period_fields=TREND_PERIOD_FIELDS["daily" if frequency == "weekly" else frequency]))
+    if frequency == "weekly":
+        buckets = _roll_up_to_iso_weeks(buckets, group_field=group_field)
+        buckets.sort(key=lambda row: _trend_sort_key(row, group_field=group_field,
+                                                    period_fields=TREND_PERIOD_FIELDS["weekly"]))
+    coverage = coverage_from_database(criteria)
+    if not buckets:
+        return {
+            "metric": metric, "label": METRIC_LABELS[metric], "unit": METRIC_UNITS[metric],
+            "frequency": frequency, "series": [], "point_count": 0, "coverage": coverage,
+            "note": "No observations are stored for this metric yet.",
+        }
+    aggregation = "sum" if metric in analytics.ADDITIVE_METRICS else "mean"
+    series: List[Dict[str, Any]] = []
+    for row in buckets:
+        key = row.get("_id") or {}
+        count = int(row.get("observation_count") or 0)
+        populated = int(row.get("value_count") or 0)
+        total = float(row.get("value_sum") or 0.0)
+        value = total if aggregation == "sum" else (total / populated if populated else None)
+        std: Optional[float] = None
+        if populated > 1:
+            # Sample deviation, computed from the two moments because the fallback
+            # document store has no $stdDevSamp. Variance is clamped at zero so a
+            # floating-point tie cannot turn into a square root of a negative number.
+            variance = max((float(row.get("value_sumsq") or 0.0)
+                            - total * total / populated) / (populated - 1), 0.0)
+            std = math.sqrt(variance)
+        entry = {
+            "period": _trend_period_label(frequency, key),
+            "value": analytics._round(value),
+            "observation_count": count,
+            "min": analytics._round(row.get("min")),
+            "max": analytics._round(row.get("max")),
+            "std": analytics._round(std),
+            "aggregation": aggregation,
+        }
+        if group_field:
+            entry[TREND_GROUP_FIELDS[str(group_by)]] = str(key.get("k"))
+        series.append(entry)
+    payload: Dict[str, Any] = {
+        "metric": metric,
+        "label": METRIC_LABELS[metric],
+        "unit": METRIC_UNITS[metric],
+        "frequency": frequency,
+        "group_by": group_by,
+        "series": series,
+        "point_count": len(series),
+        "coverage": coverage,
+        "first_period": series[0]["period"] if series else None,
+        "last_period": series[-1]["period"] if series else None,
+    }
+    if require_baseline and len(series) < analytics.MIN_POINTS_FOR_BASELINE:
+        raise InsufficientData(
+            f"Only {len(series)} periods are available; at least "
+            f"{analytics.MIN_POINTS_FOR_BASELINE} are needed before a trend or anomaly "
+            "baseline is scientifically meaningful.",
+            available=len(series), required=analytics.MIN_POINTS_FOR_BASELINE,
+        )
+    return payload
+
+
 def trend_payload(*, start: Optional[str], end: Optional[str],
                   regions_filter: Optional[Sequence[str]],
                   location_codes: Optional[Sequence[str]],
@@ -736,15 +1054,20 @@ def trend_payload(*, start: Optional[str], end: Optional[str],
     criteria = build_filters(start=start, end=end, regions_filter=regions_filter,
                              location_codes=location_codes, countries=countries,
                              metric=metric, limit=row_limit)
-    rows = fetch_rows(criteria, limit=row_limit)
     empty_fields = {
         "metric": metric, "label": METRIC_LABELS.get(metric), "unit": METRIC_UNITS.get(metric),
         "frequency": frequency, "group_by": group_by, "series": [], "point_count": 0,
     }
+    grouped = group_by if group_by != "none" else None
+    rows: Optional[List[Dict[str, Any]]] = None
     try:
-        payload = analytics.trend_series(rows, metric, frequency=frequency,
-                                        group_by=group_by if group_by != "none" else None,
-                                        require_baseline=require_baseline)
+        payload = trend_series_from_database(criteria, metric, frequency=frequency,
+                                            group_by=grouped, require_baseline=require_baseline)
+        if payload is None:
+            rows = fetch_rows(criteria, projection=metric_projection(analytics.METRICS),
+                              limit=row_limit)
+            payload = analytics.trend_series(rows, metric, frequency=frequency,
+                                            group_by=grouped, require_baseline=require_baseline)
     except InsufficientData as exc:
         return {
             **empty_fields,
@@ -752,9 +1075,11 @@ def trend_payload(*, start: Optional[str], end: Optional[str],
             "reason": exc.message,
             "available_points": int(exc.available or 0),
             "required_points": int(exc.required or analytics.MIN_POINTS_FOR_BASELINE),
-            "observations_evaluated": len(rows),
+            "observations_evaluated": len(rows) if rows is not None else matching_row_count(criteria),
         }
     point_count = int(payload.get("point_count") or 0)
+    evaluated = (len(rows) if rows is not None
+                 else int((payload.get("coverage") or {}).get("observation_count") or 0))
     if point_count == 0:
         return {
             **empty_fields,
@@ -763,10 +1088,10 @@ def trend_payload(*, start: Optional[str], end: Optional[str],
             "available_points": 0,
             "required_points": analytics.MIN_POINTS_FOR_BASELINE,
             "coverage": payload.get("coverage"),
-            "observations_evaluated": len(rows),
+            "observations_evaluated": evaluated,
         }
     payload["available"] = True
-    payload["observations_evaluated"] = len(rows)
+    payload["observations_evaluated"] = evaluated
     payload["matched_observations"] = matching_row_count(criteria)
     payload["scope"] = {"start": start, "end": end, "regions": list(regions_filter or []),
                         "location_codes": list(location_codes or [])}
@@ -783,7 +1108,10 @@ def anomaly_result(*, start: Optional[str], end: Optional[str], metric: str, met
     criteria = build_filters(start=start, end=end, regions_filter=[region_code] if region_code
                              else None, location_codes=[location_code] if location_code else None,
                              metric=metric, limit=row_limit)
-    rows = fetch_rows(criteria, limit=row_limit)
+    # Only the multivariate detector needs the other columns; reading all ten for a
+    # single-metric baseline doubles the transfer time for nothing.
+    projection = metric_projection(analytics.METRICS if method == "isolation_forest" else [metric])
+    rows = fetch_rows(criteria, projection=projection, limit=row_limit)
     try:
         payload = analytics.detect_anomalies(
             rows, metric, method=method, threshold_sigma=threshold_sigma,
@@ -1083,6 +1411,45 @@ def on_the_fly_anomalies(*, window_start: Optional[str], window_end: Optional[st
 
 
 # -------------------------------------------------------------------- map data
+LATEST_POINT_FIELDS = ("observation_date", "location_name", "region_code", "country",
+                       "latitude", "longitude", "source_name", "quality_flags")
+
+
+def latest_points_from_database(criteria: Dict[str, Any], metrics: Sequence[str]
+                                ) -> List[Dict[str, Any]]:
+    """The newest stored observation per monitored point, resolved inside MongoDB.
+
+    ``$first`` reads each field in ``$sort`` order, so a station's values always come
+    from its own most recent document. The ``$project`` comes before the sort because
+    sorting whole observation documents crosses the server's in-memory sort limit.
+    """
+    projection: Dict[str, int] = {"_id": 0, "location_code": 1}
+    projection.update({name: 1 for name in LATEST_POINT_FIELDS})
+    for metric in metrics:
+        if metric in analytics.METRICS:
+            projection[metric] = 1
+    carried = [name for name in projection if name != "_id"]
+    pipeline = [
+        _match_stage(criteria),
+        {"$project": projection},
+        {"$sort": {"observation_date": -1, "location_code": 1}},
+        {"$group": {"_id": "$location_code",
+                    **{name: {"$first": f"${name}"} for name in carried}}},
+    ]
+    return climate_observations.aggregate(pipeline, allow_disk_use=True)
+
+
+def date_window_from_database(criteria: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """Oldest and newest stored date in scope, without reading the rows."""
+    bounds = climate_observations.aggregate([
+        _match_stage(criteria),
+        {"$group": {"_id": None, "first": {"$min": "$observation_date"},
+                    "last": {"$max": "$observation_date"}}},
+    ])
+    row = bounds[0] if bounds else {}
+    return {"start": row.get("first"), "end": row.get("last")}
+
+
 def map_data(*, metrics: Sequence[str], start: Optional[str], end: Optional[str],
              regions_filter: Optional[Sequence[str]], location_codes: Optional[Sequence[str]],
              countries: Optional[Sequence[str]], datasets_list: Optional[Sequence[Any]],
@@ -1093,16 +1460,22 @@ def map_data(*, metrics: Sequence[str], start: Optional[str], end: Optional[str]
                              location_codes=location_codes, datasets_list=datasets_list,
                              countries=countries, quality=quality,
                              limit=min(max(int(max_points), 1) * 60, ANALYTICS_ROW_LIMIT))
-    rows = fetch_rows(criteria, projection=metric_projection(selected))
-    latest = analytics.latest_by_location(rows, selected)
+    latest = latest_points_from_database(criteria, selected)
     counts = station_aggregates(criteria, limit=max(len(latest) + 1, 500))
 
     points: List[Dict[str, Any]] = []
     for entry in latest:
-        code = str(entry.get("location_code") or "")
+        code = str(entry.get("_id") or entry.get("location_code") or "")
         latitude = _coerce_float(entry.get("latitude"))
         longitude = _coerce_float(entry.get("longitude"))
         stat = counts.get(code, {})
+        measurements: Dict[str, Dict[str, Any]] = {}
+        for metric in selected:
+            value = entry.get(metric)
+            measurements[metric] = {
+                "value": analytics._round(_coerce_float(value)) if value is not None else None,
+                "unit": METRIC_UNITS[metric],
+            }
         points.append({
             "location_code": code,
             "location_name": entry.get("location_name"),
@@ -1111,7 +1484,7 @@ def map_data(*, metrics: Sequence[str], start: Optional[str], end: Optional[str]
             "latitude": latitude,
             "longitude": longitude,
             "last_observation_date": entry.get("observation_date"),
-            "measurements": entry.get("measurements") or {},
+            "measurements": measurements,
             "observation_count": int(stat.get("observation_count") or 0),
             "cluster_key": cluster_key(latitude, longitude),
             "source_name": entry.get("source_name"),
@@ -1136,7 +1509,7 @@ def map_data(*, metrics: Sequence[str], start: Optional[str], end: Optional[str]
         "bounds": compute_bounds(points),
         "scope": {"start": start, "end": end, "regions": list(regions_filter or []),
                   "location_codes": list(location_codes or []), "quality": quality},
-        "window": window_from_rows(rows),
+        "window": date_window_from_database(criteria),
         "matched_observations": matched,
         "generated_at": utcnow().isoformat(),
         "data_note": (
@@ -1301,17 +1674,17 @@ def quality_report(*, start: Optional[str], end: Optional[str],
     criteria = build_filters(start=start, end=end, regions_filter=regions_filter,
                              datasets_list=datasets_list, countries=countries,
                              limit=QUALITY_SAMPLE_LIMIT)
-    rows = fetch_rows(criteria, projection=metric_projection(analytics.METRICS))
-    overall = analytics.coverage_report(rows)
+    overall = coverage_from_database(criteria)
     freshness = source_freshness(criteria=criteria)
     lags = [item["lag_days"] for item in freshness if item["lag_days"] is not None]
+    observations_read = int(overall["observation_count"])
     payload: Dict[str, Any] = {
         "scope": {"start": start, "end": end, "regions": list(regions_filter or []),
                   "datasets": [str(item) for item in (datasets_list or [])],
                   "countries": list(countries or [])},
         "overall": overall,
-        "available": bool(rows),
-        "observations_read": len(rows),
+        "available": bool(observations_read),
+        "observations_read": observations_read,
         "completeness_pct": overall["completeness"].get("temperature_c", {}).get("pct", 0.0),
         "flag_totals": overall["flagged"],
         "flagged_rows": overall.get("flagged_row_count", 0),
@@ -1324,10 +1697,10 @@ def quality_report(*, start: Optional[str], end: Optional[str],
         "status_counts": tally(item["status"] for item in freshness),
         "generated_at": utcnow().isoformat(),
     }
-    if not rows:
+    if not observations_read:
         payload["reason"] = ("No observations match this filter set, so completeness, flag counts "
                              "and freshness cannot be computed. Ingest a dataset first.")
-        payload["per_region"] = []
+        payload["per_scope"] = []
         return payload
 
     row_criteria, limit = strip_limit(criteria)
@@ -1341,49 +1714,48 @@ def quality_report(*, start: Optional[str], end: Optional[str],
     if scope_detail:
         payload["per_scope"] = scoped_coverage(
             regions_filter=regions_filter, datasets_list=datasets_list, start=start, end=end,
-            countries=countries, cap=15, row_limit=min(QUALITY_SAMPLE_LIMIT, 12000))
+            countries=countries, cap=15)
     return payload
 
 
 def scoped_coverage(*, regions_filter: Optional[Sequence[str]],
                     datasets_list: Optional[Sequence[Any]], start: Optional[str],
                     end: Optional[str], countries: Optional[Sequence[str]],
-                    cap: int = 15, row_limit: int = 12000) -> List[Dict[str, Any]]:
-    """Per-region and per-dataset coverage from bounded scoped reads (real documents)."""
-    targets: List[Tuple[str, str, Dict[str, Any]]] = []
-    region_codes = list(regions_filter or []) or region_codes_present()
-    for code in region_codes[:cap]:
-        targets.append(("region", code,
-                        build_filters(start=start, end=end, regions_filter=[code],
-                                      countries=countries, limit=row_limit)))
-    dataset_ids: List[Any] = list(datasets_list or [])
-    if not dataset_ids:
-        dataset_ids = [value for value in climate_observations.distinct("dataset_id")
-                       if value not in (None, "")][:cap]
-    for dataset_id in dataset_ids[:cap]:
-        targets.append(("dataset", str(dataset_id),
-                        build_filters(start=start, end=end, datasets_list=[dataset_id],
-                                      limit=row_limit)))
+                    cap: int = 15) -> List[Dict[str, Any]]:
+    """Per-region and per-dataset coverage, aggregated in MongoDB.
 
+    Each dimension keeps the scope the row-based version read: regions ignore the dataset
+    filter, datasets ignore region and country filters. ``cap`` bounds how many scopes are
+    reported per dimension, highest observation count first, and every scope is measured in
+    full rather than from a sampled window of documents.
+    """
+    region_criteria = build_filters(start=start, end=end, regions_filter=regions_filter,
+                                    countries=countries, limit=analytics.MAX_QUERY_ROWS)
+    dataset_criteria = build_filters(start=start, end=end, datasets_list=datasets_list,
+                                     limit=analytics.MAX_QUERY_ROWS)
     out: List[Dict[str, Any]] = []
-    for kind, label, criteria in targets:
-        rows = fetch_rows(criteria)
-        report = analytics.coverage_report(rows)
-        out.append({
-            "scope_type": kind,
-            "scope": label,
-            "observation_count": report["observation_count"],
-            "date_range": report["date_range"],
-            "flagged_row_count": report.get("flagged_row_count", 0),
-            "flagged_row_pct": report.get("flagged_row_pct", 0.0),
-            "flags": report["flagged"],
-            "temperature_completeness_pct": report["completeness"]["temperature_c"]["pct"],
-            "precipitation_completeness_pct": report["completeness"]["precipitation_mm"]["pct"],
-            "locations": report["locations"],
-            "regions": report["regions"],
-            "sampled_rows": len(rows),
-            "note": None if rows else "No observations stored for this scope.",
-        })
+    for scope_type, criteria in (("region", region_criteria), ("dataset", dataset_criteria)):
+        field = "region_code" if scope_type == "region" else "dataset_id"
+        scopes = [(scope, report) for scope, report in coverage_scopes(criteria, group_field=field)
+                  if scope not in (None, "")]
+        scopes.sort(key=lambda item: item[1]["observation_count"], reverse=True)
+        for scope, report in scopes[:cap]:
+            out.append({
+                "scope_type": scope_type,
+                "scope": str(scope),
+                "observation_count": report["observation_count"],
+                "date_range": report["date_range"],
+                "flagged_row_count": report.get("flagged_row_count", 0),
+                "flagged_row_pct": report.get("flagged_row_pct", 0.0),
+                "flags": report["flagged"],
+                "temperature_completeness_pct": report["completeness"]["temperature_c"]["pct"],
+                "precipitation_completeness_pct": report["completeness"]["precipitation_mm"]["pct"],
+                "locations": report["locations"],
+                "regions": report["regions"],
+                "sampled_rows": report["observation_count"],
+                "note": None if report["observation_count"]
+                        else "No observations stored for this scope.",
+            })
     out.sort(key=lambda item: item["observation_count"], reverse=True)
     return out
 
@@ -2273,15 +2645,16 @@ def history_payload(*, metric: str, regions_filter: Optional[Sequence[str]],
                     location_codes: Optional[Sequence[str]], countries: Optional[Sequence[str]],
                     datasets_list: Optional[Sequence[Any]], start: Optional[str],
                     end: Optional[str], base_from: str, base_to: str,
-                    group_by: str, limit: int = ANALYTICS_ROW_LIMIT) -> Dict[str, Any]:
+                    group_by: str) -> Dict[str, Any]:
     criteria = build_filters(start=start, end=end, regions_filter=regions_filter,
                              location_codes=location_codes, countries=countries,
-                             datasets_list=datasets_list, metric=metric, limit=limit)
-    rows = fetch_rows(criteria, projection=metric_projection([metric]), limit=limit)
+                             datasets_list=datasets_list, metric=metric)
     return explorer.historical_explorer(
-        rows, metric=metric, base_from=base_from, base_to=base_to, group_by=group_by,
+        (), metric=metric, base_from=base_from, base_to=base_to, group_by=group_by,
         pipeline_rows=yearly_region_normals(criteria, metric, limit=2000)
         if group_by in ("none", "region") else [],
+        annual_rows=annual_group_totals(criteria, metric, group_by=group_by),
+        observations_evaluated=matching_row_count(criteria),
     )
 
 
@@ -2295,11 +2668,11 @@ def dashboard_summary(user_id: str, *, role: str, name: str = "") -> Dict[str, A
     temperature_trend = trend_payload(start=None, end=None, regions_filter=None,
                                       location_codes=None, metric="temperature_c",
                                       frequency="monthly", group_by="none",
-                                      require_baseline=True, row_limit=DASHBOARD_ROW_LIMIT)
+                                      require_baseline=True)
     precipitation_trend = trend_payload(start=None, end=None, regions_filter=None,
                                         location_codes=None, metric="precipitation_mm",
                                         frequency="monthly", group_by="none",
-                                        require_baseline=True, row_limit=DASHBOARD_ROW_LIMIT)
+                                        require_baseline=True)
 
     comparison_criteria = build_filters(metric="temperature_c", limit=DASHBOARD_ROW_LIMIT)
     aggregates = regional_aggregates(comparison_criteria, ["temperature_c"], limit=40)
@@ -2318,7 +2691,7 @@ def dashboard_summary(user_id: str, *, role: str, name: str = "") -> Dict[str, A
     alert_context = dashboard_alerts(window_start=window_start, window_end=window_end)
     current_data = current_data_state(newest)
     quality_criteria = build_filters(start=window_start, end=window_end, limit=QUALITY_SAMPLE_LIMIT)
-    quality_rows = fetch_rows(quality_criteria, projection=metric_projection(analytics.METRICS))
+    quality_coverage = coverage_from_database(quality_criteria)
 
     return {
         "totals": totals,
@@ -2343,11 +2716,11 @@ def dashboard_summary(user_id: str, *, role: str, name: str = "") -> Dict[str, A
         "forecast_summaries": forecast_summaries(),
         "data_quality": {
             "window": {"start": window_start, "end": window_end},
-            "coverage": analytics.coverage_report(quality_rows),
-            "observations_in_window": len(quality_rows),
+            "coverage": quality_coverage,
+            "observations_in_window": quality_coverage["observation_count"],
             "per_source": current_data["per_source"],
-            "available": bool(quality_rows),
-            "reason": None if quality_rows else (
+            "available": bool(quality_coverage["observation_count"]),
+            "reason": None if quality_coverage["observation_count"] else (
                 "No observation documents fall inside the recent window, so data quality cannot "
                 "be measured."),
         },

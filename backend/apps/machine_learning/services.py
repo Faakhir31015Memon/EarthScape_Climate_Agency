@@ -14,9 +14,9 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
 
 from common import analytics, storage_paths
 from common.analytics import InsufficientData, METRIC_LABELS, METRIC_UNITS
@@ -330,7 +330,8 @@ def activate_model(model_id: str) -> Dict[str, Any]:
         raise ApiError("conflict", "This model has no persisted artifact to serve predictions from.",
                        status=409)
     retired = model_registry.update_many(
-        {"name": document.get("name"), "status": "active", "_id": {"$ne": document["_id"]}},
+        {"target_variable": document.get("target_variable"), "status": "active",
+         "_id": {"$ne": document["_id"]}},
         {"$set": {"status": "retired", "retired_at": utcnow(),
                   "notes": "Superseded by a newer active version."}})
     model_registry.update_by_id(model_id, {"$set": {

@@ -1,4 +1,4 @@
-"""Idempotent platform bootstrap: schema, reference regions and operator accounts.
+"""Idempotent platform bootstrap: schema, reference regions and the admin account.
 
 Run from the ``backend`` directory::
 
@@ -8,13 +8,13 @@ What it does, all idempotently:
 
 1. applies the document schema (indexes + validators) via :func:`common.schema.apply_schema`;
 2. seeds the ``regions`` collection from :func:`common.regions.region_documents`;
-3. provisions one administrator, one climate analyst and one viewer account with
-   **strong, randomly generated** passwords.
+3. provisions the single operator account (``BOOTSTRAP_ADMIN_EMAIL``). If
+   ``BOOTSTRAP_ADMIN_PASSWORD`` is set in ``.env`` that password is installed; otherwise
+   a **strong random** one is generated.
 
-Passwords are never hardcoded. They are written once to
-``backend/.data/bootstrap-credentials.txt`` (which is git-ignored) and printed to the
-console. On a re-run, existing accounts are left untouched and no new secrets are
-emitted.
+A generated password is written once to ``backend/.data/bootstrap-credentials.txt``
+(which is git-ignored) and printed to the console. On a re-run, the existing account is
+left untouched and no new secrets are emitted.
 """
 from __future__ import annotations
 
@@ -41,11 +41,9 @@ def configure_django() -> None:
 
 DEFAULT_ACCOUNTS = {
     "administrator": {"role": "administrator", "full_name": "EarthScape Administrator",
-                      "email": "admin@earthscape.local", "env_email": "BOOTSTRAP_ADMIN_EMAIL"},
-    "climate_analyst": {"role": "climate_analyst", "full_name": "EarthScape Analyst",
-                        "email": "analyst@earthscape.local", "env_email": "BOOTSTRAP_ANALYST_EMAIL"},
-    "viewer": {"role": "viewer", "full_name": "EarthScape Viewer",
-               "email": "viewer@earthscape.local", "env_email": "BOOTSTRAP_VIEWER_EMAIL"},
+                      "email": "Earthscape@admin.com",
+                      "env_email": "BOOTSTRAP_ADMIN_EMAIL",
+                      "env_password": "BOOTSTRAP_ADMIN_PASSWORD"},
 }
 
 _PASSWORD_ALPHABET = ("ABCDEFGHJKLMNPQRSTUVWXYZ"      # uppercase (no I/O)
@@ -139,7 +137,18 @@ def provision_accounts(*, credentials_path: Optional[Path]) -> List[Dict[str, An
                             "reason": "account already exists and is active"})
             continue
 
-        password = generate_password()
+        password = env.get_raw(spec.get("env_password") or "")
+        if password:
+            from common.security import password_problems
+
+            problems = password_problems(password)
+            if problems:
+                # An operator-supplied password is installed as chosen; the login flow
+                # only checks the digest, so the strength rules are advisory here.
+                print(f"  warning: BOOTSTRAP_ADMIN_PASSWORD breaks the strength policy "
+                      f"({' '.join(problems)})")
+        else:
+            password = generate_password()
         now = utcnow()
         document = {
             "full_name": spec["full_name"],
@@ -149,7 +158,7 @@ def provision_accounts(*, credentials_path: Optional[Path]) -> List[Dict[str, An
             "role": spec["role"],
             "is_active": True,
             "email_verified": True,
-            "organisation": "EarthScape Climate Agency (bootstrap)",
+            "organisation": "EarthScape Climate Agency",
             "preferences": {"theme": "light",
                             "units": {"temperature": "celsius", "precipitation": "millimetres",
                                       "wind": "m/s"},

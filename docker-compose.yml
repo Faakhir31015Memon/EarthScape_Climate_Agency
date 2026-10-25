@@ -11,7 +11,7 @@
 #
 # NOTE (honest status): the images in this file were authored but not built in the
 # development environment used for this delivery because Docker was not available
-# there. See infrastructure/README.md for the exact build/verify commands.
+# there. See backend/infrastructure/README.md for the exact build/verify commands.
 
 name: earthscape-climate-agency
 
@@ -58,7 +58,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: infrastructure/docker/Dockerfile.backend
+      dockerfile: backend/infrastructure/docker/Dockerfile.backend
     image: earthscape/backend:${IMAGE_TAG:-local}
     restart: unless-stopped
     env_file: .env
@@ -82,7 +82,7 @@ services:
     image: earthscape/backend:${IMAGE_TAG:-local}
     build:
       context: .
-      dockerfile: infrastructure/docker/Dockerfile.backend
+      dockerfile: backend/infrastructure/docker/Dockerfile.backend
     restart: unless-stopped
     env_file: .env
     environment: *backend-env
@@ -109,7 +109,7 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: infrastructure/docker/Dockerfile.frontend
+      dockerfile: backend/infrastructure/docker/Dockerfile.frontend
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
     image: earthscape/frontend:${IMAGE_TAG:-local}

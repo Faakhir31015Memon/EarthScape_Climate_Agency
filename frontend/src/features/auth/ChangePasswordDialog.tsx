@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
-import { ErrorState } from "../../components/ui/EmptyState";
+import { ErrorState } from "../../components/ui/ErrorState";
 import { FormField } from "../../components/ui/FormField";
 import { Input } from "../../components/ui/Input";
 import { useToast } from "../../components/ui/Toast";
@@ -83,7 +83,7 @@ export function ChangePasswordDialog({ open, onClose, forced = false }: ChangePa
     >
       <form id="change-password-form" onSubmit={submit} className="space-y-4" noValidate>
         {serverError ? (
-          <ErrorState message={serverError.message} details={serverError.details} />
+          <ErrorState error={serverError} />
         ) : null}
         <FormField name="current_password" control={control} label="Current password" required>
           {({ id, value, onChange, onBlur, invalid, describedBy }) => (

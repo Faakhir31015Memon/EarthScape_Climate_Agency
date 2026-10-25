@@ -575,7 +575,9 @@ export const modelsApi = {
 export const predictionsApi = {
   // Real create route is the collection POST /predictions/.
   forecast(payload: PredictionCreateBody): Promise<PredictionRecord> {
-    return apiPost<PredictionRecord>('/predictions/', payload)
+    // A multi-year horizon is generated day by day, so this request outlives the
+    // default 45 s client timeout and must not be aborted mid-projection.
+    return apiPost<PredictionRecord>('/predictions/', payload, { timeout: 900_000 })
   },
   list(params: { model_id?: string; target_variable?: string; region_code?: string; location_code?: string; limit?: number } = {}): Promise<PredictionListResponse> {
     return apiGet<PredictionListResponse>('/predictions/', params)

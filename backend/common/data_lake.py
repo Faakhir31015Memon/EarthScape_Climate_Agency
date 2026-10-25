@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 LAYERS = ("raw", "validated", "processed", "analytics", "ml-features", "exports")
 DEFAULT_FORMATS = ("parquet", "jsonl", "csv")
-REPO_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
 def utcnow() -> datetime:
@@ -114,7 +114,7 @@ class DataLake:
         self.hdfs_root = (env.get_str("HDFS_ROOT", "/user/earthscape") or "/user/earthscape").strip("/")
         self.hdfs_user = env.get_str("HDFS_USER", "hadoop") or None
         self.local_root = Path(env.get_str("DATA_LAKE_LOCAL_ROOT",
-                                           str(Path(__file__).resolve().parents[2] / ".data-lake")))
+                                           str(BACKEND_DIR / ".data-lake")))
         preference = (force_backend or env.get_str("DATA_LAKE_BACKEND", "auto")).strip().lower()
         self._client = None
         self._client_lock = threading.Lock()
@@ -211,7 +211,7 @@ class DataLake:
             resolved = Path(text).resolve()
         except OSError:
             return PurePosixPath(Path(text).name).as_posix()
-        roots = ((self.local_root, "lake://"), (REPO_ROOT, ""))
+        roots = ((self.local_root, "lake://"), (BACKEND_DIR, ""))
         for root, prefix in roots:
             try:
                 relative = resolved.relative_to(Path(root).resolve())

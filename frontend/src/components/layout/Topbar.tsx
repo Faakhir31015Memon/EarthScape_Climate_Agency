@@ -6,7 +6,7 @@ import { useAuth } from "../../features/auth/useAuth";
 import { useApi } from "../../lib/api/query";
 import type { UnreadCountResult, UserRole } from "../../lib/api/types";
 import { ThemeToggle } from "./ThemeToggle";
-import { formatInt } from "../../lib/format";
+import { formatNumber } from "../../lib/format";
 
 const ROLE_LABEL: Record<UserRole, string> = {
   administrator: "Administrator",
@@ -55,7 +55,7 @@ export function Topbar({ onOpenSidebar }: TopbarProps) {
           className="relative inline-flex h-9 min-w-9 items-center justify-center rounded-lg border border-border px-2 text-content"
         >
           <span aria-hidden="true" className="text-sm font-semibold">
-            {formatInt(unread)}
+            {formatNumber(unread, 0)}
           </span>
           <span className="ml-1 hidden text-xs text-muted sm:inline">unread</span>
           {unread > 0 ? (

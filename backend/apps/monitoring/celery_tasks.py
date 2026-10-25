@@ -33,9 +33,8 @@ from config import env  # noqa: E402
 logger = logging.getLogger(__name__)
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-REPO_ROOT = BACKEND_DIR.parent
-for _path in (str(BACKEND_DIR), str(REPO_ROOT / "data-pipeline"),
-              str(REPO_ROOT / "data-pipeline" / "spark")):
+for _path in (str(BACKEND_DIR), str(BACKEND_DIR / "data-pipeline"),
+              str(BACKEND_DIR / "data-pipeline" / "spark")):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 

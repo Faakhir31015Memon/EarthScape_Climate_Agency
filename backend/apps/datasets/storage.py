@@ -18,7 +18,7 @@ from typing import Iterator
 
 from django.conf import settings
 
-from common.env import REPO_ROOT
+from common.env import BACKEND_DIR
 from common.exceptions import ValidationError
 from common.logging_config import get_logger
 
@@ -34,7 +34,7 @@ UPLOAD_ROOT = Path(settings.APP.get("UPLOAD_TEMP_DIR", "artifacts/uploads"))
 
 
 def _upload_root() -> Path:
-    root = UPLOAD_ROOT if UPLOAD_ROOT.is_absolute() else REPO_ROOT / UPLOAD_ROOT
+    root = UPLOAD_ROOT if UPLOAD_ROOT.is_absolute() else BACKEND_DIR / UPLOAD_ROOT
     root.mkdir(parents=True, exist_ok=True)
     return root
 

@@ -254,9 +254,9 @@ export default function BigDataPage() {
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="muted">
             Repository guide: <span className="mono">README.md</span> · Pipeline job layout:{' '}
-            <span className="mono">data-pipeline/mapreduce/README.md</span> · Deployment:{' '}
-            <span className="mono">infrastructure/README.md</span> · Full write-up:{' '}
-            <span className="mono">docs/EarthScape-Climate-Agency-Project-Report.docx</span>
+            <span className="mono">backend/data-pipeline/mapreduce/README.md</span> · Deployment:{' '}
+            <span className="mono">backend/infrastructure/README.md</span> · ML layer:{' '}
+            <span className="mono">backend/ml/README.md</span>
           </span>
         </div>
       </Panel>

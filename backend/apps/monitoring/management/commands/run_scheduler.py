@@ -2,7 +2,7 @@
 
 This is the single scheduled entry point for the recurring work the platform promises:
 alert-rule sweeps, scheduled provider ingestion, abandoned-job reconciliation and email
-delivery retries. In a cluster deployment Airflow (see ``infrastructure/airflow``) calls the
+delivery retries. In a cluster deployment Airflow (see ``backend/infrastructure/airflow``) calls the
 same command on a schedule; running it here needs nothing but the backend and MongoDB, so
 the behaviour is identical with or without the scheduler service.
 """

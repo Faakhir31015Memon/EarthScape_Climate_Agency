@@ -30,7 +30,7 @@ from django.conf import settings
 from common.audit import audit
 from common.db import (COLLECTIONS, aggregate, collection, count, db, database_name, find,
                        find_one, now_utc, oid)
-from common.env import ENV, REPO_ROOT, report_root, storage_root
+from common.env import ARTIFACT_ROOT, BACKEND_DIR, ENV, report_root, storage_root
 from common.exceptions import Conflict, Forbidden, NotFound, ValidationError
 from common.logging_config import get_logger, redact
 from common.pagination import normalize_pagination
@@ -46,7 +46,7 @@ logger = get_logger("earthscape.monitoring.admin")
 SECRET_MARKERS = ("key", "token", "password", "secret", "uri")
 INTERNAL_KEY_PREFIX = "counter."
 MAX_SETTING_CHARS = ENV.integer("PLATFORM_SETTING_MAX_CHARS", 2000)
-LOG_FILE = Path(str(getattr(settings, "LOG_DIR", REPO_ROOT / "artifacts" / "logs"))) / "backend.log"
+LOG_FILE = Path(str(getattr(settings, "LOG_DIR", ARTIFACT_ROOT / "logs"))) / "backend.log"
 LOG_TAIL_LINES = ENV.integer("OPS_LOG_TAIL_LINES", 400)
 LOG_TAIL_MAX_LINES = 5000
 LOG_TAIL_MAX_BYTES = 4_000_000
@@ -484,7 +484,7 @@ def _report_storage() -> dict[str, Any]:
     lake_usage = shutil.disk_usage(str(lake))
     return {
         "source": "report_root() and storage_root() filesystem stats",
-        "reports_directory": str(reports.relative_to(REPO_ROOT)) if str(reports).startswith(str(REPO_ROOT))
+        "reports_directory": str(reports.relative_to(BACKEND_DIR)) if str(reports).startswith(str(BACKEND_DIR))
                              else str(reports),
         "report_files": files,
         "report_bytes": bytes_total,

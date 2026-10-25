@@ -13,12 +13,10 @@ from pathlib import Path
 from config import env
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-REPO_ROOT = BASE_DIR.parent
 sys.path.insert(0, str(BASE_DIR))
-# The ml/ package (features, training, inference, anomaly, evaluation) lives beside
-# backend/ at the repository root, so management commands, the dev server and any
-# worker all resolve ``import ml.*`` the same way.
-sys.path.insert(0, str(REPO_ROOT))
+# ``ml/`` and ``data-pipeline/`` are packages inside ``backend/``, so the BASE_DIR entry
+# above already lets management commands, the dev server and any worker resolve
+# ``import ml.*`` the same way.
 
 env.validate_startup()
 
@@ -107,7 +105,7 @@ EXPORT_ROOT = MEDIA_ROOT / "exports"
 REPORT_ROOT = MEDIA_ROOT / "reports"
 MODEL_STORE = Path(env.get_str("MODEL_ARTIFACT_DIR", str(MEDIA_ROOT / "ml-artifacts")))
 PROCESSING_ROOT = Path(env.get_str("PROCESSING_SCRATCH_DIR", str(MEDIA_ROOT / "processing")))
-DATA_LAKE_ROOT = Path(env.get_str("DATA_LAKE_LOCAL_ROOT", str(REPO_ROOT / ".data-lake")))
+DATA_LAKE_ROOT = Path(env.get_str("DATA_LAKE_LOCAL_ROOT", str(BASE_DIR / ".data-lake")))
 for _directory in (UPLOAD_ROOT, EXPORT_ROOT, REPORT_ROOT, MODEL_STORE, PROCESSING_ROOT, DATA_LAKE_ROOT):
     _directory.mkdir(parents=True, exist_ok=True)
 

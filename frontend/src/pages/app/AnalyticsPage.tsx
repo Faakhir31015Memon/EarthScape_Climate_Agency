@@ -317,7 +317,10 @@ export default function AnalyticsPage() {
             title={`${metricLabel(metric)} — ${frequency} ${groupBy === 'none' ? '' : `by ${groupBy}`}`}
             description={
               trendOutcomeResult.kind === 'ready'
-                ? `${trendOutcomeResult.series.length} periods · unit ${trendOutcomeResult.unit || '—'}`
+                ? `${trendOutcomeResult.series.length} periods · unit ${trendOutcomeResult.unit || '—'}` +
+                  (trend.data?.truncated
+                    ? ` · the backend returned the first ${trendOutcomeResult.series.length} of ${trend.data.point_count}`
+                    : '')
                 : 'The backend reports this series as not computable.'
             }
             actions={

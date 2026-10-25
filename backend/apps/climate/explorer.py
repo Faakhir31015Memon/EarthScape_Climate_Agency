@@ -174,19 +174,53 @@ def normal_for(entries: Sequence[Dict[str, Any]], base_from: Optional[str],
     }
 
 
+def annual_grouped(rows: Sequence[Dict[str, Any]], *, metric: str) -> Dict[str, List[Dict[str, Any]]]:
+    """Reshape ``$group`` output (group x year) into the explorer's annual entries."""
+    additive = metric in ADDITIVE_METRICS
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        value = row.get("total") if additive else row.get("mean")
+        year = row.get("year")
+        if value is None or not isinstance(year, int) or year <= 0:
+            continue
+        grouped.setdefault(str(row.get("group") or "GLOBAL"), []).append({
+            "year": year,
+            "value": _round(value),
+            "aggregation": "sum" if additive else "mean",
+            "unit": METRIC_UNITS.get(metric),
+            "observations": int(row.get("observation_count") or 0),
+            "min": _round(row.get("min")),
+            "max": _round(row.get("max")),
+        })
+    for entries in grouped.values():
+        entries.sort(key=lambda item: item["year"])
+    return grouped
+
+
 def historical_explorer(observations: Sequence[Dict[str, Any]], *, metric: str,
                         base_from: Optional[str] = None, base_to: Optional[str] = None,
                         group_by: str = "none",
-                        pipeline_rows: Optional[Sequence[Dict[str, Any]]] = None) -> Dict[str, Any]:
-    """Per-year/per-decade normals and change deltas for one metric."""
+                        pipeline_rows: Optional[Sequence[Dict[str, Any]]] = None,
+                        annual_rows: Optional[Sequence[Dict[str, Any]]] = None,
+                        observations_evaluated: Optional[int] = None) -> Dict[str, Any]:
+    """Per-year/per-decade normals and change deltas for one metric.
+
+    ``annual_rows`` carries per (group, year) aggregates already computed by a
+    MongoDB ``$group``; when it is present the daily documents are not needed, so
+    ``observations`` can be empty and ``observations_evaluated`` states the scope's
+    row count instead. Otherwise the buckets are built from ``observations`` here.
+    """
     base_from = normalise_period(base_from, default="1961")
     base_to = normalise_period(base_to, default="1990")
     if metric not in analytics.METRICS:
         return {"available": False, "metric": metric, "groups": [],
                 "reason": f"Metric '{metric}' is not part of the observation schema."}
 
-    buckets = bucket_observations(observations, metric, group_by=group_by)
-    grouped = aggregate_years(buckets, metric)
+    evaluated = len(observations) if observations_evaluated is None else int(observations_evaluated)
+    if annual_rows is not None:
+        grouped = annual_grouped(annual_rows, metric=metric)
+    else:
+        grouped = aggregate_years(bucket_observations(observations, metric, group_by=group_by), metric)
     if not grouped:
         return {
             "available": False,
@@ -197,7 +231,7 @@ def historical_explorer(observations: Sequence[Dict[str, Any]], *, metric: str,
             "reference_period": {"start": base_from, "end": base_to},
             "groups": [],
             "year_count": 0,
-            "observations_evaluated": len(observations),
+            "observations_evaluated": evaluated,
             "reason": (f"No stored observation carries a {metric} value for this filter set, so "
                        "no normals, anomalies or deltas can be computed."),
         }
@@ -279,7 +313,7 @@ def historical_explorer(observations: Sequence[Dict[str, Any]], *, metric: str,
         "year_span": {"first": all_years[0] if all_years else None,
                       "last": all_years[-1] if all_years else None},
         "year_count": len(all_years),
-        "observations_evaluated": len(observations),
+        "observations_evaluated": evaluated,
         "pipeline_year_matrix": year_matrix,
         "method": "annual means (sums for additive metrics) computed only from stored daily "
                   "observations; anomalies are deviations against the chosen reference normal",
@@ -331,6 +365,7 @@ __all__ = [
     "MIN_YEARS_FOR_SLOPE",
     "MIN_YEARS_FOR_STABLE_NORMAL",
     "aggregate_years",
+    "annual_grouped",
     "bucket_observations",
     "decades_of",
     "historical_explorer",

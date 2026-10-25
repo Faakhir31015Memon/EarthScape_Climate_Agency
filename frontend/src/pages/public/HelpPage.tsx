@@ -142,13 +142,11 @@ const INTERFACE_NOTES = [
 const REPO_DOCS = [
   { path: 'README.md', note: 'Repository layout, quick start and the configuration and honesty rules.' },
   { path: '.env.example', note: 'Every setting the platform reads, with its default and a comment where behaviour changes.' },
-  { path: 'scripts/dev.sh', note: 'Backend, frontend, bootstrap, seed and compile-check launch helpers.' },
   { path: 'docker-compose.yml', note: 'Container stack: API, worker, scheduler, frontend, Redis and the optional Hadoop/Spark profile.' },
-  { path: 'infrastructure/README.md', note: 'Container deployment, cluster profile, backups and Airflow scheduling.' },
-  { path: 'data-pipeline/mapreduce/README.md', note: 'Streaming mapper/reducer contract and how a job is run locally or on a cluster.' },
-  { path: 'ml/README.md', note: 'Feature build, training, evaluation and inference layout.' },
-  { path: 'sample-data/README.md', note: 'What is real in this repository: the six city CSVs are provider-retrieved data, and no synthetic corpus ships here.' },
-  { path: 'docs/EarthScape-Climate-Agency-Project-Report.docx', note: 'Project report: architecture, modules, testing evidence, user and administrator guidance.' },
+  { path: 'backend/infrastructure/README.md', note: 'Container deployment, cluster profile, backups and Airflow scheduling.' },
+  { path: 'backend/data-pipeline/mapreduce/README.md', note: 'Streaming mapper/reducer contract and how a job is run locally or on a cluster.' },
+  { path: 'backend/ml/README.md', note: 'Feature build, training, evaluation and inference layout.' },
+  { path: 'backend/sample-data/README.md', note: 'What is real in this repository: the six city CSVs are provider-retrieved data, and no synthetic corpus ships here.' },
 ]
 
 function FaqItem({ question, children }: { question: string; children: ReactNode }) {
@@ -447,9 +445,9 @@ export function HelpPage() {
               ))}
             </ul>
             <p className="mt-4 text-xs leading-relaxed subtle">
-              The written architecture, installation, testing, user and administrator guidance is consolidated in the project report under{' '}
-              <span className="mono">docs/</span>. If a document is missing from your copy, request it rather than assuming the platform behaves
-              differently from what is written above.
+              Setup, configuration and the honesty rules live in <span className="mono">README.md</span>; the
+              per-package guides are listed above. If a document is missing from your copy, request it rather than
+              assuming the platform behaves differently from what is written above.
             </p>
           </Panel>
           <div className="space-y-4">

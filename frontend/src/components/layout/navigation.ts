@@ -21,7 +21,6 @@ import {
   Store,
   Table2,
   Upload,
-  UserIcon,
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";

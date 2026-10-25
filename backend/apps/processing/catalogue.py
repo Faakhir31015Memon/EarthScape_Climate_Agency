@@ -15,12 +15,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from common.datalake import LAYERS, list_layer, slug
-from common.env import ENV, REPO_ROOT
+from common.env import BACKEND_DIR, ENV
 from common.exceptions import ServiceUnavailableConfig, ValidationError
 from common.paths import ensure_paths
 from common.tasks import engine as task_engine
 
-CATALOGUE_PATH = REPO_ROOT / "data-pipeline" / "spark" / "jobs.json"
+CATALOGUE_PATH = BACKEND_DIR / "data-pipeline" / "spark" / "jobs.json"
 
 MAX_LIST_ITEMS = 200
 MAX_STRING_LENGTH = 300
@@ -191,7 +191,7 @@ def _resolve_lake_path(value: Any, name: str, errors: list[str]) -> Optional[str
         return None
     candidate = Path(text)
     if not candidate.is_absolute():
-        candidate = REPO_ROOT / candidate
+        candidate = BACKEND_DIR / candidate
     resolved = candidate.resolve()
     root = storage_root().resolve()
     if root not in resolved.parents:

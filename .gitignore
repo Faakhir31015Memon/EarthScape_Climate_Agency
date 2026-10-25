@@ -44,8 +44,8 @@ metastore_db/
 derby.log
 
 # --- data sets that are too large for git --------------------------------------
-sample-data/*.parquet
-sample-data/generated/
+backend/sample-data/*.parquet
+backend/sample-data/generated/
 data/*.zip
 
 # --- editors / os --------------------------------------------------------------

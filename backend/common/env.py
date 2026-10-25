@@ -16,6 +16,7 @@ from typing import Any
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_DIR.parent
+ARTIFACT_ROOT = BACKEND_DIR / "artifacts"
 
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off", ""}
@@ -126,7 +127,7 @@ def development_signing_key() -> str:
 
     Production must set DJANGO_SECRET_KEY; a generated key is never committed.
     """
-    key_path = REPO_ROOT / "artifacts" / ".dev-signing-key"
+    key_path = ARTIFACT_ROOT / ".dev-signing-key"
     configured = ENV.raw("DJANGO_SECRET_KEY")
     if configured:
         return configured
@@ -170,28 +171,28 @@ class ServiceStatus:
 
 
 def storage_root() -> Path:
-    configured = ENV.raw("DATA_LAKE_ROOT", str(REPO_ROOT / "artifacts" / "datalake"))
+    configured = ENV.raw("DATA_LAKE_ROOT", str(ARTIFACT_ROOT / "datalake"))
     path = Path(configured)
     if not path.is_absolute():
-        path = REPO_ROOT / path
+        path = BACKEND_DIR / path
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def model_artifact_root() -> Path:
-    configured = ENV.raw("MODEL_ARTIFACT_ROOT", str(REPO_ROOT / "artifacts" / "models"))
+    configured = ENV.raw("MODEL_ARTIFACT_ROOT", str(ARTIFACT_ROOT / "models"))
     path = Path(configured)
     if not path.is_absolute():
-        path = REPO_ROOT / path
+        path = BACKEND_DIR / path
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def report_root() -> Path:
-    configured = ENV.raw("REPORT_STORAGE_ROOT", str(REPO_ROOT / "artifacts" / "reports"))
+    configured = ENV.raw("REPORT_STORAGE_ROOT", str(ARTIFACT_ROOT / "reports"))
     path = Path(configured)
     if not path.is_absolute():
-        path = REPO_ROOT / path
+        path = BACKEND_DIR / path
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -230,7 +231,7 @@ def startup_status() -> list[ServiceStatus]:
             required=False,
             detail=(f"WebHDFS endpoint {hdfs_url}" if hdfs_url
                     else f"local data lake at {storage_root()}"),
-            hint="Set HDFS_WEBHDFS_URL plus HADOOP_USER and start infrastructure/hadoop to use real HDFS.",
+            hint="Set HDFS_WEBHDFS_URL plus HADOOP_USER and start backend/infrastructure/hadoop to use real HDFS.",
             mode="webhdfs" if hdfs_url else "local",
         )
     )
@@ -249,7 +250,7 @@ def startup_status() -> list[ServiceStatus]:
             required=False,
             detail=(f"PySpark importable, master {spark_master}" if spark_available
                     else "PySpark not installed; pandas engine used for the same job logic"),
-            hint="pip install pyspark (needs a JDK) or start infrastructure/spark for cluster mode.",
+            hint="pip install pyspark (needs a JDK) or start backend/infrastructure/spark for cluster mode.",
             mode="pyspark" if spark_available else "pandas-fallback",
         )
     )
@@ -275,7 +276,7 @@ def startup_status() -> list[ServiceStatus]:
             configured=bool(kafka_brokers),
             required=False,
             detail=(f"brokers {kafka_brokers}" if kafka_brokers else "not configured; polling ingestion used"),
-            hint="Start infrastructure/kafka, set KAFKA_BROKERS, then enable EVENT_STREAM_ENABLED=true.",
+            hint="Start backend/infrastructure/kafka, set KAFKA_BROKERS, then enable EVENT_STREAM_ENABLED=true.",
             mode="kafka" if kafka_brokers else "polling",
         )
     )

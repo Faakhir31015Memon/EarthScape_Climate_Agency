@@ -1,5 +1,6 @@
-import { EmptyState, ErrorState } from "../ui/EmptyState";
-import { SkeletonBlock } from "../ui/Skeleton";
+import { EmptyState } from "../ui/EmptyState";
+import { ErrorState } from "../ui/ErrorState";
+import { ChartSkeleton } from "../ui/Skeleton";
 
 export interface ChartFrameProps {
   loading?: boolean;
@@ -22,23 +23,17 @@ export function ChartFrame({
   children,
 }: ChartFrameProps) {
   if (loading) {
-    return (
-      <div style={{ height }} className="flex items-center justify-center">
-        <div className="w-full max-w-sm">
-          <SkeletonBlock rows={5} />
-        </div>
-      </div>
-    );
+    return <ChartSkeleton height={height} />;
   }
 
   if (error) {
-    return <ErrorState message={error} />;
+    return <ErrorState error={error} />;
   }
 
   if (empty) {
     return (
       <div style={{ minHeight: Math.min(height, 200) }} className="flex items-center">
-        <EmptyState className="w-full" title={emptyTitle} reason={emptyReason} />
+        <EmptyState title={emptyTitle} description={emptyReason} />
       </div>
     );
   }

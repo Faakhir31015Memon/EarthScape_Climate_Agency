@@ -6,7 +6,7 @@ A full-stack climate intelligence platform: real observations are ingested from
 public providers and user files, stored in **MongoDB Atlas**, processed through
 **Hadoop MapReduce and Apache Spark**, analysed, scored by machine-learning
 models, turned into alerts, notifications and reports, and explored through a
-React dashboard with 42 screens.
+React dashboard with 43 screens.
 
 ---
 
@@ -18,20 +18,23 @@ React 18 + TypeScript + Vite + Tailwind + Recharts + Leaflet
         ▼
 Django 5 + Django REST Framework  ──  drf-spectacular OpenAPI
         │
-        ├─ common/analytics.py      trend, compare, correlation, seasonality,
-        │                           anomaly detection, coverage  (shared kernel)
+        ├─ MongoDB aggregation      trend buckets + coverage ($group / $facet),
+        │                           so wide windows never cross the network
+        ├─ common/analytics.py      compare, correlation, seasonality, anomaly
+        │                           detection, and the fallback for any trend the
+        │                           pipelines do not model            (shared kernel)
         ├─ apps/*                   auth·users·datasets·ingestion·climate·
         │                           processing·ML·alerts·reports·support·monitoring
         ▼
 PyMongo ──► MongoDB Atlas           PRIMARY application database (no ORM,
                                      no relational fallback by design)
         │
-        ├─ data-pipeline/mapreduce  Hadoop Streaming mapper/reducer
-        ├─ data-pipeline/spark      PySpark 3.5 jobs → Parquet in the data lake
+        ├─ backend/data-pipeline/mapreduce  Hadoop Streaming mapper/reducer
+        ├─ backend/data-pipeline/spark      PySpark 3.5 jobs → Parquet in the data lake
         │        local[*] when no cluster; spark://master:7077 when configured
-        ├─ ml/                      feature build, training, evaluation, inference
-        └─ Celery + Redis           background jobs; in-process worker pool
-                                    when no broker is reachable (and it says so)
+        ├─ backend/ml                       feature build, training, evaluation, inference
+        └─ Celery + Redis                   background jobs; in-process worker pool
+                                            when no broker is reachable (and it says so)
 ```
 
 Document database first: `DATABASES = {}`, no `django.contrib.auth`. Users,
@@ -45,18 +48,21 @@ are MongoDB collections accessed through PyMongo repositories
 
 | Path | Contents |
 | --- | --- |
-| `backend/` | Django project: `config/`, `common/` (db, auth, analytics, tasks, data lake), `apps/` (11 feature modules), `scripts/` |
+| `backend/` | Everything the server owns |
+| `backend/config/` `backend/common/` | Django settings; shared kernel — db, auth, analytics, tasks, data lake |
+| `backend/apps/` | 11 feature modules: auth·users·datasets·ingestion·climate·processing·ML·alerts·reports·support·monitoring |
+| `backend/scripts/` | `bootstrap_platform.py` (schema, regions, admin account) · `migrate_mongo.py` · `seed_real_data.py` · `provision_admin.py` · `recover_account_password.py` |
+| `backend/data-pipeline/` | `mapreduce/` Hadoop Streaming jobs + local runner, `spark/` PySpark jobs, `schemas/`, `tools/` |
+| `backend/ml/` | `features/`, `training/`, `evaluation/`, `anomaly/`, `inference/` |
+| `backend/artifacts/` | Data-lake layers (`datalake/`), training logs, checkpoints, generated reports |
+| `backend/sample-data/` | **Real retrieved climate only**: six city CSVs pulled from the Open-Meteo archive. Nothing reads this directory as an input default — the platform's observations come from MongoDB Atlas (NASA POWER connector or user uploads) |
+| `backend/infrastructure/` | Dockerfiles, nginx site, Airflow DAG, Hadoop/Kafka/Spark config, backup/restore scripts |
 | `frontend/` | Vite + React + TS app: `src/app` (router, nav), `src/pages`, `src/components`, `src/features`, `src/services`, `src/hooks`, `src/lib` |
-| `data-pipeline/` | `mapreduce/` Hadoop Streaming jobs + local runner, `spark/` PySpark jobs, `schemas/`, `tools/` |
-| `ml/` | `features/`, `training/`, `evaluation/`, `anomaly/`, `inference/` |
-| `sample-data/` | **Real retrieved climate only**: six city CSVs pulled from the Open-Meteo archive by `scripts/fetch_real_sample_data.py`. The synthetic stress/generator files that used to live here have been removed, and no workflow uses this directory as an input default — the platform's observations come from MongoDB Atlas (NASA POWER connector or user uploads) |
-| `infrastructure/` | Dockerfiles, nginx site, Airflow DAG, backup/restore scripts |
 | `docker-compose.yml` | backend · worker · scheduler · frontend · redis · optional Hadoop/Spark profile |
-| `scripts/` | `dev.sh` local launch helpers · `md2docx.py` report converter |
-| `docs/` | `EarthScape-Climate-Agency-Project-Report.docx` — the consolidated written deliverable: architecture, modules, testing evidence, user and administrator guidance |
+| `.env` / `.env.example` | Local secrets (git-ignored) and the documented setting list |
 
-`backend/.data/` (document-store snapshots, uploads, generated reports, model
-artefacts) and `.data-lake/` (MapReduce/Spark outputs) are local runtime state:
+`backend/.data/` (uploads, generated reports, model artefacts) and
+`backend/.data-lake/` (MapReduce/Spark outputs) are local runtime state:
 git-ignored, recreated on demand, and safe to delete for a clean start.
 
 ---
@@ -71,45 +77,45 @@ cp .env.example .env           # then set MONGODB_URI / DJANGO_SECRET_KEY / JWT_
 # Paste the Atlas connection string verbatim (mongodb:// shard list or mongodb+srv form),
 # leave its <db_username>/<db_password> placeholders in place and fill the two keys below it:
 #   MONGODB_ATLAS_USER=<atlas username>      MONGODB_ATLAS_PASSWORD=<atlas password>
-.venv/Scripts/python.exe scripts/verify_atlas.py                   # ping Atlas, show masked URI
-.venv/Scripts/python.exe backend/scripts/bootstrap_platform.py   # collections, indexes, accounts
+.venv/Scripts/python.exe backend/scripts/bootstrap_platform.py   # collections, indexes, admin account
 .venv/Scripts/python.exe backend/manage.py runserver 0.0.0.0:8000
 .venv/Scripts/python.exe backend/scripts/seed_real_data.py       # real observations only
 cd frontend && npm install && npm run dev                        # http://localhost:5173
 ```
 
+`GET /api/v1/health` reports the database mode and names the environment key that
+is missing when Atlas is not configured, so it doubles as the connection check.
+
 #### Importing your own files
 
 `.csv`, `.txt`, `.json`/NDJSON, `.xlsx`, `.xlsm`, `.xltx`, `.xltm`, `.xls`, `.xlsb`,
-`.ods` (LibreOffice), `.parquet` and password-protected workbooks can all be uploaded
-from the app or imported straight into MongoDB from the shell:
-
-```bash
-.venv/Scripts/python.exe scripts/import_spreadsheet.py path/to/file.xlsb --collection raw_imports
-.venv/Scripts/python.exe scripts/import_spreadsheet.py path/to/*.ods --dry-run   # read, don't write
-```
+`.ods` (LibreOffice), `.parquet` and password-protected workbooks are uploaded from
+**Datasets → Upload** in the app, mapped column-by-column, previewed and then written
+into MongoDB by an ingestion job.
 
 Encrypted uploads need `UPLOAD_FILE_PASSWORD` in `.env`; macros in `.xlsm`/`.xltm` are
 never executed. Upload formats are proved with real files — no fixture copies ship in
 the repository.
 
-Sign-in credentials are generated randomly by `bootstrap_platform.py` and
-printed once into `backend/.data/bootstrap-credentials.txt` (git-ignored). There
-is no default or hardcoded administrator password in this repository — and that
-file is deliberately **not** part of the delivered archive, so signing into a
-received copy means setting your own:
+The platform ships exactly one account: the administrator named by
+`BOOTSTRAP_ADMIN_EMAIL`, whose password comes from `BOOTSTRAP_ADMIN_PASSWORD` in
+`.env` (git-ignored) or, when that key is left blank, from a strong password
+generated once and written to `backend/.data/bootstrap-credentials.txt`. There is no
+hardcoded password anywhere in the repository, and self-registration is switched off
+by default (`ENABLE_SELF_REGISTRATION=false`).
+
+If the credential file is not available, reset one account to a freshly generated
+password:
 
 ```bash
-.venv/Scripts/python.exe backend/scripts/recover_account_password.py --role climate_analyst
+.venv/Scripts/python.exe backend/scripts/recover_account_password.py --role administrator
 ```
 
 Stop `runserver` first (the development store is per-process and would overwrite
-the change), then sign in with the single printed password. The same procedure,
-and what a delivered archive ships or omits, is written up in
-`docs/EarthScape-Climate-Agency-Project-Report.docx`.
+the change), then sign in with the single printed password.
 
 Container deployment, cluster profile, backups and Airflow are covered in
-[`infrastructure/README.md`](infrastructure/README.md).
+[`backend/infrastructure/README.md`](backend/infrastructure/README.md).
 
 ---
 
@@ -120,7 +126,7 @@ truthfully rather than assuming infrastructure exists:
 
 - A `MONGODB_URI` that still contains a `<db_username>` / `<password>` placeholder is
   treated as **not configured** rather than sent to the server as a literal username;
-  `/api/v1/health` and `scripts/verify_atlas.py` say which key is missing.
+  `/api/v1/health` says which key is missing.
 - If Atlas is unreachable and `FORCE_ATLAS_CONNECTION=false`, the API uses the
   clearly labelled `local-development` document store with JSON snapshots, and
   every screen plus the EnvironmentBanner says so. Production should set
@@ -132,7 +138,8 @@ truthfully rather than assuming infrastructure exists:
 - Metrics on dashboards are computed from stored observations. Where a series
   lacks the minimum number of points the API returns
   `available: false, reason, available_points, required_points`, and the UI
-  renders that instead of a number.
+  renders that instead of a number. When a series is cut at the returned-point
+  limit, the explorer says how many periods the backend actually built.
 
 Security posture: JWT access (20 min) + rotating refresh (7 days) with reuse
 detection, bcrypt password hashing, login lockout, server-side RBAC
@@ -149,8 +156,8 @@ logged and never committed. The browser only ever talks to the Django API.
 
 **Public** — landing, about, capabilities, insights preview, data sources, help,
 privacy, terms.
-**Auth** — login, register (viewer-only unless admin-created), forgot/reset
-password, profile & preferences.
+**Auth** — login, optional registration (viewer-only, and off by default),
+forgot/reset password, profile & preferences.
 **Analyst app** — dashboard, analytics explorer, observation history, map view,
 anomaly explorer, datasets, dataset detail, CSV/JSON/Excel/ODS/Parquet upload,
 ingestion jobs, processing monitor, big-data (HDFS/Spark) page, ML lab, model
@@ -164,13 +171,12 @@ settings, ticket queue.
 
 ## Documentation
 
-| Document | Path |
+| Topic | Path |
 | --- | --- |
-| Project report (submission copy) | `docs/EarthScape-Climate-Agency-Project-Report.docx` |
-| Architecture & module design | same report, plus `docs` notes in each module README |
-| Data dictionary (collections & fields) | same report; live ranges are read from the running deployment |
-| Installation & first start | this file, `scripts/dev.sh`, `infrastructure/README.md` |
-| Deployment, cluster profile, backups, Airflow | `infrastructure/` |
-| MapReduce / Spark job layout | `data-pipeline/mapreduce/README.md`, `data-pipeline/spark/` |
-| ML methodology & conventions | `ml/README.md` |
-| Synthetic sample data provenance | `sample-data/README.md` |
+| Layout, quick start, configuration and honesty rules | this file |
+| Deployment, cluster profile, backups, Airflow | `backend/infrastructure/README.md` |
+| MapReduce streaming contract and local runner | `backend/data-pipeline/mapreduce/README.md` |
+| ML methodology & conventions | `backend/ml/README.md` |
+| Sample data provenance (real, provider-retrieved) | `backend/sample-data/README.md` |
+| Every environment setting and its default | `.env.example` |
+| Live schema, collections and field ranges | `/api/v1/health`, `/api/v1/system/status` and the module docstrings in `backend/common/` |

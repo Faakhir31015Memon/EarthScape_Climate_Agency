@@ -37,7 +37,6 @@ from config import env  # noqa: E402
 logger = logging.getLogger(__name__)
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-REPO_ROOT = BACKEND_DIR.parent
 DEFAULT_SPARK_TIMEOUT = int(env.get_int("PROCESSING_SPARK_TIMEOUT_SECONDS", 1800))
 DEFAULT_MR_TIMEOUT = int(env.get_int("PROCESSING_MAPREDUCE_TIMEOUT_SECONDS", 1800))
 DEFAULT_STREAMING_TIMEOUT = int(env.get_int("PROCESSING_STREAMING_TIMEOUT_SECONDS", 600))
@@ -88,7 +87,7 @@ def _guard_engine(job_id: str, entry: Dict[str, Any]) -> Tuple[bool, Optional[st
 
 # ------------------------------------------------------------------------ mapreduce
 def _execute_mapreduce(job_id: str, entry: Dict[str, Any], parameters: Dict[str, Any]) -> Dict[str, Any]:
-    script = REPO_ROOT / entry["script"]
+    script = BACKEND_DIR / entry["script"]
     if not script.is_file():
         raise FileNotFoundError(f"processing script missing: {script.name}")
     dataset_id = str(parameters.get("dataset_id") or "") or None
@@ -99,7 +98,7 @@ def _execute_mapreduce(job_id: str, entry: Dict[str, Any], parameters: Dict[str,
         command += ["--dataset-id", dataset_id]
     if parameters.get("force_local"):
         command.append("--force-local")
-    result = _run_subprocess(command, cwd=REPO_ROOT, timeout=DEFAULT_MR_TIMEOUT)
+    result = _run_subprocess(command, cwd=BACKEND_DIR, timeout=DEFAULT_MR_TIMEOUT)
     stdout = (result["stdout"] or "").strip()
     summary: Optional[Dict[str, Any]] = None
     if stdout:
@@ -138,8 +137,8 @@ def _execute_mapreduce(job_id: str, entry: Dict[str, Any], parameters: Dict[str,
 
 # -------------------------------------------------------------------------- spark
 def _execute_spark(job_id: str, entry: Dict[str, Any], parameters: Dict[str, Any]) -> Dict[str, Any]:
-    sys.path.insert(0, str(REPO_ROOT / "data-pipeline"))
-    sys.path.insert(0, str(REPO_ROOT / "data-pipeline" / "spark"))
+    sys.path.insert(0, str(BACKEND_DIR / "data-pipeline"))
+    sys.path.insert(0, str(BACKEND_DIR / "data-pipeline" / "spark"))
     import importlib
 
     jobs_module = importlib.import_module("jobs")
@@ -206,14 +205,14 @@ def _execute_spark(job_id: str, entry: Dict[str, Any], parameters: Dict[str, Any
 
 # ----------------------------------------------------------------------- streaming
 def _execute_streaming(job_id: str, entry: Dict[str, Any], parameters: Dict[str, Any]) -> Dict[str, Any]:
-    script = REPO_ROOT / entry["script"]
+    script = BACKEND_DIR / entry["script"]
     if not script.is_file():
         raise FileNotFoundError(f"streaming script missing: {script.name}")
     command: List[str] = [sys.executable, str(script), "--once"]
     duration = int(parameters.get("duration_seconds") or 0)
     if duration > 0:
         command = [sys.executable, str(script), "--duration", str(max(1, min(duration, 300)))]
-    result = _run_subprocess(command, cwd=REPO_ROOT, timeout=DEFAULT_STREAMING_TIMEOUT)
+    result = _run_subprocess(command, cwd=BACKEND_DIR, timeout=DEFAULT_STREAMING_TIMEOUT)
     stdout = (result["stdout"] or "").strip()
     payload: Optional[Dict[str, Any]] = None
     if stdout:

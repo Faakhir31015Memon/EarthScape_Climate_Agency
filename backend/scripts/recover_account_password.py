@@ -1,15 +1,15 @@
 """Recover sign-in for an operator account that already exists.
 
-``bootstrap_platform.py`` generates each password once, writes them to a git-ignored
-file and never re-emits them - so a data directory copied to another machine has
-accounts nobody can open. This resets one account to a freshly generated password,
-prints it once, and revokes that account's existing sessions. Nothing else changes and
-no secret is written to disk.
+``bootstrap_platform.py`` generates a password when ``BOOTSTRAP_ADMIN_PASSWORD`` is not
+set, writes it to a git-ignored file and never re-emits it - so a data directory copied
+to another machine has accounts nobody can open. This resets one account to a freshly
+generated password, prints it once, and revokes that account's existing sessions.
+Nothing else changes and no secret is written to disk.
 
 Run from the ``backend`` directory::
 
     python scripts/recover_account_password.py --role administrator
-    python scripts/recover_account_password.py --email analyst@earthscape.local
+    python scripts/recover_account_password.py --email earthscape@admin.com
 
 On the local-development store the running server keeps its own copy of the
 documents in memory, so stop ``runserver`` before running this and start it again

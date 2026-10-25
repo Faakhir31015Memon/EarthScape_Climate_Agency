@@ -1,4 +1,4 @@
-"""Import-path wiring for the sibling big-data and ML packages.
+"""Import-path wiring for the big-data and ML packages that live under ``backend/``.
 
 `data-pipeline/` and `ml/` are standalone packages (they must stay runnable from a shell
 without Django), so the backend adds them to `sys.path` instead of duplicating their code.
@@ -9,10 +9,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from common.env import REPO_ROOT
+from common.env import BACKEND_DIR
 
-PIPELINE_ROOT = REPO_ROOT / "data-pipeline"
-ML_ROOT = REPO_ROOT / "ml"
+PIPELINE_ROOT = BACKEND_DIR / "data-pipeline"
+ML_ROOT = BACKEND_DIR / "ml"
 
 _ADDED: list[str] = []
 

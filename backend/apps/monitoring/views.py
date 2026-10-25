@@ -89,7 +89,6 @@ logger = logging.getLogger(__name__)
 START_MONOTONIC = time.monotonic()
 API_VERSION = str(django_settings.SPECTACULAR_SETTINGS.get("VERSION", "0.0.0"))
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-REPO_ROOT = BACKEND_DIR.parent
 BACKUP_ROOT = MEDIA_ROOT / "backups"
 BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
 

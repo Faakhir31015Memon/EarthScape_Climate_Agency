@@ -509,10 +509,12 @@ export function CapabilitiesPage() {
                 index specifications and the migration script live with the backend modules they belong to.
               </p>
             </Panel>
-            <Panel title="Project report">
+            <Panel title="Project documentation">
               <p className="text-sm leading-relaxed muted">
-                The written architecture, installation, testing and user-guide material is consolidated in{' '}
-                <span className="mono">docs/EarthScape-Climate-Agency-Project-Report.docx</span>. This page describes implemented behaviour only;
+                The repository keeps one written guide — <span className="mono">README.md</span> — plus a
+                README per package (<span className="mono">backend/ml</span>,{' '}
+                <span className="mono">backend/data-pipeline/mapreduce</span>,{' '}
+                <span className="mono">backend/infrastructure</span>). This page describes implemented behaviour only;
                 where a figure belongs to the stored record rather than the software, it is read from this deployment.
               </p>
             </Panel>
