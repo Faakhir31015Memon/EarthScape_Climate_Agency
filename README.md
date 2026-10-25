@@ -59,7 +59,7 @@ are MongoDB collections accessed through PyMongo repositories
 | `backend/infrastructure/` | Dockerfiles, nginx site, Airflow DAG, Hadoop/Kafka/Spark config, backup/restore scripts |
 | `frontend/` | Vite + React + TS app: `src/app` (router, nav), `src/pages`, `src/components`, `src/features`, `src/services`, `src/hooks`, `src/lib` |
 | `docker-compose.yml` | backend · worker · scheduler · frontend · redis · optional Hadoop/Spark profile |
-| `.env` / `.env.example` | Local secrets (git-ignored) and the documented setting list |
+| `backend/.env` / `backend/.env.example` | Local secrets (git-ignored) and the documented setting list — read by `backend/common/env.py` |
 
 `backend/.data/` (uploads, generated reports, model artefacts) and
 `backend/.data-lake/` (MapReduce/Spark outputs) are local runtime state:
@@ -73,7 +73,7 @@ Prerequisites: Python 3.10–3.11, Node 20+, network access to NASA POWER for
 seeding, and (for the real data path) a MongoDB Atlas cluster.
 
 ```bash
-cp .env.example .env           # then set MONGODB_URI / DJANGO_SECRET_KEY / JWT_SIGNING_KEY
+cp backend/.env.example backend/.env   # then set MONGODB_URI / DJANGO_SECRET_KEY / JWT_SIGNING_KEY
 # Paste the Atlas connection string verbatim (mongodb:// shard list or mongodb+srv form),
 # leave its <db_username>/<db_password> placeholders in place and fill the two keys below it:
 #   MONGODB_ATLAS_USER=<atlas username>      MONGODB_ATLAS_PASSWORD=<atlas password>
@@ -93,13 +93,13 @@ is missing when Atlas is not configured, so it doubles as the connection check.
 **Datasets → Upload** in the app, mapped column-by-column, previewed and then written
 into MongoDB by an ingestion job.
 
-Encrypted uploads need `UPLOAD_FILE_PASSWORD` in `.env`; macros in `.xlsm`/`.xltm` are
+Encrypted uploads need `UPLOAD_FILE_PASSWORD` in `backend/.env`; macros in `.xlsm`/`.xltm` are
 never executed. Upload formats are proved with real files — no fixture copies ship in
 the repository.
 
 The platform ships exactly one account: the administrator named by
 `BOOTSTRAP_ADMIN_EMAIL`, whose password comes from `BOOTSTRAP_ADMIN_PASSWORD` in
-`.env` (git-ignored) or, when that key is left blank, from a strong password
+`backend/.env` (git-ignored) or, when that key is left blank, from a strong password
 generated once and written to `backend/.data/bootstrap-credentials.txt`. There is no
 hardcoded password anywhere in the repository, and self-registration is switched off
 by default (`ENABLE_SELF_REGISTRATION=false`).
@@ -121,7 +121,7 @@ Container deployment, cluster profile, backups and Airflow are covered in
 
 ## Configuration and honesty rules
 
-`.env.example` documents every setting. The platform reports its own state
+`backend/.env.example` documents every setting. The platform reports its own state
 truthfully rather than assuming infrastructure exists:
 
 - A `MONGODB_URI` that still contains a `<db_username>` / `<password>` placeholder is
@@ -178,5 +178,5 @@ settings, ticket queue.
 | MapReduce streaming contract and local runner | `backend/data-pipeline/mapreduce/README.md` |
 | ML methodology & conventions | `backend/ml/README.md` |
 | Sample data provenance (real, provider-retrieved) | `backend/sample-data/README.md` |
-| Every environment setting and its default | `.env.example` |
+| Every environment setting and its default | `backend/.env.example` |
 | Live schema, collections and field ranges | `/api/v1/health`, `/api/v1/system/status` and the module docstrings in `backend/common/` |

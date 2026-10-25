@@ -1,7 +1,8 @@
 """Standalone configuration for the EarthScape data pipeline.
 
 The pipeline is plain Python and CLI-runnable: it never imports Django settings.
-It reads the same ``.env`` files at the repository root using the same layering
+It reads the same ``.env`` files (``backend/.env``, with a repository-root copy
+taking precedence) using the same layering
 convention as ``backend/common/env.py`` (process environment wins over file
 values; later files never override keys already set by earlier ones).
 """

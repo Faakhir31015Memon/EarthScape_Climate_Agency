@@ -35,8 +35,8 @@ Agency platform.
 From the repository root:
 
 ```bash
-cp .env.example .env      # then set real values, see "Required settings"
-docker compose up --build
+cp backend/.env.example backend/.env   # then set real values, see "Required settings"
+docker compose --env-file backend/.env up --build
 ```
 
 Services started by default:
@@ -70,7 +70,7 @@ docker compose --profile cluster up --build
 
 That adds `namenode` (HDFS UI on `http://localhost:9870`, RPC `8020`),
 `datanode`, `spark-master` (`8085` for the Spark UI on the host, `7077` for
-workers) and `spark-worker`. With the profile running, set in `.env`:
+workers) and `spark-worker`. With the profile running, set in `backend/.env`:
 
 ```
 HDFS_ENDPOINT=http://namenode:9870
@@ -96,7 +96,7 @@ to the in-process development store.
 
 ## 2. Required settings
 
-Values live in `.env` (git-ignored). `.env.example` documents every key.
+Values live in `backend/.env` (git-ignored). `backend/.env.example` documents every key.
 Never commit real credentials, and never put an Atlas connection string in a
 commit, an issue, or a screenshot.
 

@@ -1,13 +1,18 @@
 # EarthScape Climate Agency — container orchestration.
 #
 # MongoDB Atlas is the primary application database and is NOT started here: set
-# MONGODB_URI in .env to your Atlas cluster. The optional `mongod` service below is a
+# MONGODB_URI in backend/.env to your Atlas cluster. The optional `mongod` service below is a
 # convenience for offline development only; it is not a substitute for Atlas and is
 # commented out by default so nobody mistakes it for the production data path.
 #
 # The `hadoop`/`spark` services provide a single-node cluster so the distributed code
 # paths can be exercised on a developer machine. They are heavyweight and therefore
 # behind the `cluster` profile: `docker compose --profile cluster up`.
+#
+# Configuration lives with the code that reads it, in backend/.env. Compose needs it
+# twice: `env_file:` hands the raw keys to the containers, and the ${...} values below
+# are interpolated from the shell or an explicit file, so start with
+# `docker compose --env-file backend/.env up`.
 #
 # NOTE (honest status): the images in this file were authored but not built in the
 # development environment used for this delivery because Docker was not available
@@ -16,8 +21,8 @@
 name: earthscape-climate-agency
 
 x-backend-env: &backend-env
-  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
-  JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in .env}
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in backend/.env}
+  JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in backend/.env}
   DJANGO_DEBUG: "false"
   DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-api,backend,127.0.0.1,localhost}
   DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-production}
@@ -61,7 +66,7 @@ services:
       dockerfile: backend/infrastructure/docker/Dockerfile.backend
     image: earthscape/backend:${IMAGE_TAG:-local}
     restart: unless-stopped
-    env_file: .env
+    env_file: backend/.env
     environment: *backend-env
     volumes:
       - backend-data:/app/backend/.data
@@ -84,7 +89,7 @@ services:
       context: .
       dockerfile: backend/infrastructure/docker/Dockerfile.backend
     restart: unless-stopped
-    env_file: .env
+    env_file: backend/.env
     environment: *backend-env
     command: celery -A apps.monitoring.celery_tasks worker --loglevel=INFO --concurrency=${BACKGROUND_WORKERS:-4}
     volumes:
@@ -99,7 +104,7 @@ services:
   scheduler:
     image: earthscape/backend:${IMAGE_TAG:-local}
     restart: unless-stopped
-    env_file: .env
+    env_file: backend/.env
     environment: *backend-env
     command: celery -A apps.monitoring.celery_tasks beat --loglevel=INFO
     depends_on:
