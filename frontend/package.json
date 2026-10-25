@@ -2,6 +2,8 @@
   "name": "earthscape-climate-frontend",
   "private": true,
   "version": "1.0.0",
+  "author": "Faakhir Memon",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

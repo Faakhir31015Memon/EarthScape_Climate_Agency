@@ -172,13 +172,51 @@ function describe(error: unknown): ApiRequestError {
   return new ApiRequestError('Unknown error', 'unexpected_error', 0)
 }
 
-export async function request<T>(config: AxiosRequestConfig): Promise<T> {
+async function performRequest<T>(config: AxiosRequestConfig): Promise<T> {
   try {
     const response = await http.request<T>(config)
     return response.data
   } catch (error) {
     throw describe(error)
   }
+}
+
+/**
+ * One network request per identical GET that is still in flight.
+ *
+ * A component mounted twice, a refresh pressed again while the first answer is
+ * pending, or a chart that asks for the same series from two places would each
+ * put the same aggregate on the server twice. The second caller joins the first
+ * promise instead, so the backend - and MongoDB behind it - sees one read.
+ * Writes are never shared, and a download is never given a blob built for
+ * another response type.
+ */
+const inFlightGets = new Map<string, Promise<unknown>>()
+
+function inFlightKey(config: AxiosRequestConfig): string | null {
+  if ((config.method ?? 'get').toUpperCase() !== 'GET') return null
+  if (config.responseType && config.responseType !== 'json') return null
+  const params = config.params as Record<string, unknown> | undefined
+  const query = params
+    ? Object.entries(params)
+        .filter(([, value]) => value !== undefined && value !== null && value !== '')
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+        .join('&')
+    : ''
+  return `${config.url ?? ''}?${query}`
+}
+
+export async function request<T>(config: AxiosRequestConfig): Promise<T> {
+  const key = inFlightKey(config)
+  if (!key) return performRequest<T>(config)
+  const running = inFlightGets.get(key)
+  if (running) return running as Promise<T>
+  const flight = performRequest<T>(config).finally(() => {
+    inFlightGets.delete(key)
+  })
+  inFlightGets.set(key, flight)
+  return flight
 }
 
 export async function apiGet<T>(url: string, params?: Record<string, unknown>): Promise<T> {

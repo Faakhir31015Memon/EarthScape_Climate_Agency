@@ -594,39 +594,6 @@ def coverage_report(observations: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def latest_by_location(observations: List[Dict[str, Any]], metrics: Sequence[str]) -> List[Dict[str, Any]]:
-    """Most recent observation per monitored point - powers the live map layer."""
-    frame = to_frame(observations)
-    if frame.empty:
-        return []
-    frame = frame.sort_values("date")
-    available = [metric for metric in metrics if metric in frame]
-    rows = []
-    for (_, group) in frame.groupby(["location_code"], dropna=False):
-        last = group.iloc[-1]
-        entry = {
-            "location_code": str(last.get("location_code")),
-            "location_name": last.get("location_name"),
-            "region_code": last.get("region_code"),
-            "country": last.get("country"),
-            "latitude": last.get("latitude"),
-            "longitude": last.get("longitude"),
-            "observation_date": last.get("observation_date"),
-            "source_name": last.get("source_name"),
-            "dataset_id": str(last.get("dataset_id")) if last.get("dataset_id") else None,
-            "quality_flags": (group.iloc[-1].get("quality_flags") or [])
-            if hasattr(group.iloc[-1], "get") else [],
-            "measurements": {
-                metric: {"value": _round(float(last[metric])) if not pd.isna(last[metric]) else None,
-                         "unit": METRIC_UNITS[metric]}
-                for metric in available
-            },
-            "station_level": True,
-        }
-        rows.append(entry)
-    return rows
-
-
 def summary_key(prefix: str, **parts) -> str:
     ordered = "|".join(f"{key}={parts[key]}" for key in sorted(parts))
     return f"{prefix}|{ordered}" if ordered else prefix

@@ -5,7 +5,9 @@ deliberately:
 
 * **aggregation pipelines** (``$match`` / ``$group`` / ``$facet`` / ``$project`` over
   stored fields) for set-wide aggregates such as per-region statistics, per-station
-  counts, trend buckets and coverage;
+  counts, trend buckets and coverage, and for the reads that used to drag the whole
+  collection across the wire: the newest observation per monitored point (the map
+  layer) and the count/total/mean/min/max per group-year (the historical explorer);
 * the shared :mod:`common.analytics` kernel as the fallback for any grouping or
   frequency the pipelines do not model (correlations, anomaly detection), so the API
   and the PySpark/MapReduce outputs stay numerically identical.
@@ -1573,13 +1575,6 @@ def compute_bounds(points: List[Dict[str, Any]]) -> Optional[List[float]]:
     if not latitudes or not longitudes:
         return None
     return [min(latitudes), min(longitudes), max(latitudes), max(longitudes)]
-
-
-def window_from_rows(rows: List[Dict[str, Any]]) -> Dict[str, Optional[str]]:
-    dates = [str(row.get("observation_date")) for row in rows if row.get("observation_date")]
-    if not dates:
-        return {"start": None, "end": None}
-    return {"start": min(dates), "end": max(dates)}
 
 
 def newest_observation_date() -> Optional[str]:

@@ -39,6 +39,7 @@ MIDDLEWARE = [
     "common.middleware.CorrelationIdMiddleware",
     "common.middleware.SecurityHeadersMiddleware",
     "common.middleware.RateLimitMiddleware",
+    "common.middleware.RequestCoalescingMiddleware",
     "common.middleware.LocalWriteFlushMiddleware",
 ]
 

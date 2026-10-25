@@ -18,8 +18,12 @@ React 18 + TypeScript + Vite + Tailwind + Recharts + Leaflet
         ▼
 Django 5 + Django REST Framework  ──  drf-spectacular OpenAPI
         │
-        ├─ MongoDB aggregation      trend buckets + coverage ($group / $facet),
-        │                           so wide windows never cross the network
+        ├─ middleware limits        per-client request budget → identical heavy
+        │                           reads joined into one query → a cap on how
+        │                           many aggregations may run at once
+        ├─ MongoDB aggregation      trend buckets, coverage, the newest reading per
+        │                           station and per-year group totals ($group /
+        │                           $facet), so wide windows never cross the network
         ├─ common/analytics.py      compare, correlation, seasonality, anomaly
         │                           detection, and the fallback for any trend the
         │                           pipelines do not model            (shared kernel)
@@ -60,6 +64,7 @@ are MongoDB collections accessed through PyMongo repositories
 | `frontend/` | Vite + React + TS app: `src/app` (router, nav), `src/pages`, `src/components`, `src/features`, `src/services`, `src/hooks`, `src/lib` |
 | `docker-compose.yml` | backend · worker · scheduler · frontend · redis · optional Hadoop/Spark profile |
 | `backend/.env` / `backend/.env.example` | Local secrets (git-ignored) and the documented setting list — read by `backend/common/env.py` |
+| `LICENSE` · `NOTICE` · `TRADEMARKS.md` | MIT licence for the code (© Faakhir Memon), the third-party terms it bundles, and the name/mark policy the licence deliberately does not cover |
 
 `backend/.data/` (uploads, generated reports, model artefacts) and
 `backend/.data-lake/` (MapReduce/Spark outputs) are local runtime state:
@@ -140,11 +145,34 @@ truthfully rather than assuming infrastructure exists:
   `available: false, reason, available_points, required_points`, and the UI
   renders that instead of a number. When a series is cut at the returned-point
   limit, the explorer says how many periods the backend actually built.
+- The map layer and the historical explorer are grouped inside MongoDB
+  (`$project` → `$sort` → `$group` with `$first`, and `$sum`/`$avg`/`$min`/`$max`
+  per group-year) instead of shipping 37,290 documents to Python. Both answers
+  were checked field-by-field against the old pandas build before switching.
+
+### One client cannot load the platform
+
+Three limits stack on every `/api/` call, in this order:
+
+| Limit | What it stops | Response when exceeded |
+| --- | --- | --- |
+| `RateLimitMiddleware` | volume — a per-client budget per minute (600 overall, `RATE_LIMIT_ANALYTICS` = 60 for `/climate/` and `/dashboard/`, 10 logins) | `429 rate_limited` + `Retry-After` |
+| `RequestCoalescingMiddleware` | duplicates — an identical heavy read already running is **joined**, not re-run; one finished inside `REQUEST_COALESCE_WINDOW_SECONDS` is replayed from memory | `200` with `X-Request-Coalesced: coalesced` / `cached`, no second MongoDB read |
+| `ANALYTICS_MAX_CONCURRENT` | pile-up — how many heavy aggregation pipelines may run per process | `429 server_busy` + `Retry-After`, so Atlas is never queue-fed |
+
+Measured on the live store: eight identical anomaly scans fired together produced
+**one** database read (26 s) and seven instant replays; the same scan asked for
+again inside the window answered in 21 ms; twelve *different* heavy reads at once
+let four run and refused eight. A write clears the replay cache, so a cached
+answer can never hide the effect of an import — verified by re-reading after a
+`PATCH`. The React client does its half: a GET that is already in flight is
+shared, so a double-mounted component or an impatient refresh click sends one
+request instead of several (eight refresh presses on the map = one round trip).
 
 Security posture: JWT access (20 min) + rotating refresh (7 days) with reuse
 detection, bcrypt password hashing, login lockout, server-side RBAC
 (`administrator`, `climate_analyst`, `viewer`), capability checks on every
-endpoint, per-user request rate limits, an append-only audit trail, allow-listed
+endpoint, the request limits above, an append-only audit trail, allow-listed
 background tasks (no arbitrary command execution from the dashboard), upload
 size/row/type limits, CSV/Excel formula-injection neutralisation, and no
 stack traces in API responses. Credentials and connection strings are never
@@ -180,3 +208,21 @@ settings, ticket queue.
 | Sample data provenance (real, provider-retrieved) | `backend/sample-data/README.md` |
 | Every environment setting and its default | `backend/.env.example` |
 | Live schema, collections and field ranges | `/api/v1/health`, `/api/v1/system/status` and the module docstrings in `backend/common/` |
+
+---
+
+## Licence and trademarks
+
+The code in this repository is released under the **MIT Licence**, copyright
+(c) 2026 **Faakhir Memon** — see [`LICENSE`](LICENSE). `NOTICE` lists the
+third-party components it bundles, which stay under their own terms.
+
+The **name and marks are not part of that grant**. "EarthScape" and
+"EarthScape Climate Agency" identify this implementation and belong to the mark
+owner; [`TRADEMARKS.md`](TRADEMARKS.md) states what you may say about a
+deployment and what a fork must not be called. A modified copy should be renamed
+before distribution.
+
+Neither document transfers any rights over stored data. Observations, forecasts
+and uploads remain governed by the agreement under which they were collected.
+
