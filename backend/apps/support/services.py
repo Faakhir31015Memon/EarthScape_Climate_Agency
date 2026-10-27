@@ -1,7 +1,7 @@
 """Business logic for tickets and feedback.
 
 ``views.py`` in this package holds the HTTP layer, :mod:`apps.support.services`
-holds everything the API and Celery beat tasks share:
+holds everything the API and background workers share:
 
 * Ticket status transitions follow a fixed graph: open → in_progress → resolved →
   closed, plus administrator-only reopen. The rules are enforced in
@@ -11,9 +11,8 @@ holds everything the API and Celery beat tasks share:
   staff account replies.
 * Feedback records are user-authored rows that only administrators can triage;
   every reply is stamped with the triaging account and the moment.
-* Summary endpoints compute real counts and, when the timestamps support it,
-  the real mean and median first-response time. Values are ``None`` when they
-  cannot be computed - never fabricated.
+* Summary endpoints compute counts and, when the timestamps support it, the mean
+  and median first-response time. Values are ``None`` when they cannot be computed.
 """
 from __future__ import annotations
 
@@ -202,7 +201,7 @@ def assign_ticket(*, ticket_id: str, assignee_id: Optional[str],
 
 # ----------------------------------------------------------------------- summary
 def ticket_summary(request) -> Dict[str, Any]:
-    """Real counts + median/mean first-response time (``None`` when uncomputable)."""
+    """Ticket counts + median/mean first-response time (``None`` when uncomputable)."""
     user = getattr(request, "user", None)
     staff = bool(user and user.role in STAFF_ROLES)
     scope: Dict[str, Any] = {} if staff else {"created_by": getattr(user, "id", None)}

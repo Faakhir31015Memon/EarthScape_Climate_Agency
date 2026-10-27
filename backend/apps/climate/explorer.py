@@ -1,19 +1,6 @@
-"""Historical explorer helpers.
-
-Turns the stored daily record into the quantities a climate explorer actually
-asks for: annual and decadal normals for a chosen reference period, the deviation
-of every later year against that normal, and the change between two periods.
-
-Everything here is computed from documents supplied by
-:func:`apps.climate.services.fetch_rows` (or, for the region/year matrix, from a
-MongoDB aggregation pipeline). No value is estimated, extrapolated or filled in:
-a year with no stored measurement is reported as ``null`` and summarised by the
-``reason`` field instead of being drawn as a line on a chart.
-
-WMO-style normals need 30 years; this module therefore labels the reference
-window honestly (``reference_period`` plus ``years_in_reference_period``) and
-flags a normal as provisional when it rests on fewer years than
-``MIN_YEARS_FOR_STABLE_NORMAL``.
+"""Annual/decadal normals over a reference period, per-year deviation and change
+between periods, built from rows handed in by services. A normal resting on fewer
+than MIN_YEARS_FOR_STABLE_NORMAL years is flagged provisional; WMO normals want 30.
 """
 from __future__ import annotations
 
@@ -50,7 +37,7 @@ def _round(value: Any, digits: int = 3) -> Optional[float]:
 
 
 def normalise_period(value: Any, *, default: Optional[str] = None) -> Optional[str]:
-    """Accept a year (``1991``) or a date (``1991-05-01``) and return the year."""
+    """Accept a year (1991) or a date (1991-05-01) and return the year."""
     if value in (None, ""):
         return default
     text = str(value).strip()
@@ -77,7 +64,7 @@ def year_of(observation: Dict[str, Any]) -> Optional[int]:
 
 def bucket_observations(observations: Sequence[Dict[str, Any]], metric: str,
                         *, group_by: str = "none") -> Dict[Tuple[str, int], List[float]]:
-    """``{(group, year): [metric values]}`` from real daily documents only."""
+    """{(group, year): [metric values]} from the daily documents."""
     field = GROUP_FIELDS.get(group_by)
     buckets: Dict[Tuple[str, int], List[float]] = {}
     for observation in observations:
@@ -142,7 +129,7 @@ def decades_of(entries: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def normal_for(entries: Sequence[Dict[str, Any]], base_from: Optional[str],
                base_to: Optional[str]) -> Dict[str, Any]:
-    """Reference-period normal plus how much data that normal actually rests on."""
+    # also reports how many years inside the window the normal actually rests on
     low = int(base_from) if base_from else None
     high = int(base_to) if base_to else None
     inside = [entry for entry in entries
@@ -175,7 +162,7 @@ def normal_for(entries: Sequence[Dict[str, Any]], base_from: Optional[str],
 
 
 def annual_grouped(rows: Sequence[Dict[str, Any]], *, metric: str) -> Dict[str, List[Dict[str, Any]]]:
-    """Reshape ``$group`` output (group x year) into the explorer's annual entries."""
+    """Reshape $group output (group x year) into the explorer's annual entries."""
     additive = metric in ADDITIVE_METRICS
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     for row in rows:
@@ -205,10 +192,8 @@ def historical_explorer(observations: Sequence[Dict[str, Any]], *, metric: str,
                         observations_evaluated: Optional[int] = None) -> Dict[str, Any]:
     """Per-year/per-decade normals and change deltas for one metric.
 
-    ``annual_rows`` carries per (group, year) aggregates already computed by a
-    MongoDB ``$group``; when it is present the daily documents are not needed, so
-    ``observations`` can be empty and ``observations_evaluated`` states the scope's
-    row count instead. Otherwise the buckets are built from ``observations`` here.
+    When annual_rows is set the daily observations are ignored and
+    observations_evaluated carries the scope's row count.
     """
     base_from = normalise_period(base_from, default="1961")
     base_to = normalise_period(base_to, default="1990")
@@ -324,7 +309,7 @@ def historical_explorer(observations: Sequence[Dict[str, Any]], *, metric: str,
 
 
 def pipeline_matrix(rows: Optional[Sequence[Dict[str, Any]]], *, metric: str) -> List[Dict[str, Any]]:
-    """Reshape the ``$group`` output (region x year) into explorer rows."""
+    """Reshape the $group output (region x year) into explorer rows."""
     if not rows:
         return []
     additive = metric in ADDITIVE_METRICS
@@ -347,7 +332,7 @@ def pipeline_matrix(rows: Optional[Sequence[Dict[str, Any]]], *, metric: str) ->
 
 def merge_pipeline_normals(pipeline_rows: Sequence[Dict[str, Any]], *,
                            metric: str) -> Dict[str, List[Tuple[str, float]]]:
-    """``{region: [(year, value), ...]}`` for :func:`common.analytics.trend_slope`."""
+    # {region: [(year, value), ...]}, year as string for trend_slope
     additive = metric in ADDITIVE_METRICS
     series: Dict[str, List[Tuple[str, float]]] = {}
     for row in pipeline_rows:

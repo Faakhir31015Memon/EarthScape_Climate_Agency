@@ -1,18 +1,6 @@
-"""Abstract source connector shared by every live-data ingestion path.
+"""Base class for live source connectors: config status, HTTP retry/backoff, observation assembly.
 
-A connector is responsible for:
-
-* reporting whether it is configured *without ever echoing a secret* (via
-  :func:`config.env.mask_value`);
-* fetching raw records from a live HTTP source with retries, exponential backoff and
-  HTTP 429 ``Retry-After`` handling;
-* normalising those records into the exact ``climate_observations`` document
-  contract (see :func:`assemble_observation`);
-* building provenance that names the connector, endpoint, run and job.
-
-Connectors NEVER fabricate data.  When a source is unconfigured or unreachable they
-raise :class:`NotConfigured` / :class:`Unreachable` so callers report an honest
-failure rather than a fake success.
+An unconfigured or unreachable source raises instead of returning empty data.
 """
 from __future__ import annotations
 
@@ -39,7 +27,6 @@ MAX_BACKOFF_SECONDS = 30.0
 MAX_RETRY_AFTER_SECONDS = 120.0
 
 
-# ---------------------------------------------------------------------- errors
 class ConnectorError(Exception):
     code = "source_error"
 
@@ -80,7 +67,6 @@ class HttpError(ConnectorError):
         self.status = status
 
 
-# --------------------------------------------------------------------- request
 @dataclass
 class IngestionRequest:
     dataset_id: str
@@ -106,7 +92,6 @@ def scrub_url(url: str) -> str:
         if parts.netloc and "@" in parts.netloc:
             netloc = parts.netloc.rsplit("@", 1)[-1]
             return urlunsplit((parts.scheme, netloc, parts.path, parts.query, ""))
-        # Also drop any obvious secret query parameters.
         if parts.query:
             kept = [pair for pair in parts.query.split("&")
                     if not any(secret in pair.lower() for secret in ("key=", "token=", "password="))]
@@ -136,18 +121,14 @@ def sanitise_parameters(parameters: Dict[str, Any]) -> Dict[str, Any]:
     return cleaned
 
 
-# -------------------------------------------------------------------- base class
 class SourceConnector:
     name: str = "base"
     source_type: str = "live_api"
-    #: connectors that require a secret token/key before they can do anything
     requires_key: bool = False
-    #: environment variable(s) consulted by :meth:`is_configured`
+    # env vars read by is_configured()
     configuration_keys: Tuple[str, ...] = ()
-    #: human setup hint shown to the UI when unconfigured
     setup_hint: str = ""
 
-    # ------------------------------------------------------------------ config
     def is_configured(self) -> bool:
         if not self.requires_key:
             return True
@@ -166,18 +147,13 @@ class SourceConnector:
         }
         if self.requires_key:
             status["secret_present"] = bool(secret)
-            status["secret_summary"] = env.mask_value(secret)  # never the value itself
+            status["secret_summary"] = env.mask_value(secret)  # never the raw value
         return status
 
-    # ---------------------------------------------------------------- transport
     def http_get(self, url: str, *, params: Optional[Dict[str, Any]] = None,
                  headers: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None,
                  max_attempts: int = MAX_ATTEMPTS) -> requests.Response:
-        """GET with bounded retries, exponential backoff and 429 handling.
-
-        Returns the final successful response.  Raises ``Unreachable`` for network
-        failures and ``HttpError``/``RateLimited`` for non-2xx responses.
-        """
+        """Retries 5xx/network failures with exponential backoff and honours 429 Retry-After."""
         timeout = timeout or env.get_int("HTTP_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
         last_error: Optional[ConnectorError] = None
         for attempt in range(1, max_attempts + 1):
@@ -208,7 +184,7 @@ class SourceConnector:
                 if response.status_code >= 400:
                     raise self._classify_client_error(response)
                 return response
-            # network error path
+            # only reached after a caught network error
             if attempt < max_attempts:
                 self._sleep(self._backoff(attempt))
         raise last_error or Unreachable(f"{self.name} request failed.")
@@ -245,15 +221,13 @@ class SourceConnector:
     def _sleep(seconds: float) -> None:
         time.sleep(max(0.0, min(seconds, MAX_RETRY_AFTER_SECONDS)))
 
-    # ------------------------------------------------------------------- reach
     def preflight(self, request: Optional[IngestionRequest] = None) -> Dict[str, Any]:
-        """Cheap reachability check.  Must NOT fabricate success when unconfigured."""
+        """Unconfigured sources report unreachable rather than passing the probe."""
         if not self.is_configured():
             return {"reachable": False, "configured": False, "state": "needs_configuration",
                     "detail": self.setup_hint or "The connector is not configured."}
         return {"reachable": True, "configured": True, "state": "configured", "detail": ""}
 
-    # --------------------------------------------------------------- data fetch
     def fetch(self, request: IngestionRequest) -> Iterator[Dict[str, Any]]:
         raise NotImplementedError
 
@@ -261,12 +235,10 @@ class SourceConnector:
         raise NotImplementedError
 
     def run(self, request: IngestionRequest) -> Iterator[Dict[str, Any]]:
-        """Yield fully-formed observation documents for a request."""
         for raw in self.fetch(request):
             for observation in self.normalize(raw, request):
                 yield observation
 
-    # -------------------------------------------------------------- provenance
     def provenance(self, request: IngestionRequest, endpoint: str,
                    request_parameters: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -280,14 +252,13 @@ class SourceConnector:
         }
 
 
-# ---------------------------------------------------------- observation assembly
 def assemble_observation(*, context: IngestionRequest, location: Dict[str, Any],
                          moment: datetime, values: Dict[str, Optional[float]],
                          source_units: Dict[str, str], endpoint: str,
                          request_parameters: Dict[str, Any], connector_name: str,
                          provider_record_id: Optional[str] = None,
                          quality_flags: Optional[List[str]] = None) -> Dict[str, Any]:
-    """Build an observation document that matches the platform contract exactly."""
+    """Builds one climate_observations document."""
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
     observation_date = moment.strftime("%Y-%m-%d")

@@ -1,15 +1,15 @@
 """Registry of processing workflows the platform can run.
 
-Every entry maps to real code already present in ``data-pipeline/`` (MapReduce
+Every entry maps to code already present in ``data-pipeline/`` (MapReduce
 streaming orchestrator, PySpark job catalog, Structured Streaming processor)
-and ``ml/features/build.py``. Nothing here invents a function name or executes
-an arbitrary path: the API only accepts a workflow ``id`` from this registry and
-a bounded set of validated parameters.
+and ``ml/features/build.py``. The API accepts only a workflow ``id`` from this
+registry plus a bounded set of validated parameters; it does not resolve
+arbitrary paths.
 
 Availability of each workflow is *probed* rather than asserted (see
 :mod:`apps.processing.engines`). When a prerequisite is missing the workflow
 entry carries an ``unavailable_reason`` that names the specific env key or
-package, so a client sees the same truth the operator does.
+package, so a client sees the same state the operator does.
 """
 from __future__ import annotations
 
@@ -60,10 +60,10 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
         "description": (
             "Streams climate_observations into a JSON-lines scratch file, runs "
             "the mapper | sort | reducer pipeline from data-pipeline/mapreduce "
-            "and upserts verified counts into analytics_summaries. Uses the "
-            "real Hadoop Streaming jar when hadoop + HDFS are reachable; "
-            "otherwise it runs the *identical* mapper/reducer code as local "
-            "subprocesses and labels the run local-streaming-simulated."
+            "and upserts verified counts into analytics_summaries. When hadoop "
+            "+ HDFS are reachable it uses the Hadoop Streaming jar; otherwise "
+            "the same mapper/reducer code runs as local subprocesses and the "
+            "run is labelled local-streaming-simulated."
         ),
         "engine": "mapreduce",
         "requires": ["python (subprocess)", "climate_observations collection",
@@ -89,9 +89,9 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
             "Runs the temperature-aggregation mapper/reducer over the exported "
             "observations to produce per (region, year, month) mean, min, max "
             "and precipitation totals, then persists those aggregates as "
-            "analytics summaries. Engine is reported honestly: hadoop-streaming "
-            "only when the cluster probe returned zero; otherwise the run is "
-            "labelled local-streaming-simulated."
+            "analytics summaries. Each run records the engine that actually "
+            "executed it: hadoop-streaming only when the cluster probe returned "
+            "zero, otherwise local-streaming-simulated."
         ),
         "engine": "mapreduce",
         "requires": ["python (subprocess)", "climate_observations collection",
@@ -114,8 +114,8 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
             "PySpark job ``export_processed_parquet``: reads a partitioned "
             "observation frame from the lake, writes partitioned Parquet into "
             "the exports layer and upserts regional monthly aggregates into "
-            "analytics_summaries. Reports the real backend (hdfs or "
-            "local-data-lake) and the exact files written."
+            "analytics_summaries. Names the backend it wrote to (hdfs or "
+            "local-data-lake) and lists the exact files."
         ),
         "engine": "pyspark",
         "requires": ["pyspark installed", "SPARK_ENABLED", "input file or lake prefix",
@@ -126,7 +126,7 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
             "input_path": {
                 "type": "str", "required": False,
                 "label": "Input file or lake prefix",
-                "help": "Absolute path to a real observation export, or a data-lake key. "
+                "help": "Absolute path to an observation export file, or a data-lake key. "
                         "There is no sample fallback - the job fails when this is empty.",
             },
             "dataset_id": _dataset_id_param(),
@@ -153,7 +153,7 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
             "input_path": {
                 "type": "str", "required": False,
                 "label": "Input file or lake prefix",
-                "help": "Absolute path to a real observation export, or a data-lake key.",
+                "help": "Absolute path to an observation export file, or a data-lake key.",
             },
             "dataset_id": _dataset_id_param(),
         },
@@ -165,8 +165,8 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
             "MapReduce reducer semantics across (region, year, month) and "
             "annual buckets, writes the analytics partitions, and (when a "
             "MapReduce output path is provided) verifies that both engines "
-            "agree to within tolerance. Honest: agrees_with_mapreduce is null "
-            "when no cross-check has been run."
+            "agree to within tolerance. agrees_with_mapreduce stays null until "
+            "a cross-check has actually run."
         ),
         "engine": "pyspark",
         "requires": ["pyspark installed", "SPARK_ENABLED",
@@ -177,7 +177,7 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
             "input_path": {
                 "type": "str", "required": False,
                 "label": "Input file or lake prefix",
-                "help": "Absolute path to a real observation export, or a data-lake key.",
+                "help": "Absolute path to an observation export file, or a data-lake key.",
             },
             "dataset_id": _dataset_id_param(),
             "mapreduce_output_path": {
@@ -205,7 +205,7 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
             "input_path": {
                 "type": "str", "required": False,
                 "label": "Input file or lake prefix",
-                "help": "Absolute path to a real observation export, or a data-lake key.",
+                "help": "Absolute path to an observation export file, or a data-lake key.",
             },
             "dataset_id": _dataset_id_param(),
             "metric": {
@@ -248,8 +248,8 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
             "child process: consumes any events queued in the spool directory, "
             "validates them against the canonical schema, dedupes by event_id, "
             "routes failures to dead-letter files and updates the stream "
-            "status row in processing_jobs. Honest about state - if Spark is "
-            "unavailable the child reports the real failure."
+            "status row in processing_jobs. If Spark is unavailable the child "
+            "reports its own failure."
         ),
         "engine": "streaming",
         "requires": ["pyspark installed", "SPARK_ENABLED", "spool directory under PROCESSING_SCRATCH_DIR"],

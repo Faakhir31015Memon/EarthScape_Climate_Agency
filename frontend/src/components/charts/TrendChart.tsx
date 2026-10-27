@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Area, Bar, CartesianGrid, ComposedChart, Line, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { Anomaly, Metric, SeriesPoint } from '../../types/api'
 import { formatNumber, metricLabel } from '../../lib/format'
-import { AXIS_LINE, AXIS_TICK, ChartFooter, ChartLegend, ChartTooltipContent, GRID_STROKE, colorAt } from './chartKit'
+import { AXIS_LINE, AXIS_TICK, ChartFooter, ChartLegend, ChartTooltipContent, DRAW_MS, GRID_STROKE, colorAt, useDrawIn } from './chartKit'
 
 export interface TrendChartProps {
   series: SeriesPoint[]
@@ -64,6 +64,8 @@ export function TrendChart({
     return { rows, keys, keyLabels, pointsWithData: count }
   }, [series, groupBy, label, metric])
 
+  const drawIn = useDrawIn()
+
   const markers = useMemo(() => {
     if (!keys.length) return []
     const single = keys.length === 1
@@ -111,9 +113,31 @@ export function TrendChart({
             ) : null}
             {keys.map((key, index) => {
               const color = keys.length === 1 ? colorAt(0) : colorAt(index)
-              const common = { type: 'monotone' as const, dataKey: key, name: keyLabels[key], stroke: color, dot: false, connectNulls: false, strokeWidth: 2, isAnimationActive: false }
+              const common = {
+                type: 'monotone' as const,
+                dataKey: key,
+                name: keyLabels[key],
+                stroke: color,
+                dot: false,
+                connectNulls: false,
+                strokeWidth: 2,
+                isAnimationActive: drawIn,
+                animationDuration: DRAW_MS,
+                animationEasing: 'ease-out' as const,
+              }
               if (variant === 'bar') {
-                return <Bar key={key} dataKey={key} name={keyLabels[key]} fill={color} isAnimationActive={false} radius={[3, 3, 0, 0]} />
+                return (
+                  <Bar
+                    key={key}
+                    dataKey={key}
+                    name={keyLabels[key]}
+                    fill={color}
+                    radius={[3, 3, 0, 0]}
+                    isAnimationActive={drawIn}
+                    animationDuration={DRAW_MS}
+                    animationEasing="ease-out"
+                  />
+                )
               }
               if (variant === 'area') {
                 return <Area key={key} {...common} fill={color} fillOpacity={0.14} />
@@ -126,7 +150,7 @@ export function TrendChart({
                 x={marker.period}
                 y={marker.value}
                 r={4}
-                fill={marker.severity === 'critical' || marker.severity === 'high' ? '#c63a3a' : '#e2743b'}
+                fill={marker.severity === 'critical' || marker.severity === 'high' ? '#a93b2c' : '#c1712f'}
                 stroke="var(--surface)"
                 strokeWidth={1.5}
               />

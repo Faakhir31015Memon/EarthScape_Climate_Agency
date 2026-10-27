@@ -1,9 +1,5 @@
-"""Forecast endpoints mounted at /api/v1/predictions/.
-
-All roles (including viewer) may read forecasts; only climate analysts and
-administrators may generate them. Horizon requests beyond
-``FORECAST_MAX_HORIZON_DAYS`` are rejected and unknown models return 404.
-"""
+"""Forecast endpoints. Viewers read-only; horizon over FORECAST_MAX_HORIZON_DAYS is
+rejected and unknown models return 404."""
 from __future__ import annotations
 
 from rest_framework import status
@@ -26,8 +22,8 @@ class PredictionCollectionView(MLView):
                 location_code=str_param(request, "location_code"),
                 limit=int_param(request, "limit", 50, minimum=1, maximum=500),
             ),
-            "note": "Forecasts are statistical projections with real stored metrics; they are not "
-                    "guaranteed outcomes and describe weather, not climate trends.",
+            "note": "Each forecast carries the metrics measured against the observations that overlap it. "
+                    "It is a projection of day-to-day weather, not a climate trend, and not a guarantee.",
         })
 
     def post(self, request):

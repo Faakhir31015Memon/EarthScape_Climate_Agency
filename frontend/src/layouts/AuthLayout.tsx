@@ -47,8 +47,8 @@ export function AuthLayout({ title, subtitle, aside }: { title: string; subtitle
                   </li>
                 </ul>
                 <p className="mt-3 text-xs leading-relaxed subtle">
-                  Accounts are normally provisioned by an administrator. Where self-registration is enabled, new accounts always receive the restricted viewer
-                  role — privileges are granted server-side, never chosen by the registrant.
+                  Accounts are usually created by an administrator. Where registration is open, a new account starts with read access, and an
+                  administrator can widen it later.
                 </p>
               </div>
             )}

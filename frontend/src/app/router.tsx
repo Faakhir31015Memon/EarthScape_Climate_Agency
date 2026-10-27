@@ -9,13 +9,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary'
 import { NotFoundPage } from '../pages/NotFoundPage'
 
 const LandingPage = lazy(() => import('../pages/public/LandingPage'))
-const AboutPage = lazy(() => import('../pages/public/AboutPage'))
-const CapabilitiesPage = lazy(() => import('../pages/public/CapabilitiesPage'))
-const InsightsPage = lazy(() => import('../pages/public/InsightsPage'))
-const DataSourcesPage = lazy(() => import('../pages/public/DataSourcesPage'))
 const HelpPage = lazy(() => import('../pages/public/HelpPage'))
-const PrivacyPage = lazy(() => import('../pages/public/PrivacyPage'))
-const TermsPage = lazy(() => import('../pages/public/TermsPage'))
 const LoginPage = lazy(() => import('../pages/public/LoginPage'))
 const RegisterPage = lazy(() => import('../pages/public/RegisterPage'))
 const ForgotPasswordPage = lazy(() => import('../pages/public/ForgotPasswordPage'))
@@ -38,7 +32,6 @@ const ForecastExplorerPage = lazy(() => import('../pages/app/ForecastExplorerPag
 const AlertsPage = lazy(() => import('../pages/app/AlertsPage'))
 const NotificationsPage = lazy(() => import('../pages/app/NotificationsPage'))
 const ReportsPage = lazy(() => import('../pages/app/ReportsPage'))
-const SavedAnalysesPage = lazy(() => import('../pages/app/SavedAnalysesPage'))
 const ProfilePage = lazy(() => import('../pages/app/ProfilePage'))
 const SupportPage = lazy(() => import('../pages/app/SupportPage'))
 
@@ -48,9 +41,7 @@ const RolesPage = lazy(() => import('../pages/admin/RolesPage'))
 const DatasetAdminPage = lazy(() => import('../pages/admin/DatasetAdminPage'))
 const PipelineAdminPage = lazy(() => import('../pages/admin/PipelineAdminPage'))
 const AlertRulesPage = lazy(() => import('../pages/admin/AlertRulesPage'))
-const AuditLogPage = lazy(() => import('../pages/admin/AuditLogPage'))
 const SystemHealthPage = lazy(() => import('../pages/admin/SystemHealthPage'))
-const SettingsPage = lazy(() => import('../pages/admin/SettingsPage'))
 const TicketAdminPage = lazy(() => import('../pages/admin/TicketAdminPage'))
 
 export function AppRouter() {
@@ -73,16 +64,10 @@ function RoutedViews() {
           <Routes>
             <Route element={<PublicLayout />}>
               <Route index element={<LandingPage />} />
-              <Route path="about" element={<AboutPage />} />
-              <Route path="capabilities" element={<CapabilitiesPage />} />
-              <Route path="insights" element={<InsightsPage />} />
-              <Route path="data-sources" element={<DataSourcesPage />} />
               <Route path="help" element={<HelpPage />} />
-              <Route path="privacy" element={<PrivacyPage />} />
-              <Route path="terms" element={<TermsPage />} />
             </Route>
 
-            <Route path="/login" element={<AuthLayout title="Sign in" subtitle="Authenticate against the platform account store." />}>
+            <Route path="/login" element={<AuthLayout title="Sign in" subtitle="Use the account your administrator gave you." />}>
               <Route index element={<LoginPage />} />
             </Route>
             <Route path="/register" element={<AuthLayout title="Create an account" subtitle="Registration follows the deployment policy configured by your administrator." />}>
@@ -134,7 +119,6 @@ function RoutedViews() {
               <Route path="alerts" element={<AlertsPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="reports" element={<ReportsPage />} />
-              <Route path="saved-analyses" element={<SavedAnalysesPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="support" element={<SupportPage />} />
             </Route>
@@ -155,9 +139,7 @@ function RoutedViews() {
               <Route path="datasets" element={<DatasetAdminPage />} />
               <Route path="pipelines" element={<PipelineAdminPage />} />
               <Route path="alert-rules" element={<AlertRulesPage />} />
-              <Route path="audit" element={<AuditLogPage />} />
               <Route path="health" element={<SystemHealthPage />} />
-              <Route path="settings" element={<SettingsPage />} />
               <Route path="tickets" element={<TicketAdminPage />} />
             </Route>
 

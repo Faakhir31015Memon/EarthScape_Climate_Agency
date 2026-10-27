@@ -41,8 +41,8 @@ export default function AlertsPage() {
         <p className="panel-title mb-1.5">Alerts &amp; reporting</p>
         <h1 className="text-2xl font-semibold leading-tight sm:text-[28px]">Alerts and notification centre</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed muted">
-          Fired alerts with their real thresholds and deviations, plus delivery records. Every value below is what the rules engine stored — a rule that fired
-          without enough data says so rather than inventing a reading.
+          Fired alerts with their thresholds and deviations, plus delivery records. Values here come from the rules engine. When a rule fires
+          without enough data, it says so.
         </p>
       </header>
       <Tabs
@@ -199,7 +199,7 @@ function AlertsTab() {
 
       <Panel
         title="Run rule evaluation now"
-        description="Re-evaluates every enabled rule against the latest observations. Reports real match counts or an insufficient-data note."
+        description="Re-evaluates every enabled rule against the latest observations. It reports match counts, or an insufficient-data note."
         actions={
           <button type="button" className="btn btn-primary btn-sm" onClick={() => void runScan()} disabled={!isStaff || scanning} title={!isStaff ? 'Requires climate analyst or administrator role.' : undefined}>
             <PlayCircle className="h-3.5 w-3.5" /> {scanning ? 'Evaluating…' : 'Evaluate rules'}
@@ -274,7 +274,7 @@ function AlertsTab() {
           <Field label="Resolution note" htmlFor="resolve-note" required>
             <textarea id="resolve-note" className="input" rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="e.g. Verified with station ops; sensor recalibrated." />
           </Field>
-          <Hint>The resolution note is sent to the server with the resolve request; the alert is only marked resolved once the backend records it that way.</Hint>
+          <Hint>The resolution note is saved alongside the alert; the alert is only marked resolved once that note has been recorded.</Hint>
         </div>
       </Modal>
     </div>
@@ -494,7 +494,7 @@ function notificationColumns(onRead: (notification: Notification) => void, marki
           {notification.delivery_status === 'failed' && notification.failure_reason ? <p className="mt-0.5 text-alert-high">{notification.failure_reason}</p> : null}
           {notification.delivery_status === 'suppressed' ? (
             <p className="mt-0.5 text-[11px] subtle" title="Email is recorded as suppressed until SMTP is configured; nothing was delivered.">
-              Suppressed — email not configured; no delivery attempted
+              Suppressed. Email isn't configured, so nothing was sent.
             </p>
           ) : notification.delivery_status === 'sent' && notification.sent_at ? (
             <p className="mt-0.5 subtle">Sent {relativeTime(notification.sent_at)}</p>

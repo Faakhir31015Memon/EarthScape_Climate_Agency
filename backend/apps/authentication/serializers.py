@@ -1,4 +1,3 @@
-"""Request validation for the authentication API (DRF serializers, no ORM)."""
 from __future__ import annotations
 
 from rest_framework import serializers

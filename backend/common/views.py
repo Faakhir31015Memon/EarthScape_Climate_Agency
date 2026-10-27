@@ -1,4 +1,3 @@
-"""Small view helpers shared by every API module."""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -11,8 +10,6 @@ from common.api import ApiError, IsAuthenticatedAccount, MongoJWTAuthentication,
 
 
 class BaseView(APIView):
-    """Sets the platform exception handler and access-token authentication."""
-
     permission_classes: List[Any] = [AllowAny]
     authentication_classes: List[Any] = [MongoJWTAuthentication]
 

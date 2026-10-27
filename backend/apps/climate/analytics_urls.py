@@ -1,4 +1,3 @@
-"""Analytics routing (mounted at ``/api/v1/analytics/``)."""
 from django.urls import path
 
 from apps.climate import analytics_views

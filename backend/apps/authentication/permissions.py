@@ -1,4 +1,4 @@
-"""Server-side role checks. Frontend route guards are cosmetic; these are authoritative."""
+"""Server-side role checks; the frontend route guards are cosmetic."""
 
 from __future__ import annotations
 
@@ -10,8 +10,7 @@ ADMIN = "administrator"
 ANALYST = "climate_analyst"
 VIEWER = "viewer"
 
-# Capability -> roles allowed to perform it. Every write path names a capability so the
-# matrix can be audited in one place instead of scattered `if role == ...` checks.
+# capability -> allowed roles, kept in one table rather than inline role checks
 CAPABILITIES: dict[str, tuple[str, ...]] = {
     "platform.view": (ADMIN, ANALYST, VIEWER),
     "dataset.upload": (ADMIN, ANALYST),

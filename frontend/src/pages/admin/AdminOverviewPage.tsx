@@ -18,22 +18,22 @@ import {
   type Column,
 } from '../../components/ui'
 import { ActionFeedback, Breakdown, ConfigRequirement, MaskedValue, type Feedback } from './components/AdminBits'
-import { breakdownTotal, describeError, formatUptime, maskedConfigured } from './components/adminUtils'
+import { breakdownTotal, describeError, maskedConfigured } from './components/adminUtils'
+import { formatUptime } from '../../lib/format'
 import { formatBytes, formatDateTime, humanise } from '../../lib/format'
-import type { ComponentStatus, SettingsResponse, SystemStatusResponse } from '../../types/api'
+import type { ComponentStatus, SystemStatusResponse } from '../../types/api'
 
 /**
- * Administrative overview: the honest, API-derived state of the platform.
+ * Administrative overview: the API-derived state of the platform.
  *
- * Everything here comes from `GET /api/v1/system/status` (plus the alert, notification,
- * support and settings summaries). Values the backend does not collect are labelled as
- * such — no estimated uptime, no invented counts.
+ * Everything here comes from `GET /api/v1/system/status` (plus the alert, notification
+ * and support summaries). Values the backend does not collect are labelled as
+ * such rather than estimated or defaulted client-side.
  */
 export default function AdminOverviewPage() {
   const { can } = useAuth()
   const canReadSystem = can('system:read')
   const status = useAsync(() => api.system.status(), [], { enabled: canReadSystem, interval: 60_000 })
-  const settings = useAsync(() => api.system.settings(), [], { enabled: can('system:manage') })
   const alertsSummary = useAsync(() => api.alerts.summary(), [])
   const unread = useAsync(() => api.notifications.unread(), [], { interval: 120_000 })
   const tickets = useAsync(() => api.support.summary(), [])
@@ -43,7 +43,7 @@ export default function AdminOverviewPage() {
 
   const data: SystemStatusResponse | null = status.data
 
-  const readiness = useMemo(() => buildReadiness(data, settings.data?.env_derived), [data, settings.data])
+  const readiness = useMemo(() => buildReadiness(data), [data])
 
   const componentColumns = useMemo<Column<ComponentStatus>[]>(
     () => [
@@ -56,7 +56,7 @@ export default function AdminOverviewPage() {
       { key: 'status', header: 'State', cell: (row) => <StatusBadge value={row.status} /> },
       {
         key: 'detail',
-        header: 'Detail reported by the backend',
+        header: 'Detail from the platform',
         cell: (row) => <span className="text-xs leading-relaxed muted">{row.detail || 'No detail supplied.'}</span>,
       },
     ],
@@ -178,7 +178,7 @@ export default function AdminOverviewPage() {
               </Row>
               <Row label="Background executor">
                 <span className="flex flex-wrap items-center gap-2">
-                  <Badge tone={data.background.executor === 'celery' ? 'success' : 'info'}>{humanise(data.background.executor)}</Badge>
+                  <Badge tone="info">{humanise(data.background.executor)}</Badge>
                   <span className="text-xs muted">{data.background.active_jobs} active · {data.background.queued_jobs} queued</span>
                 </span>
               </Row>
@@ -200,7 +200,7 @@ export default function AdminOverviewPage() {
 
         <Panel
           title="Job totals by status"
-          description="Counted by the backend over ingestion, processing and report collections."
+          description="Tallied from stored ingestion, processing and report records."
           className="min-w-0"
         >
           {data ? (
@@ -223,7 +223,7 @@ export default function AdminOverviewPage() {
               </Row>
               <Row label="Active model">
                 {data.ml.active_model ? (
-                  <span className="mono text-[12px]" title="Identifier reported by the backend">
+                  <span className="mono text-[12px]" title="Active model identifier">
                     {data.ml.active_model}
                   </span>
                 ) : (
@@ -243,7 +243,7 @@ export default function AdminOverviewPage() {
       <div className="grid-responsive mb-6">
         <Panel
           title="Collection counts"
-          description="Document counts per MongoDB collection as counted by the API."
+          description="Document counts per data store, as counted by the platform."
           className="min-w-0"
           footer={
             collectionRows.length ? (
@@ -283,11 +283,10 @@ export default function AdminOverviewPage() {
           )}
         </Panel>
 
-        <Panel title="Secret material" description="Masked configuration summaries only — the backend never returns a secret value." className="min-w-0">
+        <Panel title="Secret material" description="Only masked configuration summaries appear here; secret values are not shown." className="min-w-0">
           {data ? (
             <div className="space-y-2">
               <MaskedValue label="MONGODB_URI" value={data.config_summary?.mongo_uri} />
-              <MaskedValue label="REDIS_URL" value={data.config_summary?.redis_url} />
               <MaskedValue label="NOAA_API_KEY" value={data.config_summary?.noaa_api_key} />
               <p className="mt-2 text-xs leading-relaxed subtle">
                 Values are produced by <span className="mono">env.mask_value()</span> on the server: length and a three-character
@@ -302,14 +301,13 @@ export default function AdminOverviewPage() {
 
       <Panel
         title="Service readiness for production"
-        description="State derived from the live status and settings responses, with the exact environment key to set for each gap."
+        description="State derived from the live status response, with the exact environment key to set for each gap."
         className="mb-6"
         footer={
           <span>
             {readiness.missing > 0
               ? `${readiness.missing} item(s) still need configuration before a production cutover.`
               : 'Every checked item reports as configured.'}
-            {settings.error ? ` Configuration endpoint: ${describeError(settings.error).message}` : null}
           </span>
         }
       >
@@ -322,7 +320,7 @@ export default function AdminOverviewPage() {
 
       <Panel
         title="Component checks"
-        description="Every entry is a check the API runs against a real service; 'not-configured' means the deployment chose not to enable it."
+        description="Each entry is a check the API runs against a live service; 'not-configured' means the deployment left it disabled."
         actions={<Badge tone="neutral">{data?.components.length ?? 0} component(s)</Badge>}
       >
         {data ? (
@@ -436,39 +434,28 @@ interface ReadinessItem {
 
 /**
  * Builds the production-readiness checklist from real API payloads only:
- * `SystemStatusResponse.config_summary` (masked env summary) and `SettingsResponse.env_derived`.
+ * `SystemStatusResponse.config_summary` (masked env summary).
  */
-function buildReadiness(
-  status: SystemStatusResponse | null,
-  derived?: SettingsResponse['env_derived'],
-): { items: ReadinessItem[]; missing: number } {
+function buildReadiness(status: SystemStatusResponse | null): { items: ReadinessItem[]; missing: number } {
   const environment = status?.config_summary ?? {}
   const items: ReadinessItem[] = []
 
-  const atlasRequired = derived?.force_atlas_connection ?? maskedConfigured(environment.atlas_required) ?? Boolean(environment.atlas_required)
+  const atlasRequired = maskedConfigured(environment.atlas_required) ?? Boolean(environment.atlas_required)
   items.push({
     label: 'MongoDB Atlas as primary store',
     envKey: 'MONGODB_URI + FORCE_ATLAS_CONNECTION',
     configured: atlasRequired && status?.database.mode === 'atlas',
-    detail: `Current database mode: ${humanise(status?.database.mode ?? 'unknown')}. FORCE_ATLAS_CONNECTION=true makes startup fail instead of falling back to the local document store.`,
-    impact: 'Local document-store mode is fine for development, but it is not a production datastore.',
+    detail: `Current database mode: ${humanise(status?.database.mode ?? 'unknown')}. FORCE_ATLAS_CONNECTION=true makes startup fail instead of falling back to a local store.`,
+    impact: 'A self-hosted server or an in-process store runs the same code paths, which is enough for development; the managed cluster is what production expects.',
   })
 
-  const emailReady = derived?.email_delivery_ready ?? maskedConfigured(environment.email_notifications) ?? Boolean(environment.email_notifications)
+  const emailReady = maskedConfigured(environment.email_notifications) ?? Boolean(environment.email_notifications)
   items.push({
     label: 'Email delivery (SMTP)',
-    envKey: 'SMTP_HOST + SMTP_USER + ENABLE_EMAIL_NOTIFICATIONS',
+    envKey: 'SMTP_HOST + ENABLE_EMAIL_NOTIFICATIONS',
     configured: emailReady === true,
     detail: `Email notifications ${emailReady ? 'enabled' : 'disabled'}; password-reset email requires SMTP_HOST and ENABLE_EMAIL_NOTIFICATIONS=true.`,
     impact: 'Without SMTP the self-service password reset returns “configuration required”; administrators must set passwords from User management.',
-  })
-
-  items.push({
-    label: 'Self-service password reset',
-    envKey: 'ENABLE_PASSWORD_RESET',
-    configured: derived?.password_reset_enabled ?? null,
-    detail: 'State comes from GET /api/v1/system/settings env_derived.password_reset_enabled.',
-    impact: 'Disabled when the settings endpoint has not been reached.',
   })
 
   const noaa = maskedConfigured(environment.noaa_api_key)
@@ -480,16 +467,7 @@ function buildReadiness(
     impact: 'The NOAA source stays in needs_configuration until a token is set; NASA POWER needs network access only.',
   })
 
-  const redis = maskedConfigured(environment.redis_url) ?? Boolean(derived?.redis_configured)
-  items.push({
-    label: 'Celery broker for background work',
-    envKey: 'REDIS_URL (plus CELERY_BROKER_URL)',
-    configured: redis === true,
-    detail: `Executor in use: ${humanise(status?.background.executor ?? 'unknown')}.`,
-    impact: 'Without a reachable broker the in-process thread pool runs the same registered tasks — single-process only.',
-  })
-
-  const hdfs = maskedConfigured(environment.hdfs_endpoint) ?? Boolean(derived?.hdfs_configured)
+  const hdfs = maskedConfigured(environment.hdfs_endpoint)
   items.push({
     label: 'HDFS data lake',
     envKey: 'HDFS_ENDPOINT',
@@ -507,28 +485,12 @@ function buildReadiness(
     impact: 'local[*] runs single-node; a cluster master is required for distributed PySpark jobs.',
   })
 
-  const kafka = maskedConfigured(environment.kafka_brokers) ?? Boolean(derived?.kafka_enabled)
-  items.push({
-    label: 'Kafka streaming ingestion',
-    envKey: 'KAFKA_ENABLED + KAFKA_BROKERS',
-    configured: derived?.kafka_enabled === undefined ? kafka : derived.kafka_enabled,
-    detail: `Brokers reported: ${String(environment.kafka_brokers ?? 'not configured')}.`,
-    impact: 'Structured-streaming workflows stay unavailable while disabled.',
-  })
-
-  items.push({
-    label: 'Airflow scheduled DAGs',
-    envKey: 'AIRFLOW_ENABLED + AIRFLOW_BASE_URL',
-    configured: derived?.airflow_enabled ?? null,
-    detail: 'When disabled, scheduled syncs rely on the in-process scheduler and manual runs.',
-    impact: 'Set AIRFLOW_ENABLED=true and deploy earthscape_daily_sync for operator-grade scheduling.',
-  })
-
+  const registrationEnabled = maskedConfigured(environment.registration_enabled)
   items.push({
     label: 'Closed self-registration',
     envKey: 'ENABLE_SELF_REGISTRATION (+ ALLOW_ANALYST_SELF_REGISTRATION)',
-    configured: derived ? derived.self_registration_enabled === false : maskedConfigured(environment.registration_enabled) === false,
-    detail: `Self-registration ${derived?.self_registration_enabled === undefined ? 'state unknown' : derived.self_registration_enabled ? 'enabled' : 'disabled'}.`,
+    configured: registrationEnabled === false,
+    detail: `Self-registration ${registrationEnabled === null ? 'state unknown' : registrationEnabled ? 'enabled' : 'disabled'}.`,
     impact: 'Production provisioning should run through User management or scripts/bootstrap_platform.py.',
   })
 

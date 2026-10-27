@@ -1,8 +1,5 @@
-"""Dashboard endpoints (``/api/v1/dashboard/``).
-
-Every tile is the result of a real query against MongoDB. Where the platform has
-no data yet the field is ``null``/empty together with a human ``reason`` - the UI
-can then show setup status instead of a decorative zero.
+"""Dashboard endpoints for /api/v1/dashboard/. Where a tile has no data the field
+is null with a reason, not a zero.
 """
 from __future__ import annotations
 
@@ -18,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def account(request):
-    """The authenticated account, or an honest 401 (never a fabricated viewer)."""
+    """The authenticated account, else a 401."""
     user = getattr(request, "user", None)
     if user is None or not getattr(user, "is_authenticated", False):
         raise ApiError("permission_denied", "Authentication required.", status=401)
@@ -26,8 +23,6 @@ def account(request):
 
 
 class DashboardSummaryView(AuthenticatedView):
-    """Computed platform state for the signed-in account."""
-
     authentication_classes = [MongoJWTAuthentication]
     permission_classes = [IsAuthenticatedAccount]
 
@@ -37,7 +32,7 @@ class DashboardSummaryView(AuthenticatedView):
             payload = services.dashboard_summary(user.id, role=user.role, name=user.full_name)
         except ApiError:
             raise
-        except Exception as exc:  # noqa: BLE001 - a dashboard must degrade, never fabricate
+        except Exception as exc:  # noqa: BLE001 - a dashboard should degrade, not fail
             logger.exception("Dashboard summary could not be computed")
             raise ApiError("service_unavailable",
                            "The dashboard could not be computed from the stored data. "

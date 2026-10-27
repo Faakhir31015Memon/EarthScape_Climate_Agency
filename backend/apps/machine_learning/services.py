@@ -124,47 +124,55 @@ def train_model(requested_by: str, options: Dict[str, Any]) -> Dict[str, Any]:
     pipeline, _ = _ml()
     clean = validate_train_options(options)
     placeholders: List[Dict[str, Any]] = []
-    for algorithm in clean["algorithms"]:
-        base = clean["name"] or pipeline.default_model_name(clean["target_variable"], algorithm)
-        name = base if clean["name"] is None else f"{base}-{algorithm}"
-        version = pipeline.next_version(name)
-        document = {
-            "name": name,
-            "version": version,
-            "algorithm": algorithm,
-            "target_variable": clean["target_variable"],
-            "status": "training",
-            "created_at": utcnow(),
-            "trained_by": requested_by,
-            "requested_by": requested_by,
-            "training_options": {k: v for k, v in clean.items() if k != "name"},
-            "progress_stage": "queued",
-            "training_started_at": utcnow(),
-            "evaluation_metrics": {},
-            "notes": None,
-            "limitations": [],
-            "error_message": None,
-        }
-        try:
-            document["_id"] = model_registry.insert_one(document)
-        except Exception as exc:  # noqa: BLE001 - version race: bump once and retry
-            logger.warning("placeholder insert race (%s); bumping version", exc)
-            document["version"] = pipeline.next_version(name)
-            document["_id"] = model_registry.insert_one(document)
-        placeholders.append({"model_id": str(document["_id"]), "name": name,
-                             "version": document["version"], "algorithm": algorithm,
-                             "created_at": document["created_at"]})
+    try:
+        for algorithm in clean["algorithms"]:
+            base = clean["name"] or pipeline.default_model_name(clean["target_variable"], algorithm)
+            name = base if clean["name"] is None else f"{base}-{algorithm}"
+            version = pipeline.next_version(name)
+            document = {
+                "name": name,
+                "version": version,
+                "algorithm": algorithm,
+                "target_variable": clean["target_variable"],
+                "status": "training",
+                "created_at": utcnow(),
+                "trained_by": requested_by,
+                "requested_by": requested_by,
+                "training_options": {k: v for k, v in clean.items() if k != "name"},
+                "progress_stage": "queued",
+                "training_started_at": utcnow(),
+                "evaluation_metrics": {},
+                "notes": None,
+                "limitations": [],
+                "error_message": None,
+            }
+            try:
+                document["_id"] = model_registry.insert_one(document)
+            except Exception as exc:  # noqa: BLE001 - version race: bump once and retry
+                logger.warning("placeholder insert race (%s); bumping version", exc)
+                document["version"] = pipeline.next_version(name)
+                document["_id"] = model_registry.insert_one(document)
+            placeholders.append({"model_id": str(document["_id"]), "name": name,
+                                 "version": document["version"], "algorithm": algorithm,
+                                 "created_at": document["created_at"]})
 
-    from common import tasks
+        from common import tasks
 
-    tasks.pool().submit(_execute_training, placeholders, clean, requested_by)
+        tasks.pool().submit(_execute_training, placeholders, clean, requested_by)
+    except Exception:  # noqa: BLE001 - a half-registered run must not leave rows in "training"
+        for item in placeholders:
+            try:
+                model_registry.delete_by_id(item["model_id"])
+            except RepositoryError:
+                logger.warning("could not remove placeholder %s", item["model_id"])
+        raise
     return {
         "status": "training",
         "model_ids": [item["model_id"] for item in placeholders],
         "models": placeholders,
         "note": ("Training runs in a background thread; poll the model detail endpoint. "
-                 "If climate_observations is empty the models will finish with status 'failed' "
-                 "and an honest error message - no metrics are fabricated."),
+                 "If no observations are stored, the models finish with status 'failed' and an "
+                 "error message rather than metrics."),
     }
 
 
@@ -445,7 +453,7 @@ def catalogue() -> Dict[str, Any]:
             "trainable": bool(info["rows_with_value"] >= pipeline_min and distinct_days >= 60),
             "blocker": None if info["rows_with_value"] >= pipeline_min and distinct_days >= 60
             else "no training data available (need >= "
-                 f"{pipeline_min} rows and 60 distinct days of real observations)",
+                 f"{pipeline_min} rows and 60 distinct days of stored observations)",
         })
     from ml.features.build import LAGS, WINDOWS, covariates_for
 
@@ -501,7 +509,7 @@ def create_prediction(requested_by: str, body: Dict[str, Any]) -> Dict[str, Any]
                        status=409)
     if not _artifact_available(document):
         raise ApiError("conflict",
-                       "This candidate model has no persisted artifact - nothing honest to run.",
+                       "This candidate model has no persisted artifact, so there is nothing to run.",
                        status=409)
     horizon = body.get("horizon_days") or 7
     try:
@@ -559,14 +567,26 @@ def list_predictions(*, model_id: Optional[str] = None, target_variable: Optiona
         # The horizon series itself belongs to the detail endpoint; the list carries its
         # two ends so a row can state a number instead of an em dash.
         steps = document.pop("values", None) or []
-        dates = sorted((str(row.get("forecast_date") or ""), row) for row in steps)
-        nearest = dates[0][1] if dates else {}
-        furthest = dates[-1][1] if dates else {}
+        dates = sorted((str(row.get("forecast_date") or ""), row) for row in steps if isinstance(row, dict))
+        if dates:
+            nearest = dates[0][1]
+            furthest = dates[-1][1]
+            first_val = nearest.get("value")
+            last_val = furthest.get("value")
+            unit = nearest.get("unit") or document.get("unit") or document.get("units")
+        elif document.get("series") and isinstance(document["series"], list) and isinstance(document["series"][0], dict):
+            first_val = document["series"][0].get("value")
+            last_val = document["series"][-1].get("value")
+            unit = document.get("units") or document.get("unit")
+        else:
+            first_val = steps[0] if steps and isinstance(steps[0], (int, float)) else None
+            last_val = steps[-1] if steps and isinstance(steps[-1], (int, float)) else None
+            unit = document.get("units") or document.get("unit")
         summary = serialize(document)
-        summary["forecast_steps"] = len(steps)
-        summary["first_value"] = nearest.get("value")
-        summary["last_value"] = furthest.get("value")
-        summary["unit"] = nearest.get("unit")
+        summary["forecast_steps"] = len(steps) or len(document.get("series") or [])
+        summary["first_value"] = first_val
+        summary["last_value"] = last_val
+        summary["unit"] = unit
         items.append(summary)
     return items
 
@@ -606,14 +626,28 @@ def delete_prediction(prediction_id: str, actor) -> Dict[str, Any]:
 def export_prediction_csv(prediction_id: str) -> str:
     document = get_prediction(prediction_id)
     lines = ["forecast_date,value,unit,lower_bound,upper_bound"]
-    for row in document.get("values") or []:
-        lines.append(",".join([
-            str(row.get("forecast_date")),
-            "" if row.get("value") is None else repr(row.get("value")),
-            str(row.get("unit") or ""),
-            "" if row.get("lower_bound") is None else repr(row.get("lower_bound")),
-            "" if row.get("upper_bound") is None else repr(row.get("upper_bound")),
-        ]))
+    series = document.get("series") or []
+    if series and isinstance(series[0], dict):
+        for step in series:
+            lines.append(",".join([
+                str(step.get("timestamp") or ""),
+                "" if step.get("value") is None else repr(step.get("value")),
+                str(document.get("units") or document.get("unit") or ""),
+                "" if step.get("lower") is None else repr(step.get("lower")),
+                "" if step.get("upper") is None else repr(step.get("upper")),
+            ]))
+    else:
+        for row in document.get("values") or []:
+            if isinstance(row, dict):
+                lines.append(",".join([
+                    str(row.get("forecast_date")),
+                    "" if row.get("value") is None else repr(row.get("value")),
+                    str(row.get("unit") or document.get("unit") or ""),
+                    "" if row.get("lower_bound") is None else repr(row.get("lower_bound")),
+                    "" if row.get("upper_bound") is None else repr(row.get("upper_bound")),
+                ]))
+            elif isinstance(row, (int, float)):
+                lines.append(f",{row},{document.get('units') or document.get('unit') or ''},,")
     header = (f"# EarthScape forecast | model {document.get('model_name')} v{document.get('model_version')} "
               f"| target {document.get('target_variable')} | origin {document.get('forecast_origin_date')} "
               f"| {document.get('method')}")
@@ -634,7 +668,7 @@ def explain(model_id: str, scope: Dict[str, Any]) -> Dict[str, Any]:
     stored = predictions.find(query, sort=[("generated_at", -1)], limit=1)
     forecast_values = (stored[0].get("values") if stored else None) or []
     if not forecast_values:
-        # compute on the fly without persisting, so "explain" always answers honestly
+        # compute on the fly without persisting, so "explain" still has values to work from
         observations = _scope_observations(scope)
         try:
             payload = predictor.forecast(model_document=document, observations=observations,
@@ -644,28 +678,31 @@ def explain(model_id: str, scope: Dict[str, Any]) -> Dict[str, Any]:
             forecast_values = []
     overlap: List[Dict[str, Any]] = []
     if forecast_values:
-        dates = [str(row.get("forecast_date")) for row in forecast_values if row.get("forecast_date")]
-        criteria = analytics.observation_query(
-            regions=[region_code] if region_code else None,
-            location_codes=[location_code] if location_code else None,
-            start_date=dates[0], end_date=dates[-1])
-        rows = analytics.fetch_observations(criteria)
-        target = document.get("target_variable")
-        actuals: Dict[str, List[float]] = {}
-        for row in rows:
-            if row.get(target) is not None:
-                actuals.setdefault(str(row.get("observation_date"))[:10], []).append(float(row[target]))
-        for row in forecast_values:
-            day = str(row.get("forecast_date"))
-            series = actuals.get(day) or []
-            overlap.append({
-                "date": day,
-                "predicted": row.get("value"),
-                "actual_mean_of_stations": round(sum(series) / len(series), 3) if series else None,
-                "actual_station_count": len(series),
-                "lower_bound": row.get("lower_bound"),
-                "upper_bound": row.get("upper_bound"),
-            })
+        dates = [str(row.get("forecast_date")) for row in forecast_values if isinstance(row, dict) and row.get("forecast_date")]
+        if dates:
+            criteria = analytics.observation_query(
+                regions=[region_code] if region_code else None,
+                location_codes=[location_code] if location_code else None,
+                start_date=dates[0], end_date=dates[-1])
+            rows = analytics.fetch_observations(criteria)
+            target = document.get("target_variable")
+            actuals: Dict[str, List[float]] = {}
+            for row in rows:
+                if row.get(target) is not None:
+                    actuals.setdefault(str(row.get("observation_date"))[:10], []).append(float(row[target]))
+            for row in forecast_values:
+                if not isinstance(row, dict):
+                    continue
+                day = str(row.get("forecast_date"))
+                series = actuals.get(day) or []
+                overlap.append({
+                    "date": day,
+                    "predicted": row.get("value"),
+                    "actual_mean_of_stations": round(sum(series) / len(series), 3) if series else None,
+                    "actual_station_count": len(series),
+                    "lower_bound": row.get("lower_bound"),
+                    "upper_bound": row.get("upper_bound"),
+                })
     return {
         "model": {
             "id": str(document["_id"]),
@@ -684,10 +721,9 @@ def explain(model_id: str, scope: Dict[str, Any]) -> Dict[str, Any]:
         "feature_definition": document.get("feature_definition"),
         "prediction_id": str(stored[0].get("_id")) if stored else None,
         "overlap_series": overlap,
-        "note": ("Overlap compares the stored forecast with real observations that exist for those "
-                 "dates; null actuals mean the observation record does not cover that day yet. A "
-                 "forecast is a projection, not a guarantee, and describes weather - day-to-day "
-                 "state - not a climate trend."),
+        "note": ("Overlap compares the stored forecast with the observations recorded for those "
+                 "dates; a null actual means no observation exists for that day yet. These are "
+                 "statistical projections of day-to-day weather, not a climate trend."),
     }
 
 

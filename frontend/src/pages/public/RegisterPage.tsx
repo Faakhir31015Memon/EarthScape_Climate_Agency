@@ -26,13 +26,13 @@ type RegisterValues = z.infer<typeof registerSchema>
 function guidanceFor(error: ApiRequestError): string | null {
   switch (error.code) {
     case 'registration_disabled':
-      return 'Self-registration is closed on this deployment, so an administrator must create the account. Nothing was saved.'
+      return 'Self-registration is closed here, so an administrator creates the account. Nothing was saved.'
     case 'email_taken':
-      return 'An account already uses this address. Sign in instead, or recover the password.'
+      return 'An account already uses this address. Sign in, or recover the password.'
     case 'password_weak':
-      return 'The chosen password does not meet the policy above; the rules on this form mirror the server.'
+      return 'The password does not meet the policy above. The checklist here reads the same settings the server uses.'
     case 'role_not_permitted':
-      return 'The requested role cannot be granted through self-registration.'
+      return 'That role is not available through self-registration.'
     default:
       return null
   }
@@ -65,7 +65,7 @@ export default function RegisterPage() {
       <div className="space-y-5">
         <EmptyState
           title="Self-registration is closed here"
-          description="This deployment provisions accounts from the administrator side, so a registrant cannot choose a role or privilege level. Contact the platform administrator for access, or sign in if you already have an account."
+          description="Accounts are created by an administrator, who also decides what each one can do. Ask them for access, or sign in if you already have an account."
           action={
             <Link to="/login" className="btn btn-secondary btn-sm">
               Go to sign in
@@ -121,7 +121,7 @@ export default function RegisterPage() {
         />
       </Field>
 
-      <Field label="Organisation" htmlFor="organisation" error={errors.organisation?.message} hint="Optional. Recorded as the source attribution for datasets you contribute.">
+      <Field label="Organisation" htmlFor="organisation" error={errors.organisation?.message} hint="Optional. Shown as the source on datasets you contribute.">
         <input id="organisation" className="input" autoComplete="organization" aria-invalid={Boolean(errors.organisation)} {...register('organisation')} />
       </Field>
 
@@ -179,14 +179,14 @@ export default function RegisterPage() {
       />
 
       <Hint>
-        Registration is enforced by the server, which re-checks this policy on submission. Passwords are stored only as bcrypt hashes and cannot be
-        recovered — only reset. Current policy: {passwordPolicySummary(configuration?.password_policy)}.
+        The server checks these rules again when you submit. Passwords are stored as hashes, so they can be replaced but never read back. Current
+        policy: {passwordPolicySummary(configuration?.password_policy)}.
       </Hint>
 
       <Hint>
         {configuration
-          ? `Self-registration here issues the ${registrationRoles.map(humanise).join(' or ') || 'viewer'} role. Analyst and administrator privileges are always assigned by an existing administrator, never requested at sign-up.`
-          : 'Self-registration issues the least-privileged role this deployment allows. Higher-privilege roles are always provisioned by an administrator.'}
+          ? `A new account here gets the ${registrationRoles.map(humanise).join(' or ') || 'viewer'} role. An administrator decides who moves beyond it.`
+          : 'A new account gets the most limited role this deployment offers. An administrator grants anything wider.'}
       </Hint>
 
       {apiError ? (

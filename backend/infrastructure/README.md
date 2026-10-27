@@ -3,9 +3,9 @@
 Deployment, cluster, scheduling and backup assets for the EarthScape Climate
 Agency platform.
 
-> **Status of these files in this delivery.** The Docker images, the nginx site and
-> the Airflow DAG were **authored and reconciled against the code, but not built or
-> run** here: Docker and Airflow are not available in the development environment.
+> **Status of these files in this delivery.** The Docker images and the nginx site
+> were **authored and reconciled against the code, but not built or run** here:
+> Docker is not available in the development environment.
 > Reconciled means every path, port, environment key, volume and API call in these
 > files was checked against what the application actually does — the drifts that
 > came out of that pass are recorded and fixed as defects 9, 10 and 11 in
@@ -21,12 +21,16 @@ Agency platform.
 
 | Path | Purpose |
 | --- | --- |
-| `docker-compose.yml` (repo root) | One-command stack: backend, Celery worker, beat scheduler, frontend, Redis, and optional Hadoop/Spark |
-| `docker/Dockerfile.backend` | Python 3.11 + OpenJDK 17 image for the Django API and the workers |
+| `docker-compose.yml` (repo root) | One-command stack: backend, frontend, and optional Hadoop/Spark behind the `cluster` profile |
+| `docker/Dockerfile.backend` | Python 3.11 + OpenJDK 17 image for the Django API |
 | `docker/Dockerfile.frontend` | Multi-stage Node build served by nginx |
 | `nginx/earthscape.conf` | Production server block: SPA fallback, `/api/` proxy, security headers, upload limit |
-| `airflow/dags/earthscape_daily_sync.py` | External-scheduler DAG that drives the platform over REST only |
 | `backup/backup.sh`, `backup/restore.sh` | `mongodump` snapshot + checksum-verified restore |
+
+Background work runs in an in-process bounded thread pool inside the API
+(`common/tasks.py`) and nightly syncs are owned by `apps/ingestion/scheduler.py`,
+so there is no separate worker, broker or scheduler service to run. Anything that
+must happen on a schedule is an ordinary REST call an external scheduler can make.
 
 ---
 
@@ -45,13 +49,11 @@ Services started by default:
 | --- | --- | --- |
 | `frontend` | `8080` (override `WEB_PORT`) | nginx serves the built SPA and proxies `/api/` to `backend` |
 | `backend` | not published | reached through nginx; healthcheck hits `/api/v1/ready` |
-| `worker` | not published | `celery -A apps.monitoring.celery_tasks worker` |
-| `scheduler` | not published | same module, `celery beat` |
-| `redis` | not published | Celery broker/results and optional cache |
 
 Named volumes: `backend-data` (uploads, reports, exports and the model artefacts,
-which live under `MEDIA_ROOT`), `data-lake` (the `raw/validated/processed/
-analytics/ml-features/exports` tree the pipeline writes), and `redis-data`.
+which live under `MEDIA_ROOT`) and `data-lake` (the `raw/validated/processed/
+analytics/ml-features/exports` tree the pipeline writes). The `cluster` profile
+adds `hdfs-name` and `hdfs-data`.
 
 Stored-file locations are recorded as **keys relative to `MEDIA_ROOT`**, not as
 absolute paths — see `backend/common/storage_paths.py`. That is what lets a
@@ -107,11 +109,8 @@ commit, an issue, or a screenshot.
 | `DJANGO_SECRET_KEY` | both | refuse to start |
 | `JWT_SIGNING_KEY` | both | refuse to start |
 | `FORCE_ATLAS_CONNECTION` | production | should be `true` |
-| `REDIS_URL` / `CELERY_BROKER_URL` | Celery | jobs run on the in-process thread executor, and the UI says so |
 | `HDFS_ENDPOINT` | HDFS writes | data lake stays on local disk |
 | `SPARK_MASTER` | cluster Spark | PySpark runs `local[*]` |
-| `KAFKA_BROKERS` | event stream | ingestion stays pull-based (`KAFKA_ENABLED=false`) |
-| `AIRFLOW_ENABLED` | DAG ownership | `false` by default; the platform's own scheduler is used |
 | `MODEL_ARTIFACT_DIR` | relocating trained models | defaults to `<MEDIA_ROOT>/ml-artifacts` |
 
 `backend/scripts/bootstrap_platform.py` creates the indexes and the first accounts and
@@ -153,30 +152,7 @@ restore.
 
 ---
 
-## 4. Airflow
-
-`airflow/dags/earthscape_daily_sync.py` is written for an **external** Airflow
-installation. It calls the platform's REST API only — it never imports Django
-code and never touches the database directly. The nightly chain is
-`sync_nasa_power` + `sync_live_provider` → `rebuild_analytics` → `evaluate_alerts`,
-driving `POST /api/v1/ingestion/jobs`, `POST /api/v1/processing/` and
-`POST /api/v1/alerts/scan`, and polling each job document until it reaches a
-terminal status. It needs `EARTHSCAPE_API_TOKEN`: a bearer token for a service
-account with the **climate_analyst** (or administrator) role, because both write
-endpoints reject every other role. Get it from `POST /api/v1/auth/login` rather
-than from a stored password. If `AIRFLOW_ENABLED` is `false` the admin Health page
-reports Airflow as *not configured*, even if the DAG file exists.
-
-The DAG's request and response shapes are taken from the running API, not from
-memory: each one was checked against the live service during the packaging pass,
-and the corrections are recorded as defect 10 in
-the repository `README.md`. What has **not** been done is executing it on a
-scheduler — there is no Airflow on this machine, so the task-graph wiring, the
-`schedule_interval` and Airflow's own retry semantics are unverified.
-
----
-
-## 5. Local run without Docker (verified path)
+## 4. Local run without Docker (verified path)
 
 ```bash
 # 1. Backend — from the repository root, using the checked-in venv

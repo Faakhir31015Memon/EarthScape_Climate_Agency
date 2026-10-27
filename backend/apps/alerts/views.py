@@ -211,7 +211,7 @@ class AlertScanView(StaffView):
 
 
 class RuleEvaluateView(StaffView):
-    """``POST /api/v1/alerts/rules/evaluate`` - run the engine now, report real counts."""
+    """``POST /api/v1/alerts/rules/evaluate`` - run the engine now and return its counts."""
 
     def post(self, request):
         outcome = monitor.run_once(source="manual")

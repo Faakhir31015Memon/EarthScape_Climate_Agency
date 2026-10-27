@@ -86,7 +86,7 @@ interface RuleFormState {
   everyone: boolean
 }
 
-/** The rule engine stores evaluation state as an open record; only real values are read. */
+/** The rule engine stores evaluation state as an open record; entries are read only when finite. */
 function stateNumber(state: Record<string, unknown> | undefined, key: string): number | null {
   const value = state?.[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -99,8 +99,8 @@ function stateText(state: Record<string, unknown> | undefined, key: string): str
 
 /**
  * `GET /api/v1/climate/metrics` publishes `range_min` / `range_max` as nullable numbers, so a
- * metric can legitimately have no published bounds. Nothing is inferred here: when both bounds
- * are null the copy states that the API did not publish them.
+ * metric can legitimately have no published bounds. When both bounds are null the
+ * copy states that the API did not publish them.
  */
 function metricBoundsText(entry: MetricDefinition): string {
   if (entry.range_min === null && entry.range_max === null) return 'not published'
@@ -267,7 +267,7 @@ export default function AlertRulesPage() {
       .map((region) => region.country)
       .filter((country): country is string => typeof country === 'string' && country.length > 0)
     return {
-      regions: list.map((region) => ({ value: region.code, label: `${region.code} — ${region.name}` })),
+      regions: list.map((region) => ({ value: region.code, label: `${region.code} (${region.name})` })),
       countries: Array.from(new Set(countries)).sort().map((country) => ({ value: country, label: country })),
     }
   }, [regions.data])
@@ -278,7 +278,7 @@ export default function AlertRulesPage() {
   )
 
   const recipientOptions = useMemo<Option[]>(
-    () => (accounts.data?.items ?? []).map((account) => ({ value: account.id, label: `${account.full_name} — ${account.email}`, hint: roleLabel(account.role) })),
+    () => (accounts.data?.items ?? []).map((account) => ({ value: account.id, label: `${account.full_name} (${account.email})`, hint: roleLabel(account.role) })),
     [accounts.data],
   )
 
@@ -651,7 +651,7 @@ export default function AlertRulesPage() {
       {rules.error ? <div className="mb-4"><ErrorState error={rules.error} onRetry={() => void rules.refetch()} /></div> : null}
       {templates.error ? (
         <p className="mb-4 text-xs leading-relaxed subtle">
-          {describeError(templates.error).message} — the operator and severity lists fall back to the values declared in{' '}
+          {describeError(templates.error).message}. The operator and severity lists fall back to the values declared in{' '}
           <span className="mono">apps/alerts/rules.py</span>, and no template presets are offered.
         </p>
       ) : null}
@@ -678,7 +678,7 @@ export default function AlertRulesPage() {
       </FilterBar>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <Panel title="Rules" description="GET /api/v1/alerts/rules — evaluation state is included because this account is staff." dense>
+        <Panel title="Rules" description="GET /api/v1/alerts/rules. Evaluation state is included because this account is staff." dense>
           {rules.loading ? <TableSkeleton rows={5} columns={9} /> : (
             <DataTable
               caption="Alert rules"
@@ -695,7 +695,7 @@ export default function AlertRulesPage() {
         <div className="min-w-0 space-y-6">
           <Panel
             title="Rule templates"
-            description="GET /api/v1/alerts/templates — starting payloads the engine can actually create."
+            description="GET /api/v1/alerts/templates. Starting payloads the engine can build."
             dense
             actions={<RefreshButton onClick={() => void templates.refetch()} busy={templates.refreshing} label="Reload" />}
           >
@@ -778,7 +778,7 @@ export default function AlertRulesPage() {
             ) : null}
             <p className="mt-3 text-[11px] leading-relaxed subtle">
               Notification delivery is per recipient; the platform-wide log lives in the notification centre (
-              <span className="mono">/app/notifications</span>) which the API scopes to the signed-in account — this page cannot filter it by
+              <span className="mono">/app/notifications</span>) which the API scopes to the signed-in account. This page cannot filter it by
               rule id because <span className="mono">GET /api/v1/notifications</span> accepts no rule parameter.
             </p>
           </Panel>
@@ -869,7 +869,7 @@ export default function AlertRulesPage() {
                   options={
                     metricList.length
                       ? metricList.map((entry) => ({ value: entry.field, label: `${entry.label} (${entry.unit})`, hint: `published range ${metricBoundsText(entry)}` }))
-                      : [{ value: 'temperature_c', label: 'temperature_c', hint: 'The metric catalogue could not be read, so only the field name is shown — no label or unit is inferred.' }]
+                      : [{ value: 'temperature_c', label: 'temperature_c', hint: 'The metric catalogue could not be read, so only the field name is shown. No label or unit is inferred.' }]
                   }
                 />
               </Field>
@@ -982,7 +982,7 @@ export default function AlertRulesPage() {
         message={
           <span>
             <strong>{confirmDelete?.name}</strong> will stop being evaluated immediately, so it can never fire again. Alerts it already
-            raised, and the notifications built from them, are retained — the server deletes only the rule document. The action is audited as{' '}
+            raised, and the notifications built from them, are retained; the server deletes only the rule document. The action is audited as{' '}
             <span className="mono">alert_rule.deleted</span>.
           </span>
         }

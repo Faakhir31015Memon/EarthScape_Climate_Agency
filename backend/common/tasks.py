@@ -1,11 +1,8 @@
 """Background execution.
 
-Celery + Redis are used when ``REDIS_URL`` points at a reachable broker.
-Otherwise an in-process bounded thread pool runs the same registered callables so
-that ingestion, processing and report generation remain functional in development.
-
-Only callables registered by name in :data:`REGISTRY` can be executed - the API
-never accepts shell commands or arbitrary code.
+A bounded
+in-process thread pool runs the same registered callables. Only names present in
+REGISTRY can be executed.
 """
 from __future__ import annotations
 
@@ -49,24 +46,7 @@ def pool() -> ThreadPoolExecutor:
 
 
 def backend() -> str:
-    if env.get_raw("REDIS_URL") and _celery_ready():
-        return "celery"
     return "in-process-thread-pool"
-
-
-_celery_state: Optional[bool] = None
-
-
-def _celery_ready() -> bool:
-    global _celery_state
-    if _celery_state is None:
-        try:
-            from celery import Celery  # noqa: F401
-
-            _celery_state = True
-        except ImportError:
-            _celery_state = False
-    return _celery_state or False
 
 
 JOB_REPOSITORIES: Dict[str, str] = {
@@ -82,15 +62,6 @@ def submit(task_name: str, *, job_id: str, job_type: str, payload: Dict[str, Any
         raise BackendUnavailable(f"Task '{task_name}' is not registered.")
     if job_type not in JOB_REPOSITORIES:
         raise BackendUnavailable(f"Unknown job type '{job_type}'.")
-
-    if backend() == "celery":
-        try:
-            from apps.monitoring.celery_tasks import run_registered_task
-
-            run_registered_task.delay(task_name, job_id, job_type, payload)
-            return "celery"
-        except Exception as exc:  # noqa: BLE001 - fall back instead of failing the request
-            logger.warning("Celery dispatch failed (%s); using the in-process pool", exc)
 
     with _ACTIVE_LOCK:
         _ACTIVE[job_id] = {"task": task_name, "job_type": job_type}

@@ -1,7 +1,7 @@
-"""Domain exceptions and the single DRF exception handler.
+"""Domain exceptions and the DRF exception handler.
 
-Clients receive a stable error envelope with a correlation id; tracebacks, driver
-messages and infrastructure details stay in the server log only.
+Driver errors and tracebacks stay in the log; clients get a code, a message and a
+correlation id.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ class Unauthorized(DomainError):
 
 
 class ServiceUnavailableConfig(DomainError):
-    """A documented dependency is not configured or not reachable."""
+    """A required dependency is unconfigured or unreachable."""
 
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "dependency_unavailable"
@@ -66,7 +66,7 @@ class ValidationError(DomainError):
 
 
 class Throttled(APIException):
-    """Rate limited or temporarily locked; clients read `wait_seconds` from details."""
+    """Rate limited or locked out; clients read `wait_seconds` from details."""
 
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     default_code = "rate_limited"
@@ -87,8 +87,8 @@ def _payload(code: str, message: str, details, correlation_id: str) -> dict:
 
 
 def api_exception_handler(exc, context):
-    # Imported here: `rest_framework.views` is only fully initialised after Django
-    # settings load, and this module is on the authentication import path.
+    # deferred import: rest_framework.views is only initialised after Django settings
+    # load, and this module sits on the authentication import path
     from rest_framework.response import Response
     from rest_framework.views import exception_handler as drf_exception_handler
 

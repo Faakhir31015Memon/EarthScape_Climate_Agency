@@ -12,9 +12,7 @@
  *    payload here; the UI only ever shows a range or count the backend actually
  *    publishes — anything the server leaves ``null`` stays ``null``.
  */
-import { ApiRequestError } from '../../../services/http'
-import { METRIC_META } from '../../../lib/format'
-import type { AuthConfiguration, Metric, RegionCatalogLocation, Role } from '../../../types/api'
+import type { AuthConfiguration, RegionCatalogLocation } from '../../../types/api'
 
 /**
  * Defaults documented by ``backend/apps/authentication/services.py``
@@ -48,48 +46,6 @@ export function asArray<T>(payload: unknown, key: string): T[] {
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-export interface PublicMetric {
-  field: Metric
-  label: string
-  unit: string
-  aggregation: 'mean' | 'sum'
-  /** Range the backend publishes; ``null`` when the metric declares none. */
-  range_min: number | null
-  range_max: number | null
-  populatedCount: number | null
-  totalCount: number | null
-  completenessPct: number | null
-  hasData: boolean
-  sourceParameter: string | null
-}
-
-/** Accepts ``MetricDefinition[]`` or ``{ metrics: [...] }`` and known key spellings. */
-export function normaliseMetrics(payload: unknown): PublicMetric[] {
-  return asArray<Record<string, unknown>>(payload, 'metrics')
-    .map((entry) => {
-      const field = String(entry.field ?? '') as Metric
-      const meta = METRIC_META[field]
-      if (!meta) return null
-      const source = entry.source_parameters as Record<string, unknown> | undefined
-      const aggregation = entry.aggregation === 'sum' ? 'sum' : 'mean'
-      const metric: PublicMetric = {
-        field,
-        label: typeof entry.label === 'string' && entry.label ? entry.label : meta.label,
-        unit: typeof entry.unit === 'string' && entry.unit ? entry.unit : meta.unit,
-        aggregation,
-        range_min: numberOrNull(entry.range_min),
-        range_max: numberOrNull(entry.range_max),
-        populatedCount: numberOrNull(entry.populated_count),
-        totalCount: numberOrNull(entry.total_count),
-        completenessPct: numberOrNull(entry.completeness_pct),
-        hasData: entry.has_data === undefined ? true : Boolean(entry.has_data),
-        sourceParameter: typeof source?.parameter === 'string' ? source.parameter : null,
-      }
-      return metric
-    })
-    .filter((entry): entry is PublicMetric => entry !== null)
 }
 
 export interface PublicRegion {
@@ -217,85 +173,7 @@ export function passwordPolicySummary(policy?: AuthConfiguration['password_polic
   return parts.join(', ')
 }
 
-/** True when the failure is an auth gate rather than missing data. */
-export function isAuthGated(error: unknown): boolean {
-  if (!(error instanceof ApiRequestError)) return false
-  return error.status === 401 || error.status === 403 || error.code.includes('auth') || error.code.includes('permission')
-}
-
-/** True when the deployment does not serve the endpoint at all. */
-export function isMissingEndpoint(error: unknown): boolean {
-  return error instanceof ApiRequestError && (error.status === 404 || error.status === 405)
-}
-
-export function errorDetail(error: unknown): { code: string; message: string; status: number } {
-  if (error instanceof ApiRequestError) {
-    return { code: error.code, message: error.message, status: error.status }
-  }
-  if (error instanceof Error) return { code: 'unexpected_error', message: error.message, status: 0 }
-  return { code: 'unknown_error', message: 'The request could not be completed.', status: 0 }
-}
-
 export function formatCount(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '—'
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)
 }
-
-export interface PublicRoleSummary {
-  role: Role
-  title: string
-  audience: string
-  summary: string
-  /** Mirrors ``ROLE_CAPABILITIES`` in ``features/auth/AuthContext.tsx``. */
-  capabilities: string[]
-  cannot: string
-}
-
-export const PUBLIC_ROLE_SUMMARIES: PublicRoleSummary[] = [
-  {
-    role: 'administrator',
-    title: 'Administrator',
-    audience: 'Platform owners and institutional administrators',
-    summary:
-      'Provisions accounts and roles, controls deployment settings, oversees every dataset, job, alert rule, report and ticket, and reads the audit log.',
-    capabilities: [
-      'Manage user accounts, roles, activation and password resets',
-      'Run ingestion, processing and backup operations',
-      'Train, activate and retire models; run forecasts',
-      'Author and disable alert rules; resolve alerts',
-      'Read audit logs, system health, settings and backups',
-      'Export analytics and manage every report',
-    ],
-    cannot: 'Cannot read a password: only a bcrypt hash is stored, so an administrator sets a new one.',
-  },
-  {
-    role: 'climate_analyst',
-    title: 'Climate analyst',
-    audience: 'Researchers and data stewards who work with the record',
-    summary:
-      'Owns the scientific pipeline: uploads and validates files, runs ingestion jobs, executes MapReduce and Spark workflows, trains models and publishes reports.',
-    capabilities: [
-      'Create and validate datasets, run provider ingestion',
-      'Submit distributed processing workflows and read job logs',
-      'Train and evaluate models, generate forecasts',
-      'Configure alert rules and acknowledge alerts',
-      'Build reports and export analytics',
-      'View engine health and job history',
-    ],
-    cannot: 'Cannot create accounts, change roles or edit platform configuration.',
-  },
-  {
-    role: 'viewer',
-    title: 'Viewer / stakeholder',
-    audience: 'Decision makers, partner departments and the public registrant',
-    summary:
-      'Reads the analytical record: dashboards, maps, trends, anomalies, forecasts, alerts and published reports. This is the role self-registration grants.',
-    capabilities: [
-      'Browse datasets, dashboards, analytics and the map',
-      'Read forecasts, alerts and generated reports',
-      'Submit support tickets and product feedback',
-      'Receive in-app notifications',
-    ],
-    cannot: 'Cannot upload data, run jobs, train models, change roles or administer the platform.',
-  },
-]

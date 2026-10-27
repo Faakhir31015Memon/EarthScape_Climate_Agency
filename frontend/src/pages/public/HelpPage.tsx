@@ -2,14 +2,12 @@ import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowUpRight,
-  BookOpen,
   CheckCircle2,
   ChevronDown,
   FileText,
   LifeBuoy,
   ListChecks,
   ShieldCheck,
-  Terminal,
 } from 'lucide-react'
 import { Badge, Panel, RefreshButton, Skeleton } from '../../components/ui'
 import { useAuth } from '../../features/auth/AuthContext'
@@ -35,44 +33,42 @@ const ROLE_STEPS: { role: string; title: string; audience: string; steps: { acti
       {
         action: 'Read the record',
         detail:
-          'The public insights page works without an account; signing in adds full coverage, quality flags and the historical normal-period explorer.',
-        to: '/insights',
-        label: 'Open climate insights',
+          'The landing page shows the record without an account. Signing in adds full coverage, quality flags and the normal-period explorer.',
+        to: '/login',
+        label: 'Sign in to the workspace',
       },
-      { action: 'Browse datasets and dashboards', detail: 'Overview dashboard, maps, anomaly lists, forecasts and published reports are all read-only available.' },
-      { action: 'Watch alerts', detail: 'Alerts and the notification centre are readable; acknowledging or resolving them requires the analyst role.' },
-      { action: 'Ask a question', detail: 'Support tickets and product feedback are available to every signed-in role.', to: '/app/support', label: 'Open support' },
-      { action: 'Export what you can see', detail: 'Report and CSV downloads are issued against the same server-side permission checks as the rest of the workspace.' },
+      { action: 'Browse datasets and dashboards', detail: 'The overview dashboard, maps, anomaly lists, forecasts and published reports are all there to read.' },
+      { action: 'Watch alerts', detail: 'Alerts and the notification centre are readable here. Resolving one is analyst work.' },
+      { action: 'Ask a question', detail: 'Support tickets and product feedback are open to anyone signed in.', to: '/app/support', label: 'Open support' },
+      { action: 'Export what you can see', detail: 'Reports and CSV downloads carry the same rows the screen shows, with the source and period attached.' },
     ],
   },
   {
     role: 'climate_analyst',
     title: 'Climate analyst',
-    audience: 'The scientific path, in the order it is normally run',
+    audience: 'The scientific path, in the order it normally runs',
     steps: [
-      { action: 'Ingest', detail: 'Run a provider job (NASA POWER, NOAA CDO or the live API) or upload an institutional file, then validate before ingesting.', to: '/app/ingestion', label: 'Ingestion jobs' },
-      { action: 'Inspect quality', detail: 'Review flagged rows, completeness and freshness. Records outside a validation range are flagged for your review, not deleted.' },
-      { action: 'Process at scale', detail: 'Submit the MapReduce or Spark workflow for aggregation, anomaly scanning and feature building; watch it in the processing monitor.', to: '/app/processing', label: 'Processing monitor' },
+      { action: 'Ingest', detail: "Start a provider job (NASA POWER, NOAA or the live conditions feed) or upload your institution's file, then read the validation report before ingesting.", to: '/app/ingestion', label: 'Ingestion jobs' },
+      { action: 'Inspect quality', detail: 'Look over flagged rows, completeness and freshness. A value outside its range is kept for you to judge.' },
+      { action: 'Process at scale', detail: 'Submit the job that aggregates, scans for anomalies and builds features, then follow it in the processing monitor.', to: '/app/processing', label: 'Processing monitor' },
       { action: 'Model', detail: 'Train on the historical matrix, read MAE / RMSE / MAPE / R² and the skill score against the climatology baseline, then activate the version you trust.', to: '/app/ml-lab', label: 'Machine learning lab' },
-      { action: 'Predict and publish', detail: 'Run forecasts against the active model, export analytics, schedule alert rules and generate the report.', to: '/app/reports', label: 'Reports and exports' },
+      { action: 'Predict and publish', detail: 'Run forecasts against the active model, export analytics, set up alert rules and generate the report.', to: '/app/reports', label: 'Reports and exports' },
     ],
   },
   {
     role: 'administrator',
     title: 'Administrator',
-    audience: 'Provisioning, configuration and oversight',
+    audience: 'Accounts, settings and keeping an eye on things',
     steps: [
       {
         action: 'Create accounts and assign roles',
         detail:
-          'Roles are set server-side at creation. Self-registration, where enabled, always produces the restricted viewer role — a registrant cannot choose privileges.',
+          'You create the account and set what it can do. Where registration is open, the new account still arrives at the low end and you decide who moves up.',
         to: '/admin/users',
         label: 'User management',
       },
-      { action: 'Configure the deployment', detail: 'Connection strings, storage backend, distributed engines, rate limits and notification settings are editable in the configuration screen.', to: '/admin/settings', label: 'Configuration' },
-      { action: 'Watch the engines', detail: 'Database mode, queue workers, storage paths and job failures are reported on the system health page and in the audit log.', to: '/admin/health', label: 'System health' },
-      { action: 'Run backups', detail: 'A database snapshot and the lake export are triggered from the administration overview; restore is a documented procedure, not an assumption.' },
-      { action: 'Read the audit trail', detail: 'Every state-changing request is recorded with actor, action, resource, outcome and a request id you can quote in a ticket.', to: '/admin/audit', label: 'Audit logs' },
+      { action: 'Watch the jobs', detail: 'The system health page reports running work, failures and anything the deployment is missing, so a stalled sync shows up there first.', to: '/admin/health', label: 'System health' },
+      { action: 'Run backups', detail: 'A full backup and an archive export start from the administration overview. The restore steps are written down, so recovery follows a procedure.' },
     ],
   },
 ]
@@ -81,72 +77,72 @@ const FIRST_RUN = [
   {
     step: '1. Copy the environment template',
     detail:
-      'cp .env.example .env, then set MONGODB_URI, DJANGO_SECRET_KEY and JWT_SIGNING_KEY. The template names the command that generates each secret. Never commit the real file.',
+      "Start from the example environment file and fill in the connection details and the signing secrets. The template names the command that generates each secret. Keep the filled-in file out of version control.",
   },
   {
-    step: '2. Bootstrap collections, indexes and accounts',
+    step: '2. Build the storage layout and the first accounts',
     detail:
-      'Run backend/scripts/bootstrap_platform.py. It creates the document collections and indexes, registers the region and station catalogue, and prints randomly generated sign-in credentials once into backend/.data/bootstrap-credentials.txt. There is no default or hardcoded administrator password in the repository.',
+      'The bootstrap script prepares the storage layout, registers the region and station catalogue, and writes one set of randomly generated sign-in credentials to a file under the backend data directory. The repository ships no default or hard-coded password.',
   },
   {
-    step: '3. Start the API and the app',
+    step: '3. Start the API and the site',
     detail:
-      'python backend/manage.py runserver 0.0.0.0:8000, then npm install && npm run dev inside frontend/. The Vite dev server proxies /api to the backend, so no extra base-URL configuration is needed locally.',
+      'Run the backend server, then install and start the frontend. In development the frontend forwards /api requests to the server, so there is no base URL to configure locally.',
   },
   {
-    step: '4. Put real observations in',
+    step: '4. Load observations',
     detail:
-      'Nothing scientific exists until data does. Run a provider ingestion job, upload an institutional file, or run backend/scripts/seed_real_data.py — which fetches genuine daily values from the public provider rather than synthesising them.',
+      'Nothing scientific exists until data does. Run a provider ingestion job, upload a file from your institution, or use the seeding script, which pulls daily values from the public provider instead of generating numbers.',
   },
   {
-    step: '5. Decide which engines are enabled',
+    step: '5. Decide which processing options are on',
     detail:
-      'SPARK_ENABLED, HADOOP_BIN, KAFKA_ENABLED, AIRFLOW_ENABLED and MLFLOW_ENABLED default to the conservative local behaviour. The platform probes for them; when one is absent the administrator health page names the missing setting and the matching actions are disabled instead of pretending a cluster exists.',
+      'Distributed processing, messaging and scheduled-run options start off, and the platform checks what is present before using it. When something is missing, the health page names the setting and the matching actions stay disabled until it arrives.',
   },
   {
     step: '6. Turn on delivery channels',
     detail:
-      'ENABLE_EMAIL_NOTIFICATIONS stays false until SMTP_HOST, SMTP_USER and EMAIL_FROM_ADDRESS are set. Until then alerts and password-reset links are recorded as suppressed rather than silently dropped.',
+      'Email stays off until the mail host, account and sender address are filled in. Until then, alerts and password-reset links are recorded as suppressed, so you can see what would have gone out.',
   },
   {
-    step: '7. Container or cluster deployment',
+    step: '7. Deploy as a container or a cluster',
     detail:
-      'docker-compose.yml defines the backend, worker, scheduler, frontend and Redis services with an optional Hadoop/Spark profile. Cluster topology, backups and Airflow scheduling are covered in infrastructure/README.md.',
+      'The compose file brings up the site and the platform services as one stack, with a profile for distributed processing when you want it. Topology, backups and scheduled runs are covered in the infrastructure guide.',
   },
 ]
 
 const INTERFACE_NOTES = [
   {
     title: 'Empty is an answer',
-    body: 'A chart that refuses to draw because the window has fewer verified periods than the method requires is correct behaviour. The reason and the point counts are printed in its footer.',
+    body: 'A chart that will not draw because the window has fewer verified periods than the method needs is working as intended. The reason and the period counts sit in its footer.',
   },
   {
     title: 'Gaps stay gaps',
-    body: 'Missing measurements are stored as null. Lines break rather than cross a gap, and a missing day is never shown as zero millimetres or zero degrees.',
+    body: 'A missing measurement is stored as missing. The line breaks there instead of crossing the gap, and a day with no reading does not appear as zero millimetres or zero degrees.',
   },
   {
     title: 'Correlation needs a mechanism',
-    body: 'The correlation tool reports strength of co-movement plus sample size and lag. Only the paired station test — same site, same period, same units — is a comparison; anything else is labelled as not causal.',
+    body: 'The correlation tool reports the strength of co-movement, the sample size and the lag. The paired station test (same site, same period, same units) is a comparison. Everything else comes back marked as association.',
   },
   {
-    title: 'Roles change what you see, not what exists',
-    body: 'Analysts get write paths for jobs and models. Viewers read the same record. Nothing is hidden to make a role look better: capability names are listed in the platform page.',
+    title: 'Your account shapes the page',
+    body: "Analysts get the write paths for jobs and models; other accounts read the same record. The profile page lists what yours can do, so you don't have to guess.",
   },
   {
     title: 'Every request has an id',
-    body: 'Failed requests surface a code, an HTTP status and a reference id. Quote the reference id in a ticket and the audit log entry can be found immediately.',
+    body: 'A failed request returns a code, an HTTP status and a reference id. Put that id in a ticket and the log entry behind it can be found.',
   },
 ]
 
 /** Documents that exist in this checkout, verified against the repository tree. */
 const REPO_DOCS = [
-  { path: 'README.md', note: 'Repository layout, quick start and the configuration and honesty rules.' },
-  { path: '.env.example', note: 'Every setting the platform reads, with its default and a comment where behaviour changes.' },
-  { path: 'docker-compose.yml', note: 'Container stack: API, worker, scheduler, frontend, Redis and the optional Hadoop/Spark profile.' },
-  { path: 'backend/infrastructure/README.md', note: 'Container deployment, cluster profile, backups and Airflow scheduling.' },
-  { path: 'backend/data-pipeline/mapreduce/README.md', note: 'Streaming mapper/reducer contract and how a job is run locally or on a cluster.' },
+  { path: 'README.md', note: 'Repository layout, quick start, and the data rules the project follows.' },
+  { path: 'backend/.env.example', note: 'Every setting the platform reads, with its default and a comment where behaviour changes.' },
+  { path: 'docker-compose.yml', note: 'The container stack for the site and the platform services, plus the opt-in cluster profile.' },
+  { path: 'backend/infrastructure/README.md', note: 'Deployment on a cluster, backups and scheduled runs.' },
+  { path: 'backend/data-pipeline/mapreduce/README.md', note: 'How the batch aggregation jobs are written, and how to run one locally or across a cluster.' },
   { path: 'backend/ml/README.md', note: 'Feature build, training, evaluation and inference layout.' },
-  { path: 'backend/sample-data/README.md', note: 'What is real in this repository: the six city CSVs are provider-retrieved data, and no synthetic corpus ships here.' },
+  { path: 'backend/sample-data/README.md', note: 'What ships as sample data: the six city CSVs came from the public provider, and nothing here is generated.' },
 ]
 
 function FaqItem({ question, children }: { question: string; children: ReactNode }) {
@@ -158,7 +154,7 @@ function FaqItem({ question, children }: { question: string; children: ReactNode
           type="button"
           onClick={() => setOpen((previous) => !previous)}
           aria-expanded={open}
-          className="flex w-full items-center justify-between gap-3 py-3.5 text-left text-sm font-semibold hover:text-forest-700 dark:hover:text-forest-300"
+          className="flex w-full items-center justify-between gap-3 py-3.5 text-left text-sm font-semibold hover:text-clay-700 dark:hover:text-clay-300"
         >
           <span>{question}</span>
           <ChevronDown className={cn('h-4 w-4 shrink-0 subtle transition-transform', open && 'rotate-180')} aria-hidden="true" />
@@ -186,10 +182,9 @@ export function HelpPage() {
     <PublicContainer>
       <header className="mb-6 max-w-3xl">
         <p className="panel-title mb-2">Help centre</p>
-        <h1 className="font-display text-[28px] font-semibold leading-tight sm:text-[34px]">How to use the platform, and what it will not tell you</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-tight sm:text-[34px]">How to use the platform</h1>
         <p className="mt-3 text-sm leading-relaxed muted">
-          Practical steps per role, the first-run sequence for an operator, and answers that read this deployment’s live authentication configuration
-          instead of repeating a generic manual.
+          Steps for each kind of user, the setup order for whoever runs the platform, and answers read from this deployment's own settings.
         </p>
       </header>
 
@@ -197,9 +192,9 @@ export function HelpPage() {
 
       <section id="start" className="mb-12 scroll-mt-24">
         <SectionHeading
-          eyebrow="Three roles, three paths"
+          eyebrow="Who does what"
           title="Getting started"
-          description="Capabilities are enforced on the server; the steps below match the capability set each role is issued."
+          description="The steps below follow the order people usually work in. Your account decides which of them you can take."
         />
         <div className="space-y-4">
           {ROLE_STEPS.map((track) => (
@@ -217,7 +212,7 @@ export function HelpPage() {
               <ol className="space-y-3">
                 {track.steps.map((item, index) => (
                   <li key={item.action} className="flex gap-3">
-                    <span className="mono mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-forest-600/10 text-xs font-semibold text-forest-700 dark:text-forest-300">
+                    <span className="mono mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-clay-600/10 text-xs font-semibold text-clay-700 dark:text-clay-300">
                       {index + 1}
                     </span>
                     <div className="min-w-0">
@@ -247,12 +242,7 @@ export function HelpPage() {
         <SectionHeading
           eyebrow="For the deployment operator"
           title="First run"
-          description="The order that works: configuration, storage, reference data, then the ingestion that makes every other screen meaningful."
-          actions={
-            <Link to="/capabilities" className="btn btn-secondary btn-sm">
-              <Terminal className="h-3.5 w-3.5" aria-hidden="true" /> Execution paths
-            </Link>
-          }
+          description="The order that works: settings, storage, reference data, then the ingestion that makes every other screen mean something."
         />
         <div className="grid gap-4 lg:grid-cols-2">
           <Panel title="Sequence">
@@ -268,33 +258,33 @@ export function HelpPage() {
           <div className="space-y-4">
             <Panel title="How long until there is data to see?">
               <p className="text-sm leading-relaxed muted">
-                A first provider sync over the catalogued stations is a matter of minutes, not hours: each request returns daily values for one station
-                over a bounded window. Until that job completes, dashboards, maps and trend charts are legitimately empty and say so.
+                The first sync over the catalogued stations takes a few minutes. Each request brings back daily values for one station within a fixed
+                window. Before that job finishes, dashboards, maps and trend charts have nothing to show and say so.
               </p>
               <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed subtle">
                 <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-forest-600 dark:text-forest-300" aria-hidden="true" />
                 <span>
-                  Empty is the honest starting state. A page that produced numbers before any ingestion had run would be fabricating them.
+                  An empty panel at the start is the right answer. A figure on screen before the first sync would have to be made up.
                 </span>
               </p>
             </Panel>
-            <Panel title="Things that are configuration, not faults">
+            <Panel title="When a setting explains an empty panel">
               <ul className="space-y-2 text-sm leading-relaxed muted">
                 <li>
-                  <span className="font-medium text-[var(--text)]">NOAA_API_KEY empty</span> — the NOAA connector reports{' '}
-                  <span className="mono">needs_configuration</span> and contributes nothing until the token exists.
+                  <span className="font-medium text-[var(--text)]">NOAA key missing</span>: the connector shows as needing setup and adds nothing until
+                  its token exists.
                 </li>
                 <li>
-                  <span className="font-medium text-[var(--text)]">SMTP unset</span> — alert mail and password-reset links are recorded as suppressed;
-                  the record of them is still written.
+                  <span className="font-medium text-[var(--text)]">Mail settings unset</span>: alert email and password-reset links are recorded as
+                  suppressed, and the record of the attempt still gets written.
                 </li>
                 <li>
-                  <span className="font-medium text-[var(--text)]">No Atlas URI</span> — the platform runs on its local document store and the storage
-                  mode is displayed rather than assumed.
+                  <span className="font-medium text-[var(--text)]">Remote storage unset</span>: the platform runs on its own local store, and the health
+                  page shows which mode it is in.
                 </li>
                 <li>
-                  <span className="font-medium text-[var(--text)]">No Hadoop or Spark binaries</span> — distributed workflows fall back to the
-                  single-node reference implementation and label themselves as such.
+                  <span className="font-medium text-[var(--text)]">Distributed processing unset</span>: large jobs fall back to the single-node path and
+                  the run is labelled as single-node.
                 </li>
               </ul>
             </Panel>
@@ -304,9 +294,9 @@ export function HelpPage() {
 
       <section id="faq" className="mb-12 scroll-mt-24">
         <SectionHeading
-          eyebrow="Answers from the live configuration"
+          eyebrow="Answers from this deployment"
           title="Frequently asked questions"
-          description="Where an answer depends on how this deployment is configured, it is read from the authentication configuration endpoint."
+          description="Where an answer depends on configuration, the page reads it from this deployment."
           actions={
             <RefreshButton onClick={refresh} busy={refreshing} label="Re-read configuration" />
           }
@@ -318,13 +308,13 @@ export function HelpPage() {
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-5/6" />
               <p className="text-xs leading-relaxed subtle">
-                The configuration endpoint has not answered yet, so policy-dependent answers are held back rather than guessed.
+                These settings have not loaded yet. Answers that depend on them wait until they do.
               </p>
             </div>
           ) : (
             <div>
               <p className="mb-3 text-xs leading-relaxed subtle">
-                Live values: self-registration <strong className="text-[var(--text)]">{registrationLabel}</strong> · password recovery{' '}
+                Current values: self-registration <strong className="text-[var(--text)]">{registrationLabel}</strong> · password recovery{' '}
                 <strong className="text-[var(--text)]">{resetLabel}</strong> · email delivery{' '}
                 <strong className="text-[var(--text)]">{configuration.email_delivery ? 'configured' : 'not configured'}</strong> · access token{' '}
                 <strong className="mono text-[var(--text)]">{configuration.access_token_minutes}</strong> min · refresh token{' '}
@@ -333,67 +323,65 @@ export function HelpPage() {
               <FaqItem question="How do I get an account?">
                 {configuration.self_registration_enabled ? (
                   <>
-                    Register from the sign-in page. Because registration is open here, new accounts are issued the{' '}
-                    <span className="mono">viewer</span> role automatically — an administrator upgrades it afterwards. The roles this deployment allows
-                    a registrant to receive are {configuration.registration_roles.join(', ') || 'viewer'}.
+                    Register from the sign-in page. Registration is open here, so a new account arrives as a{' '}
+                    <span className="mono">viewer</span> and an administrator raises it later. The roles this deployment hands out at sign-up are{' '}
+                    {configuration.registration_roles.join(', ') || 'viewer'}.
                   </>
                 ) : (
                   <>
-                    Self-registration is closed on this deployment, so an administrator creates the account and chooses the role. Use the support ticket
-                    queue once you have access, or contact the platform owner for a first account — that address is set by the deployment and is not
-                    published on a public page.
+                    Self-registration is closed here, so an administrator creates the account and picks what it can do. Once you have access, the support
+                    queue is the quickest way to reach us. For a first account, contact the platform owner; that address is set by the deployment and
+                    does not appear on a public page.
                   </>
                 )}
               </FaqItem>
               <FaqItem question="What makes a password acceptable?">
-                Requires {passwordPolicySummary(policy)}. The rules are enforced by the API on submission; the checklist on the registration form mirrors
-                the same configuration so the two can never disagree. Passwords are stored only as bcrypt hashes and are never retrievable — including
-                by an administrator, who can set a new one but not read the old one.
+                The policy needs {passwordPolicySummary(policy)}. The checklist on the registration form reads the same settings, so the two agree.
+                Passwords are kept as hashes: an administrator can set you a new one, and nobody can read the old one back.
               </FaqItem>
               <FaqItem question="I forgot my password. What now?">
                 {configuration.password_reset_enabled ? (
                   configuration.email_delivery ? (
                     <>
-                      Use <Link to="/forgot-password">Forgot password</Link>. A single-use reset token is mailed; it expires and can be consumed once. If
-                      the mail does not arrive, check the spam folder and then ask an administrator — delivery failures are logged rather than hidden.
+                      Use <Link to="/forgot-password">Forgot password</Link>. The reset link that arrives works once and expires. If nothing comes, check
+                      the spam folder and then ask an administrator. Delivery failures are logged, so the attempt is on record.
                     </>
                   ) : (
                     <>
-                      Password resets are enabled, but this deployment has no mail transport configured, so a reset link cannot be delivered. The
-                      request is recorded and an administrator issues the reset directly. The page says this instead of claiming an email was sent.
+                      Resets are switched on, but this deployment has no mail server set up, so a link cannot be delivered. Your request is recorded and
+                      an administrator sets the password for you.
                     </>
                   )
                 ) : (
                   <>
-                    Self-service reset is disabled here. Ask an administrator to set a temporary password; you can change it from your profile afterwards.
+                    Self-service reset is off here. Ask an administrator to set a temporary password, then change it from your profile.
                   </>
                 )}
               </FaqItem>
               <FaqItem question="Why is my account locked?">
-                Repeated failed sign-in attempts lock the account for a fixed window, after which it unlocks by itself. An administrator can clear the
-                lock sooner. The lockout counter, the failure threshold and the duration are server-side settings — not something the browser controls.
+                Too many failed attempts lock the account for a fixed window, and it unlocks itself afterwards. An administrator can clear the lock
+                sooner. The attempt limit and the window are set on the server, so the browser cannot change them.
               </FaqItem>
               <FaqItem question="How long am I signed in?">
-                The access token is short-lived ({configuration.access_token_minutes} minutes) and held only in memory; a rotating refresh token, persisted
-                locally, silently renews it. Using a refresh token issues a new pair and invalidates the old one, and re-use of an already-rotated token
-                revokes the whole token family — the standard defence against a stolen refresh token. Signing out discards both.
+                An access token lives {configuration.access_token_minutes} minutes and stays in memory. A refresh token, kept locally, renews it in the
+                background. Each refresh hands out a new pair and retires the old one, and if a retired token is replayed the whole family is revoked.
+                That is how a stolen refresh token gets cut off. Signing out discards both.
               </FaqItem>
               <FaqItem question="Why does a chart say it needs more points?">
-                Trend, anomaly and model views require a minimum number of verified periods. When the window is too short the API returns{' '}
-                <span className="mono">available: false</span> with the reason and the counts, and the page shows that instead of drawing something
-                unsupported.
+                Trend, anomaly and model views need a minimum number of verified periods. When the window is too short, the page says why and shows the
+                counts it has.
               </FaqItem>
               <FaqItem question="Are the public pages showing different data to the signed-in workspace?">
-                No. Public pages read the same stored observations through the public analytics endpoints — they simply expose the read side. Uploads,
-                jobs, models, users and quality aggregates require an authenticated session with the matching capability.
+                No. Public pages read the same stored observations the workspace does; they only expose the reading side. Uploads, jobs, models, users and
+                quality summaries need a signed-in session with the matching access.
               </FaqItem>
               <FaqItem question="Does the platform store anything about me beyond the account record?">
-                Session records, an audit trail of state-changing actions, and notification preferences. Credentials, full tokens and card-style secrets
-                are never stored. The privacy page lists exactly which fields exist and who can read them.
+                Session records, an audit trail of the actions that change state, and your notification preferences. Credentials and full tokens are not
+                stored.
               </FaqItem>
               <FaqItem question="What happens if I hit the API too fast?">
-                Requests are throttled per account and per route, and a throttled call returns an explicit error with a retry hint rather than a silent
-                failure. The public pages fetch a small number of endpoints once and only re-request on your action.
+                Requests are throttled per account and per route, and a throttled call returns an error with a retry hint so you can see it. The public
+                pages fetch a handful of endpoints once and only ask again when you act.
               </FaqItem>
             </div>
           )}
@@ -404,7 +392,7 @@ export function HelpPage() {
         <SectionHeading
           eyebrow="Reading it correctly"
           title="Using the interface"
-          description="Five conventions that apply everywhere in the workspace, and that make the difference between a dashboard and a guess."
+          description="Conventions that hold everywhere in the workspace. They are the difference between reading a dashboard and guessing from one."
         />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {INTERFACE_NOTES.map((note) => (
@@ -418,8 +406,8 @@ export function HelpPage() {
               <ListChecks className="h-4 w-4 text-forest-600 dark:text-forest-300" aria-hidden="true" /> Keyboard and contrast
             </h3>
             <p className="mt-1.5 text-sm leading-relaxed muted">
-              Controls are real buttons and inputs with visible labels; filters are announced to assistive technology, icon-only buttons carry
-              accessible names, and both light and dark themes are designed rather than inverted.
+              Every control is a standard button or input with a visible label. Filters are announced to screen readers, icon-only buttons carry
+              accessible names, and the dark theme is designed rather than inverted.
             </p>
           </article>
         </div>
@@ -429,7 +417,7 @@ export function HelpPage() {
         <SectionHeading
           eyebrow="What ships in this repository"
           title="Documentation"
-          description="Only files that exist in the checkout are named; anything still delivered with the release package is described as such."
+          description="The list below names files that exist in this checkout."
         />
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
           <Panel title="Present in the repository">
@@ -445,21 +433,16 @@ export function HelpPage() {
               ))}
             </ul>
             <p className="mt-4 text-xs leading-relaxed subtle">
-              Setup, configuration and the honesty rules live in <span className="mono">README.md</span>; the
-              per-package guides are listed above. If a document is missing from your copy, request it rather than
-              assuming the platform behaves differently from what is written above.
+              Setup, configuration and the data rules live in <span className="mono">README.md</span>; the guides above
+              cover each part. If a document is missing from your copy, ask for it instead of guessing how the platform behaves.
             </p>
           </Panel>
           <div className="space-y-4">
             <Panel title="Data dictionary">
               <p className="text-sm leading-relaxed muted">
-                Field names, units, aggregation rules and validation ranges are defined once in code and reported live by this deployment, which is
-                what the data-sources page renders. The project report explains each field’s scientific definition; the running platform tells you
-                what it enforces today.
+                Field names, units, aggregation rules and validation ranges are written down once, and this deployment reports what it enforces today.
+                The project report covers the scientific definition of each field.
               </p>
-              <Link to="/data-sources" className="link mt-3 inline-flex items-center gap-1 text-xs">
-                <BookOpen className="h-3.5 w-3.5" aria-hidden="true" /> Open data sources and the live contract
-              </Link>
             </Panel>
           </div>
         </div>
@@ -469,13 +452,13 @@ export function HelpPage() {
         <SectionHeading
           eyebrow="When the answer is not here"
           title="Support"
-          description="Tickets and feedback are recorded in the platform, so they can be traced, prioritised and audited."
+          description="Tickets and feedback are filed inside the platform, so they can be traced and prioritised."
         />
         <div className="grid gap-4 lg:grid-cols-2">
           <Panel title="Ticket route">
             <p className="text-sm leading-relaxed muted">
-              Signed-in users raise a ticket from the support workspace: description, affected area, severity and the reference id of any failed
-              request. Analysts and administrators see the queue; administrators can triage, respond and close.
+              A ticket takes a description, the area it affects, a severity and the reference id of any failed request. It lands in a shared queue that
+              analysts and administrators can see, and an administrator answers and closes it.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               {status === 'authenticated' ? (
@@ -487,21 +470,18 @@ export function HelpPage() {
                   Sign in to raise a ticket
                 </Link>
               )}
-              <Link to="/capabilities" className="btn btn-ghost btn-sm">
-                What is monitored
-              </Link>
             </div>
             <p className="mt-3 text-xs leading-relaxed subtle">
-              Include: the page and action, the metric and region you selected, the approximate time, and the request reference if one was shown. Ticket
-              creation is rate-limited, so batch related observations into one ticket.
+              Include the page and the action, the metric and region you had selected, the approximate time, and the request reference if one appeared.
+              Ticket creation is rate-limited, so put related problems in one ticket.
             </p>
           </Panel>
           <Panel title="Before you write in">
             <ul className="space-y-2 text-sm leading-relaxed muted">
-              <li>Check whether the panel is reporting an empty or configuration state — those are answers, not faults.</li>
+              <li>Check whether the panel is reporting an empty or unset state. That is an answer.</li>
               <li>Re-run the query with the refresh control: a transient upstream failure usually clears on the second attempt.</li>
-              <li>Confirm your role actually holds the action you expect; capability lists are on the platform page.</li>
-              <li>If a number looks wrong, name the metric, region and date range so the underlying rows can be inspected directly.</li>
+              <li>Confirm your account has the action you expect; the profile page lists what it grants.</li>
+              <li>If a number looks wrong, name the metric, region and date range so the rows behind it can be inspected.</li>
             </ul>
           </Panel>
         </div>
@@ -512,13 +492,12 @@ export function HelpPage() {
         primaryTo={status === 'authenticated' ? '/app' : '/login'}
         secondaryLabel="Create an account"
         secondaryTo="/register"
-        note="Most help questions end the same way: an account with the right role, and a completed ingestion job."
+        note="Most of these end the same way: an account with the right access, and an ingestion job that has finished."
       />
       <div className="mt-6">
         <ProvenanceNote>
-          This page reads the authentication configuration endpoint live for policy answers and names only documentation files that exist in the
-          checkout. Lockout thresholds, token lifetimes and rate limits are set by the deployment you are using; the values shown are the ones it
-          returned to you.
+          Policy answers here come from the authentication settings of the deployment you are using, and the document names above are files that exist
+          in this checkout. Lockout limits, token lifetimes and rate limits are set per deployment; the values on the page are the ones it returned.
         </ProvenanceNote>
       </div>
     </PublicContainer>

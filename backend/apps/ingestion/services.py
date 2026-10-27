@@ -1,8 +1,8 @@
 """Ingestion job lifecycle and registered background tasks.
 
-Everything here writes *real* numbers gathered from the connectors and the file
+Job counters and ``error_message`` values come from the connectors and the file
 importer.  A source that is unconfigured or unreachable produces a ``failed`` job
-with an honest ``error_message`` - never a fabricated success or invented counts.
+carrying the reason the connector returned, not a success.
 """
 from __future__ import annotations
 
@@ -138,7 +138,7 @@ def run_api_sync(job_id: str, **_) -> Dict[str, Any]:
         append_log(job_id, "error", exc.message)
         return {"ok": False, "reason": "unknown_connector"}
 
-    # Honest configuration gate - never fake a success when unconfigured.
+    # Configuration gate - an unconfigured connector fails the job.
     if not connector.is_configured():
         message = connector.setup_hint or "The connector is not configured."
         set_status(job_id, "failed", error_message=f"needs_configuration: {message}")

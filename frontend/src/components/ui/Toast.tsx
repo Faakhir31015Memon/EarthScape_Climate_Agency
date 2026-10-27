@@ -85,7 +85,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={t.id}
             role="status"
             className={cn(
-              "pointer-events-auto flex items-start gap-2 rounded-lg border border-l-4 border-border bg-surface px-3 py-2 shadow-pop",
+              "toast-in pointer-events-auto flex items-start gap-2 rounded-lg border border-l-4 border-border bg-surface px-3 py-2 shadow-pop",
               ACCENT[t.kind],
             )}
           >

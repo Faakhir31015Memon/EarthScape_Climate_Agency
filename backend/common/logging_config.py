@@ -1,5 +1,3 @@
-"""Structured, secret-safe logging."""
-
 from __future__ import annotations
 
 import json

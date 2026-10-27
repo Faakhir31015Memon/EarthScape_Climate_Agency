@@ -1,7 +1,7 @@
 /**
  * Ingestion jobs — the pipeline run log. The table polls every 5s only while a
  * job is active, errors are surfaced verbatim from the API, and each run records
- * the real processing mode so a local run is never mistaken for a cluster job.
+ * the processing mode it used, so a local run is distinguishable from a cluster job.
  */
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -101,7 +101,7 @@ export default function IngestionJobsPage() {
       <PageHeader
         eyebrow="Data pipeline"
         title="Ingestion jobs"
-        description="Every data-fetch run, its real record counts and provenance. Active jobs refresh automatically."
+        description="Every data-fetch run with its record counts and provenance. Active jobs refresh automatically."
         actions={
           <div className="flex items-center gap-2">
             <RefreshButton onClick={refreshAll} busy={state.refreshing || poll.refreshing} />
@@ -143,8 +143,8 @@ export default function IngestionJobsPage() {
       {stats.length ? (
         <div className="space-y-2">
           <p className="text-xs subtle">
-            Statuses counted across the {formatNumber(liveJobs.length, 0)} most recent jobs listed below (the backend exposes no
-            aggregate job-statistics route).
+            Statuses counted across the {formatNumber(liveJobs.length, 0)} most recent jobs listed below. No overall job-statistics
+            figure is stored.
           </p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {stats.slice(0, 8).map((stat) => (
@@ -522,7 +522,7 @@ function StartJobDialog({ onClose, onStarted }: { onClose: () => void; onStarted
     <Modal
       open
       title="Start an ingestion job"
-      description="Queues a fetch on the server executor. Runs are recorded with their real processing mode and record counts."
+      description="Queues a fresh fetch. Each run records the engine that processed it and its record counts."
       onClose={onClose}
       footer={
         <div className="flex justify-end gap-2">
@@ -539,7 +539,7 @@ function StartJobDialog({ onClose, onStarted }: { onClose: () => void; onStarted
       }
     >
       <div className="space-y-4">
-        <Field label="Connector" htmlFor="ing-source" hint="Only connectors the backend reports can be queued.">
+        <Field label="Connector" htmlFor="ing-source" hint="Only connectors available in this deployment can be queued.">
           <Select
             id="ing-source"
             value={chosen?.value ?? ''}
@@ -551,8 +551,8 @@ function StartJobDialog({ onClose, onStarted }: { onClose: () => void; onStarted
 
         {chosen ? (
           <p className="text-xs subtle">
-            {chosen.hint || 'No setup hint reported.'} The connector requests its own default parameter set — the backend exposes no
-            per-job metric picker.
+            {chosen.hint || 'No setup hint is available.'} The connector uses its own default parameters; there's no
+            per-job metric choice.
           </p>
         ) : null}
 
@@ -574,7 +574,7 @@ function StartJobDialog({ onClose, onStarted }: { onClose: () => void; onStarted
 /* --------------------------------------------------------- lookback dialog */
 
 /**
- * There is no scheduler route to trigger. The honest equivalent is the same
+ * There is no scheduler route to trigger. The equivalent is the same
  * `POST /ingestion/jobs` call the server scheduler makes: a bounded recent window
  * recorded with `triggered_by: "schedule"`.
  */
@@ -619,7 +619,7 @@ function ScheduleDialog({ onClose, onScheduled }: { onClose: () => void; onSched
     <Modal
       open
       title="Run a lookback sync"
-      description="Queues the same bounded recent-window job the server scheduler would run, recorded as schedule-triggered. No scheduler route can be configured from here."
+      description="Queues the same bounded recent-window job the schedule would run, recorded as schedule-triggered. The schedule itself cannot be edited from here."
       onClose={onClose}
       footer={
         <div className="flex justify-end gap-2">
@@ -644,7 +644,7 @@ function ScheduleDialog({ onClose, onScheduled }: { onClose: () => void; onSched
           <input id="sched-lookback" type="number" min={1} max={3650} className="input" value={lookback} onChange={(event) => setLookback(event.target.value)} />
         </Field>
         <p className="text-xs subtle">
-          {window ? `Window sent to the backend: ${window.start} → ${window.end}.` : 'Enter a positive lookback in days.'}
+          {window ? `Fetch window: ${window.start} → ${window.end}.` : 'Enter a positive lookback in days.'}
         </p>
         <Field label="Locations" htmlFor="sched-locations" hint="Comma-separated station codes. Leave empty for defaults.">
           <input id="sched-locations" className="input mono text-xs" value={locationInput} onChange={(event) => setLocationInput(event.target.value)} placeholder="e.g. KJFK,LAX,EGGW" />

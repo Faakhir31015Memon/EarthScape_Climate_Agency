@@ -59,7 +59,7 @@ class JobsView(AuthenticatedView):
         if not isinstance(parameters, dict):
             raise ApiError("validation_failed", "parameters must be an object.")
 
-        # Honest configuration gate.
+        # Configuration gate.
         if not connector.is_configured():
             raise ApiError("service_unavailable",
                            connector.setup_hint or "This source is not configured on the server.",
@@ -141,8 +141,7 @@ class ConnectorsView(AuthenticatedView):
     def get(self, request):
         check = str(request.query_params.get("reachability", "")).lower() in ("1", "true", "yes")
         return Response({"connectors": connector_status(check_reachability=check),
-                         "note": "Configuration states are derived from environment variables; "
-                                 "no secret values are ever returned."})
+                         "note": "Configuration states come from environment variables; secret values are not returned."})
 
 
 class ConnectorTestView(AuthenticatedView):
@@ -163,7 +162,7 @@ class ConnectorTestView(AuthenticatedView):
                              "records_fetched": 0, "records_accepted": 0},
                             status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        # A genuinely tiny live fetch: 1 point, 3 days. No fabricated results.
+        # A deliberately small live fetch: 1 point, 3 days.
         end = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
         start = (datetime.now(timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%d")
         location = _single_test_location(connector)
@@ -213,8 +212,7 @@ class CoverageView(AuthenticatedView):
     def get(self, request):
         return Response({"sources": _coverage_summary(),
                          "computed_at": services.utcnow(),
-                         "note": "Coverage is computed from stored climate_observations, datasets and "
-                                 "ingestion_jobs - it reflects real ingestion results only."})
+                         "note": "Coverage is computed from stored observations, datasets and ingestion jobs."})
 
 
 # --------------------------------------------------------------------- helpers

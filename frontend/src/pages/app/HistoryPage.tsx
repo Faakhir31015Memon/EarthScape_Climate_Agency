@@ -114,7 +114,7 @@ export default function HistoryPage() {
       <PageHeader
         eyebrow="Monitoring"
         title="Observation history"
-        description="Paginated raw records, the daily series, and base-period deviations — every value traceable to a stored observation."
+        description="Paginated raw records, the daily series, and base-period deviations. Every value comes from a stored observation."
         actions={<RefreshButton onClick={() => void observations.refetch()} busy={observations.refreshing} />}
       />
 
@@ -406,7 +406,7 @@ function DailySeries({
   return (
     <Panel
       title={`Daily ${metricLabel(metric).toLowerCase()}`}
-      description="Every stored day averaged per period — the un-resampled record."
+      description="One point per day, averaged from the stored observations."
     >
       {state.loading ? <ChartSkeleton height={320} /> : null}
       {state.error ? <ErrorState error={state.error} onRetry={() => void state.refetch()} /> : null}
@@ -535,7 +535,7 @@ function Deviations({
   return (
     <Panel
       title="Base-period deviations"
-      description="Deltas measured against a fixed climatological baseline — not a moving average."
+      description="Deltas measured against a fixed climatological baseline."
       footer={
         <div className="space-y-1 text-xs">
           <p>
@@ -543,7 +543,7 @@ function Deviations({
             {baseLabel ? (
               <span className="mono font-semibold">{baseLabel}</span>
             ) : (
-              <span className="subtle">not reported by the backend, so deviations would be uninterpretable.</span>
+              <span className="subtle">no reference period is available, so deviations would be uninterpretable.</span>
             )}
           </p>
           {history?.method ? <p className="subtle">{history.method}.</p> : null}
@@ -583,8 +583,8 @@ function Deviations({
 
       {!state.loading && !state.error && !history ? (
         <EmptyState
-          title="History service returned no baseline"
-          description="The deviation endpoint did not respond with a reference period. Retry, or ingest data first."
+          title="No historical baseline is available"
+          description="No reference period came back for this selection. Try again, or ingest data first."
           tone="warning"
           action={
             <Link to="/app/ingestion" className="btn btn-secondary btn-sm">

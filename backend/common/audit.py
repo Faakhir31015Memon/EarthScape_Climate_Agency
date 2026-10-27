@@ -1,8 +1,4 @@
-"""Audit trail helpers.
-
-Every sensitive action writes a document to ``audit_logs``. Passwords, tokens,
-API keys and connection strings are never accepted into audit metadata.
-"""
+"""Audit trail writes to `audit_logs`; secret-shaped keys never reach metadata."""
 from __future__ import annotations
 
 import logging

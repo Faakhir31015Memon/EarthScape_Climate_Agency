@@ -1,7 +1,7 @@
 """MongoDB collection contracts: names, indexes, validators and the data dictionary.
 
 ``earthscape_climate`` is the application database. This module is the single
-source of truth for collection structure; ``backend/scripts/migrate_schema.py``
+source of truth for collection structure; ``backend/scripts/bootstrap_platform.py``
 applies it idempotently and records the applied schema version.
 """
 from __future__ import annotations
@@ -24,7 +24,6 @@ COLLECTION_NAMES: List[str] = [
     "alerts",
     "notifications",
     "reports",
-    "saved_analyses",
     "audit_logs",
     "support_tickets",
     "feedback",
@@ -66,7 +65,8 @@ INDEX_SPECS: Dict[str, List[Dict[str, Any]]] = {
         {"keys": [("country", 1)], "name": "ix_regions_country"},
     ],
     "datasets": [
-        {"keys": [("name", 1), ("source_type", 1)], "unique": True, "name": "ux_datasets_name_source"},
+        # Duplicate detection is name + source (see apps/datasets/repository.py).
+        {"keys": [("name", 1), ("source_name", 1)], "unique": True, "name": "ux_dataset_name_source"},
         {"keys": [("status", 1), ("created_at", -1)], "name": "ix_datasets_status"},
         {"keys": [("source_type", 1)], "name": "ix_datasets_source_type"},
         {"keys": [("uploaded_by", 1)], "name": "ix_datasets_uploader"},
@@ -87,8 +87,13 @@ INDEX_SPECS: Dict[str, List[Dict[str, Any]]] = {
         {"keys": [("quality_flags", 1)], "name": "ix_obs_quality", "sparse": True},
     ],
     "analytics_summaries": [
-        {"keys": [("summary_key", 1)], "unique": True, "name": "ux_summary_key"},
-        {"keys": [("metric", 1), ("computed_at", -1)], "name": "ix_summary_metric"},
+        # Partial so that run records without an aggregate key are never compared as
+        # duplicate nulls.
+        {"keys": [("summary_key", 1)], "unique": True, "name": "ux_summary_key",
+         "partial": {"summary_key": {"$type": "string"}}},
+        {"keys": [("metric", 1), ("computed_at", -1)], "name": "ix_summary_metric",
+         "sparse": True},
+        {"keys": [("computed_at", -1)], "name": "ix_summary_computed"},
     ],
     "processing_jobs": [
         {"keys": [("status", 1), ("submitted_at", -1)], "name": "ix_processing_status"},
@@ -96,8 +101,10 @@ INDEX_SPECS: Dict[str, List[Dict[str, Any]]] = {
         {"keys": [("workflow", 1)], "name": "ix_processing_workflow"},
     ],
     "model_registry": [
-        {"keys": [("name", 1), ("version", 1)], "unique": True, "name": "ux_model_name_version"},
+        {"keys": [("name", 1), ("version", 1)], "unique": True, "name": "ux_model_name_version",
+         "partial": {"name": {"$type": "string"}, "version": {"$type": "string"}}},
         {"keys": [("status", 1), ("target_variable", 1)], "name": "ix_model_status_target"},
+        {"keys": [("created_at", -1)], "name": "ix_model_created"},
     ],
     "predictions": [
         {"keys": [("model_id", 1), ("generated_at", -1)], "name": "ix_predictions_model"},
@@ -109,15 +116,13 @@ INDEX_SPECS: Dict[str, List[Dict[str, Any]]] = {
     ],
     "notifications": [
         {"keys": [("recipient_user_id", 1), ("read_at", 1)], "name": "ix_notifications_recipient"},
+        {"keys": [("created_at", -1)], "name": "ix_notifications_created"},
         {"keys": [("dedupe_key", 1), ("created_at", -1)], "name": "ix_notifications_dedupe"},
         {"keys": [("delivery_status", 1), ("next_retry_at", 1)], "name": "ix_notifications_retry", "sparse": True},
     ],
     "reports": [
         {"keys": [("requested_by", 1), ("created_at", -1)], "name": "ix_reports_requester"},
         {"keys": [("status", 1)], "name": "ix_reports_status"},
-    ],
-    "saved_analyses": [
-        {"keys": [("owner_user_id", 1), ("updated_at", -1)], "name": "ix_saved_owner"},
     ],
     "audit_logs": [
         {"keys": [("created_at", -1)], "name": "ix_audit_created"},
@@ -131,6 +136,7 @@ INDEX_SPECS: Dict[str, List[Dict[str, Any]]] = {
     ],
     "feedback": [
         {"keys": [("created_by", 1), ("created_at", -1)], "name": "ix_feedback_creator"},
+        {"keys": [("created_at", -1)], "name": "ix_feedback_created"},
         {"keys": [("status", 1)], "name": "ix_feedback_status"},
     ],
     "platform_settings": [
@@ -165,14 +171,22 @@ VALIDATORS: Dict[str, Dict[str, Any]] = {
         "validator": {
             "$jsonSchema": {
                 "bsonType": "object",
-                "required": ["dedupe_key", "dataset_id", "observation_date", "year", "month",
-                             "latitude", "longitude", "region_code", "schema_version", "ingested_at"],
+                "required": ["dedupe_key", "dataset_id", "observation_date", "location_code",
+                             "latitude", "longitude", "schema_version", "ingested_at"],
                 "properties": {
-                    "latitude": {"bsonType": "double", "minimum": -90, "maximum": 90},
-                    "longitude": {"bsonType": "double", "minimum": -180, "maximum": 180},
-                    "temperature_c": {"bsonType": ["double", "null"]},
-                    "precipitation_mm": {"bsonType": ["double", "null"], "minimum": 0},
-                    "relative_humidity_pct": {"bsonType": ["double", "null"], "minimum": 0, "maximum": 100},
+                    "dedupe_key": {"bsonType": "string", "description": "dataset|location|calendar day"},
+                    "dataset_id": {"bsonType": "string"},
+                    "observation_date": {"bsonType": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+                    "year": {"bsonType": "int"},
+                    "month": {"bsonType": "int", "minimum": 1, "maximum": 12},
+                    "location_code": {"bsonType": "string"},
+                    "region_code": {"bsonType": ["string", "null"]},
+                    "latitude": {"bsonType": ["double", "int", "decimal"], "minimum": -90, "maximum": 90},
+                    "longitude": {"bsonType": ["double", "int", "decimal"], "minimum": -180, "maximum": 180},
+                    # One column per canonical measurement; absent or null means "not supplied".
+                    **{name: {"bsonType": ["double", "int", "decimal", "null"]}
+                       for name in MEASUREMENT_FIELDS},
+                    "quality_flags": {"bsonType": "array"},
                     "schema_version": {"bsonType": "int"},
                 },
             }

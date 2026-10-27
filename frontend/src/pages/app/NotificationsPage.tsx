@@ -36,7 +36,7 @@ const KIND_TONE: Record<string, 'neutral' | 'info' | 'success' | 'warning' | 'da
 
 /**
  * The notification contract carries `related_resource` and `type` but no explicit
- * `link` field, so the in-app destination is derived from those rather than invented.
+ * `link` field, so the in-app destination is derived from those.
  */
 function targetFor(notification: Notification): string | null {
   const resource = notification.related_resource?.type
@@ -121,7 +121,7 @@ export default function NotificationsPage() {
       <PageHeader
         eyebrow="Activity"
         title="Notifications"
-        description="Delivery records scoped to your account. Suppressed email is shown as suppressed — never as delivered — with the reason the backend recorded."
+        description="Delivery records scoped to your account. Suppressed email is shown as suppressed, with the reason it was recorded."
         meta={
           list.loading ? (
             <span className="inline-flex items-center gap-1.5">
@@ -148,7 +148,7 @@ export default function NotificationsPage() {
 
       <Panel
         title="Your notifications"
-        description="Selecting a row marks it read on the server and opens its destination where one exists."
+        description="Selecting a row marks it as read and opens its destination where one exists."
         actions={
           <div className="flex flex-wrap items-end justify-end gap-3">
             <Select

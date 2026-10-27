@@ -437,7 +437,7 @@ export default function PipelineAdminPage() {
                     ? !canManageReports
                       ? 'Requires the platform:manage capability'
                       : !reportCancellable
-                        ? 'The server refuses with 409 once generation has started or the record is terminal — only a queued report can be cancelled'
+                        ? 'The server refuses with 409 once generation has started or the record is terminal. Only a queued report can be cancelled'
                         : 'POST /api/v1/reports/<id>/cancel'
                     : !cancellable
                       ? 'This job already reached a terminal state'
@@ -469,7 +469,7 @@ export default function PipelineAdminPage() {
         description="Ingestion runs, processing workflows and report generation in one queue view, with the real background executor underneath them."
         meta={
           <>
-            <Badge tone={hasActive ? 'info' : 'neutral'}>{hasActive ? 'live polling every 5 s' : 'idle — polling 5 s'}</Badge>
+            <Badge tone={hasActive ? 'info' : 'neutral'}>{hasActive ? 'live polling every 5 s' : 'idle, polling every 5 s'}</Badge>
             <span className="subtle">{rows.length} job(s) on this page</span>
             {health.data ? (
               <Badge tone={health.data.status === 'ok' ? 'success' : 'warning'}>
@@ -496,7 +496,7 @@ export default function PipelineAdminPage() {
         <Panel title="Processing queue" description="GET /api/v1/processing/" dense>
           {processing.error ? <ErrorState error={processing.error} onRetry={() => void processing.refetch()} /> : null}
           {processing.data === null && !processing.error ? (
-            <p className="text-xs subtle">{processing.loading ? 'Reading processing jobs…' : 'Not queried — the current filter excludes processing jobs.'}</p>
+            <p className="text-xs subtle">{processing.loading ? 'Reading processing jobs…' : 'Not queried; the current filter excludes processing jobs.'}</p>
           ) : null}
           <Breakdown counts={countByStatus(processing.data?.items.map((job) => job.status))} empty="No processing job on this page." />
           <ul className="mt-2 space-y-1 text-xs muted">
@@ -508,7 +508,7 @@ export default function PipelineAdminPage() {
         <Panel title="Report generation" description="GET /api/v1/reports" dense>
           {reports.error ? <ErrorState error={reports.error} onRetry={() => void reports.refetch()} /> : null}
           {reports.data === null && !reports.error ? (
-            <p className="text-xs subtle">{reports.loading ? 'Reading reports…' : 'Not queried — the current filter excludes report jobs.'}</p>
+            <p className="text-xs subtle">{reports.loading ? 'Reading reports…' : 'Not queried; the current filter excludes report jobs.'}</p>
           ) : null}
           <Breakdown counts={countByStatus(reports.data?.items.map((report) => report.status))} kind="generic" empty="No report record on this page." />
           <ul className="mt-2 space-y-1 text-xs muted">
@@ -573,8 +573,8 @@ export default function PipelineAdminPage() {
           <Pagination meta={meta ?? undefined} onPage={setPage} label="jobs" />
           <Hint>
             Cancelling sets <span className="mono">cancel_requested</span> and the worker observes it between batches, so a running job may
-            take a moment to settle. Report records only accept cancellation while <span className="mono">queued</span> — once generation has
-            started the server answers 409.
+            take a moment to settle. Report records only accept cancellation while <span className="mono">queued</span>. Once generation has
+            started, the server answers 409.
           </Hint>
         </Panel>
 
@@ -651,14 +651,14 @@ export default function PipelineAdminPage() {
           confirmCancel?.kind === 'report' ? (
             <span>
               <strong>{confirmCancel.label}</strong> is still queued, so <span className="mono">POST /api/v1/reports/&lt;id&gt;/cancel</span>{' '}
-              can stop it before any artefact is written. If generation already started, the server answers 409 and nothing changes — the
+              can stop it before any artefact is written. If generation already started, the server answers 409 and nothing changes. The
               run is recorded as <strong>cancelled</strong> in the audit trail.
             </span>
           ) : (
             <span>
               <strong>{confirmCancel?.label}</strong> ({confirmCancel ? KIND_LABEL[confirmCancel.kind] : ''}) will stop as soon as the worker
-              checks its cancellation flag. Work already committed stays committed — ingested observations and written Parquet files are not
-              rolled back — and the run is recorded as <strong>cancelled</strong> in the audit trail.
+              checks its cancellation flag. Work already committed stays committed: ingested observations and written Parquet files are not
+              rolled back. The run is recorded as <strong>cancelled</strong> in the audit trail.
             </span>
           )
         }
@@ -772,7 +772,7 @@ function WorkflowLauncher({
       {error ? <ErrorState error={error} /> : null}
       {loading && workflows.length === 0 ? <p className="text-xs muted">Reading the workflow catalogue…</p> : null}
       {!loading && workflows.length === 0 && !error ? (
-        <p className="text-xs subtle">The workflow catalogue answered with no entries — there is nothing to run, and no form is invented.</p>
+        <p className="text-xs subtle">The workflow catalogue returned no entries, so there is nothing to run.</p>
       ) : null}
 
       <div className="space-y-3">
@@ -822,7 +822,7 @@ function WorkflowLauncher({
                 )}
               </Field>
             ))}
-            {fields.length === 0 ? <p className="text-xs subtle">This workflow declares no parameters — it will run with the defaults the engine applies.</p> : null}
+            {fields.length === 0 ? <p className="text-xs subtle">This workflow declares no parameters. It runs with the defaults the engine applies.</p> : null}
             <p className="text-xs muted sm:col-span-2">
               Engine <span className="mono">{chosen.engine}</span> · requires {chosen.requires.length ? chosen.requires.join(', ') : 'nothing extra'}
             </p>
@@ -849,7 +849,7 @@ function WorkflowLauncher({
         onConfirm={() => void launch()}
         message={
           <span>
-            This starts a real background run on the <strong>{chosen?.engine}</strong> engine and consumes compute on the configured
+            This starts a background run on the <strong>{chosen?.engine}</strong> engine and consumes compute on the configured
             cluster. Parameters sent: <span className="mono">{chosen && fields.length ? fields.map((field) => `${field.name}=${values[field.name] || '—'}`).join(', ') : 'none'}</span>. The job is
             audited as <span className="mono">processing.job_created</span> and appears in the queue below.
           </span>
@@ -901,7 +901,7 @@ function ExecutorPanel({
           <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
             <div className="flex items-center justify-between gap-2 border-b py-1" style={{ borderColor: 'var(--border)' }}>
               <dt className="subtle">Executor</dt>
-              <dd><Badge tone={health.background.executor === 'celery' ? 'success' : 'warning'}>{humanise(health.background.executor)}</Badge></dd>
+              <dd><Badge tone="info">{humanise(health.background.executor)}</Badge></dd>
             </div>
             <div className="flex items-center justify-between gap-2 border-b py-1" style={{ borderColor: 'var(--border)' }}>
               <dt className="subtle">Active jobs</dt>
@@ -918,8 +918,8 @@ function ExecutorPanel({
           </dl>
           {health.background.executor === 'in-process-thread-pool' ? (
             <p className="mt-2 text-[11px] leading-relaxed subtle">
-              No reachable Redis broker, so runs execute in a bounded thread pool inside the web process: they are lost on restart and do
-              not survive multiple workers. Set <span className="mono">REDIS_URL</span> (and install Celery) for durable queues.
+              Runs execute in a bounded thread pool inside the web process, so an in-flight run is lost when the process restarts and the
+              pool does not stretch across multiple workers.
             </p>
           ) : null}
         </>
@@ -961,8 +961,6 @@ function normalizeEngines(list: EngineHealth[]): EngineRow[] {
   if (typed.hdfs) rows.push({ component: 'HDFS', configured: typed.hdfs.configured ? (typed.hdfs.reachable ? 'configured, reachable' : 'configured, unreachable') : 'not configured', detail: typed.hdfs.detail ?? `mode: ${typed.hdfs.mode}`, endpoint: typed.hdfs.endpoint })
   if (typed.spark) rows.push({ component: 'Spark', configured: typed.spark.installed ? (typed.spark.session_startable ? 'installed, session startable' : 'installed, session fails') : 'not installed', detail: typed.spark.error ?? `version: ${typed.spark.version ?? 'unknown'}` })
   if (typed.hadoop) rows.push({ component: 'Hadoop / MapReduce', configured: typed.hadoop.bin_configured ? (typed.hadoop.cluster_configured ? 'binaries + cluster configured' : 'binaries only') : 'not configured', detail: typed.hadoop.detail ?? `version: ${typed.hadoop.version ?? 'unknown'}` })
-  if (typed.kafka) rows.push({ component: 'Kafka', configured: typed.kafka.enabled ? (typed.kafka.reachable ? 'enabled, reachable' : 'enabled, unreachable') : 'disabled', detail: typed.kafka.detail ?? `brokers: ${typed.kafka.brokers ?? '—'}`, endpoint: typed.kafka.brokers })
-  if (typed.airflow) rows.push({ component: 'Airflow', configured: typed.airflow.enabled ? 'enabled' : 'disabled', detail: typed.airflow.detail ?? '' })
   if (typed.data_lake) rows.push({ component: 'Data lake', configured: `${typed.data_lake.mode} ${typed.data_lake.reachable ? 'reachable' : 'unreachable'}`, detail: `${typed.data_lake.root ?? 'root not reported'}${typeof typed.data_lake.free_bytes === 'number' ? ` · ${formatBytes(typed.data_lake.free_bytes)} free` : ' · free space not collected'}` })
   return rows
 }
@@ -974,7 +972,7 @@ function EnginePanel({ engines, loading, error, onRetry }: { engines: EngineHeal
   return (
     <Panel
       title="Compute engines"
-      description="GET /api/v1/processing/engines — what the server actually probed for Hadoop, Spark, Kafka, Airflow and the data lake."
+      description="GET /api/v1/processing/engines. Shows what the server probed for Hadoop, Spark and the data lake."
       dense
       actions={<RefreshButton onClick={onRetry} busy={loading} label="Probe" />}
     >
@@ -1020,7 +1018,7 @@ function JobDetailModal({ job, onClose, canRunIngestion, busy, onRetry }: { job:
   }, [logs.data, job.ingestion, job.processing])
 
   return (
-    <Modal open width="max-w-2xl" title={`${KIND_LABEL[job.kind]} run — ${job.label}`} description={`Record id ${job.id}. Counters and timings are exactly what the API reported.`} onClose={onClose}>
+    <Modal open width="max-w-2xl" title={`${KIND_LABEL[job.kind]} run: ${job.label}`} description={`Record id ${job.id}. Counters and timings are exactly what the API reported.`} onClose={onClose}>
       <div className="space-y-4 text-sm">
         <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
           <DetailLine label="Status" value={<StatusBadge value={job.badgeValue} kind="job" label={humanise(job.statusValue)} />} />

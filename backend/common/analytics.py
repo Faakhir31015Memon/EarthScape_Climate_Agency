@@ -1,9 +1,9 @@
 """Analytics kernel.
 
 Every number returned by the climate, dashboard and report APIs is computed here
-from documents that actually exist in ``climate_observations``. When the required
+from documents stored in ``climate_observations``. When the required
 observations are absent the functions return empty series and an explicit
-``insufficient_data`` explanation rather than a fabricated value.
+``insufficient_data`` explanation instead of a value.
 
 The same code path is used for MongoDB-derived data and for PySpark/MapReduce
 outputs, so a dashboard cannot tell the difference between batch and streaming

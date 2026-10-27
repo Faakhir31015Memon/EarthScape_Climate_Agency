@@ -37,8 +37,8 @@ PyMongo ──► MongoDB Atlas           PRIMARY application database (no ORM,
         ├─ backend/data-pipeline/spark      PySpark 3.5 jobs → Parquet in the data lake
         │        local[*] when no cluster; spark://master:7077 when configured
         ├─ backend/ml                       feature build, training, evaluation, inference
-        └─ Celery + Redis                   background jobs; in-process worker pool
-                                            when no broker is reachable (and it says so)
+        └─ background jobs                bounded in-process thread pool inside the web
+                                          process; a run in flight is lost on restart
 ```
 
 Document database first: `DATABASES = {}`, no `django.contrib.auth`. Users,
@@ -60,11 +60,10 @@ are MongoDB collections accessed through PyMongo repositories
 | `backend/ml/` | `features/`, `training/`, `evaluation/`, `anomaly/`, `inference/` |
 | `backend/artifacts/` | Data-lake layers (`datalake/`), training logs, checkpoints, generated reports |
 | `backend/sample-data/` | **Real retrieved climate only**: six city CSVs pulled from the Open-Meteo archive. Nothing reads this directory as an input default — the platform's observations come from MongoDB Atlas (NASA POWER connector or user uploads) |
-| `backend/infrastructure/` | Dockerfiles, nginx site, Airflow DAG, Hadoop/Kafka/Spark config, backup/restore scripts |
+| `backend/infrastructure/` | Dockerfiles, nginx site, Hadoop/Spark config, backup/restore scripts |
 | `frontend/` | Vite + React + TS app: `src/app` (router, nav), `src/pages`, `src/components`, `src/features`, `src/services`, `src/hooks`, `src/lib` |
-| `docker-compose.yml` | backend · worker · scheduler · frontend · redis · optional Hadoop/Spark profile |
+| `docker-compose.yml` | backend · frontend · optional Hadoop/Spark `cluster` profile |
 | `backend/.env` / `backend/.env.example` | Local secrets (git-ignored) and the documented setting list — read by `backend/common/env.py` |
-| `LICENSE` · `NOTICE` · `TRADEMARKS.md` | MIT licence for the code (© Faakhir Memon), the third-party terms it bundles, and the name/mark policy the licence deliberately does not cover |
 
 `backend/.data/` (uploads, generated reports, model artefacts) and
 `backend/.data-lake/` (MapReduce/Spark outputs) are local runtime state:
@@ -119,7 +118,7 @@ password:
 Stop `runserver` first (the development store is per-process and would overwrite
 the change), then sign in with the single printed password.
 
-Container deployment, cluster profile, backups and Airflow are covered in
+Container deployment, cluster profile and backups are covered in
 [`backend/infrastructure/README.md`](backend/infrastructure/README.md).
 
 ---
@@ -136,7 +135,7 @@ truthfully rather than assuming infrastructure exists:
   clearly labelled `local-development` document store with JSON snapshots, and
   every screen plus the EnvironmentBanner says so. Production should set
   `FORCE_ATLAS_CONNECTION=true` so startup fails instead.
-- Hadoop, Spark, Kafka, Celery/Redis, Airflow, SMTP and HDFS are probed. When
+- Hadoop, Spark, SMTP and HDFS are probed. When
   not configured the admin Health page names the missing environment key and
   the corresponding UI actions are disabled. Nothing claims a job ran on a
   cluster that is not there.
@@ -182,18 +181,15 @@ logged and never committed. The browser only ever talks to the Django API.
 
 ## Feature map
 
-**Public** — landing, about, capabilities, insights preview, data sources, help,
-privacy, terms.
-**Auth** — login, optional registration (viewer-only, and off by default),
-forgot/reset password, profile & preferences.
+**Public** — landing page (product, live counts, data sources) and help.
+**Auth** — login, registration (viewer-only, off unless enabled), forgot/reset
+password, profile & preferences.
 **Analyst app** — dashboard, analytics explorer, observation history, map view,
 anomaly explorer, datasets, dataset detail, CSV/JSON/Excel/ODS/Parquet upload,
 ingestion jobs, processing monitor, big-data (HDFS/Spark) page, ML lab, model
-registry, forecast explorer, alerts, notifications, reports, saved analyses,
-support tickets.
+registry, forecast explorer, alerts, notifications, reports, support tickets.
 **Administration** — platform overview, users, roles & capabilities, dataset
-governance, pipeline configuration, alert rules, audit log, system health,
-settings, ticket queue.
+governance, pipeline configuration, alert rules, system health, ticket queue.
 
 ---
 
@@ -202,27 +198,9 @@ settings, ticket queue.
 | Topic | Path |
 | --- | --- |
 | Layout, quick start, configuration and honesty rules | this file |
-| Deployment, cluster profile, backups, Airflow | `backend/infrastructure/README.md` |
+| Deployment, cluster profile, backups | `backend/infrastructure/README.md` |
 | MapReduce streaming contract and local runner | `backend/data-pipeline/mapreduce/README.md` |
 | ML methodology & conventions | `backend/ml/README.md` |
 | Sample data provenance (real, provider-retrieved) | `backend/sample-data/README.md` |
 | Every environment setting and its default | `backend/.env.example` |
 | Live schema, collections and field ranges | `/api/v1/health`, `/api/v1/system/status` and the module docstrings in `backend/common/` |
-
----
-
-## Licence and trademarks
-
-The code in this repository is released under the **MIT Licence**, copyright
-(c) 2026 **Faakhir Memon** — see [`LICENSE`](LICENSE). `NOTICE` lists the
-third-party components it bundles, which stay under their own terms.
-
-The **name and marks are not part of that grant**. "EarthScape" and
-"EarthScape Climate Agency" identify this implementation and belong to the mark
-owner; [`TRADEMARKS.md`](TRADEMARKS.md) states what you may say about a
-deployment and what a fork must not be called. A modified copy should be renamed
-before distribution.
-
-Neither document transfers any rights over stored data. Observations, forecasts
-and uploads remain governed by the agreement under which they were collected.
-

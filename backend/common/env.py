@@ -1,6 +1,6 @@
 """Environment loading and startup validation.
 
-Every external dependency (Atlas, HDFS, Spark, Kafka, SMTP, provider API keys) is
+Every external dependency (Atlas, HDFS, Spark, SMTP, provider API keys) is
 optional at start-up: the platform boots and reports what is unavailable instead of
 crashing or pretending the service exists.
 """
@@ -219,7 +219,7 @@ def startup_status() -> list[ServiceStatus]:
                     ("MONGODB_URI still holds a <username>/<password> placeholder - set "
                      "MONGODB_ATLAS_USER / MONGODB_ATLAS_PASSWORD"
                      if ENV.raw("MONGODB_URI") else "MONGODB_URI is not set")),
-            hint="Point MONGODB_URI at MongoDB Atlas or a local mongod, then run scripts/migrate_mongo.py.",
+            hint="Point MONGODB_URI at MongoDB Atlas or a local mongod, then run scripts/bootstrap_platform.py.",
         )
     )
 
@@ -269,29 +269,14 @@ def startup_status() -> list[ServiceStatus]:
         )
     )
 
-    kafka_brokers = ENV.raw("KAFKA_BROKERS")
-    statuses.append(
-        ServiceStatus(
-            name="kafka",
-            configured=bool(kafka_brokers),
-            required=False,
-            detail=(f"brokers {kafka_brokers}" if kafka_brokers else "not configured; polling ingestion used"),
-            hint="Start backend/infrastructure/kafka, set KAFKA_BROKERS, then enable EVENT_STREAM_ENABLED=true.",
-            mode="kafka" if kafka_brokers else "polling",
-        )
-    )
-
-    redis_url = ENV.raw("REDIS_URL")
-    celery_enabled = ENV.flag("CELERY_ENABLED", False)
     statuses.append(
         ServiceStatus(
             name="background-tasks",
-            configured=bool(redis_url) and celery_enabled,
+            configured=True,
             required=False,
-            detail=(f"redis {redis_url}" if (redis_url and celery_enabled)
-                    else "in-process thread worker pool"),
-            hint="Set CELERY_ENABLED=true with a reachable REDIS_URL to run tasks on Celery workers.",
-            mode="celery" if (redis_url and celery_enabled) else "threaded",
+            detail="in-process thread worker pool",
+            hint="BACKGROUND_WORKERS sets the pool size.",
+            mode="threaded",
         )
     )
 

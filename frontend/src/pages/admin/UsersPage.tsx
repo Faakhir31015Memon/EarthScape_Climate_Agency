@@ -74,7 +74,7 @@ export default function UsersPage() {
         status: status || undefined,
         sort,
         // The typed client documents `query`; the Django view reads `search`. Sending both
-        // keeps filtering working against the real backend.
+        // keeps filtering working against the backend as implemented.
         query: debouncedTerm || undefined,
         search: debouncedTerm || undefined,
       }),
@@ -138,7 +138,7 @@ export default function UsersPage() {
         header: 'Account',
         cell: (row) => (
           <div className="flex min-w-0 items-start gap-2">
-            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-forest-50 text-[11px] font-semibold text-forest-800 dark:bg-forest-900/40 dark:text-forest-200">
+            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-clay-50 text-[11px] font-semibold text-clay-800 dark:bg-clay-900/40 dark:text-clay-200">
               {initial(row.full_name)}
             </span>
             <div className="min-w-0">
@@ -161,7 +161,7 @@ export default function UsersPage() {
       {
         key: 'verified',
         header: 'Email',
-        cell: (row) => <Badge tone={row.email_verified ? 'success' : 'warning'} title={row.email_verified ? 'Address marked verified' : 'Verification email was never confirmed on this deployment'}>{row.email_verified ? 'verified' : 'unverified'}</Badge>,
+        cell: (row) => <Badge tone={row.email_verified ? 'success' : 'warning'} title={row.email_verified ? 'Address marked verified' : 'Verification email was not confirmed on this deployment'}>{row.email_verified ? 'verified' : 'unverified'}</Badge>,
       },
       { key: 'locked', header: 'Login lock', cell: (row) => <LockState isLocked={row.is_locked} lockedUntil={row.locked_until} /> },
       { key: 'last_login', header: 'Last login', cell: (row) => <span className="text-xs muted" title={row.last_login_at ? formatDate(row.last_login_at, true) : undefined}>{relativeTime(row.last_login_at)}</span> },
@@ -248,7 +248,7 @@ export default function UsersPage() {
       <PageHeader
         eyebrow="Administration"
         title="User management"
-        description="Accounts are stored in the MongoDB users collection. Roles, lockouts and password policy are enforced by the backend on every request."
+        description="Accounts are held in the platform’s user directory. Roles, lockouts and password policy are enforced on every request."
         meta={
           users.data ? (
             <>
@@ -310,7 +310,7 @@ export default function UsersPage() {
             </Field>
           </FilterBar>
 
-          <Panel title="Accounts" description="Deactivation revokes refresh tokens server-side; accounts are never hard-deleted." dense>
+          <Panel title="Accounts" description="Deactivation revokes refresh tokens server-side; accounts are not hard-deleted." dense>
             {users.loading ? (
               <TableSkeleton rows={6} columns={7} />
             ) : (
@@ -396,8 +396,8 @@ export default function UsersPage() {
           selected ? (
             <span>
               <strong>{selected.full_name}</strong> ({selected.email}, {roleLabel(selected.role)}) will not be able to sign in, every
-              active session is revoked, and the backend refuses this when it would leave no other active administrator. The account
-              record and its data stay in the database.
+              active session is revoked, and this is refused when it would leave no other active administrator. The account
+              record and its data stay in the platform.
             </span>
           ) : null
         }
@@ -410,7 +410,7 @@ export default function UsersPage() {
 
 function RoleCatalogue({ roles, loading, error }: { roles: RoleDefinition[]; loading: boolean; error: ApiRequestError | null }) {
   return (
-    <Panel title="Roles and capabilities" description="GET /api/v1/users/roles — the server-side permission map." dense>
+    <Panel title="Roles and capabilities" description="The authoritative server-side permission map." dense>
       {error ? <ErrorState error={error} /> : null}
       {loading && roles.length === 0 ? <p className="text-sm muted">Loading roles…</p> : null}
       <ul className="space-y-4">
@@ -436,7 +436,7 @@ function RoleCatalogue({ roles, loading, error }: { roles: RoleDefinition[]; loa
       </ul>
       <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed subtle">
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <span>Capability names are issued by the backend (<span className="mono">manage_users</span>, <span className="mono">view_audit_logs</span>…). The UI guard map in features/auth/AuthContext.tsx uses colon-style names, so both lists are shown wherever a decision depends on them.</span>
+        <span>Capability names are issued by the server (<span className="mono">manage_users</span>, <span className="mono">view_audit_logs</span>…). The interface uses its own colon-style names, so both lists are shown wherever a decision depends on them.</span>
       </p>
     </Panel>
   )
@@ -499,7 +499,7 @@ function UserFormModal({
           organisation: form.organisation.trim() || undefined,
         })
         setForm({ full_name: '', email: '', password: '', role: 'viewer', organisation: '' })
-        onSubmitted(`Account created for ${form.email.trim()} with the ${roleLabel(form.role)} role. Share the password out of band; it is never stored by this page.`)
+        onSubmitted(`Account created for ${form.email.trim()} with the ${roleLabel(form.role)} role. Share the password out of band; it is not stored by this page.`)
         return
       }
       const changes: Record<string, unknown> = {
@@ -527,7 +527,7 @@ function UserFormModal({
         title={mode === 'create' ? 'Create a user account' : `Edit ${target?.full_name ?? 'account'}`}
         description={
           mode === 'create'
-            ? 'The backend validates the email, the password policy and the role; a duplicate address is rejected with email_taken.'
+            ? 'The email, the password policy and the role are all checked; a duplicate address is rejected.'
             : 'Changing the role revokes this account’s existing sessions on the server.'
         }
         onClose={onClose}
@@ -588,7 +588,7 @@ function UserFormModal({
           </div>
 
           {mode === 'create' ? (
-            <Field label="Initial password" htmlFor="new-account-password" required hint="Sent once over HTTPS. It is never logged, cached or re-displayed by this page.">
+            <Field label="Initial password" htmlFor="new-account-password" required hint="Sent once over HTTPS. It is not logged, cached or shown again by this page.">
               <input
                 id="new-account-password"
                 type="password"
@@ -619,9 +619,8 @@ function UserFormModal({
               <p className="mt-3 flex items-start gap-2 subtle">
                 <UsersIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>
-                  Session revocation exists on the backend (<span className="mono">DELETE /api/v1/users/&lt;id&gt;/sessions</span>) but the
-                  typed client exposes no revoke function yet, so this page does not offer it. A role change or deactivation still
-                  revokes sessions because the service layer does it.
+                  Signing an account out of every session at once is not offered on this screen yet. Changing a role or deactivating an
+                  account still revokes its sessions automatically.
                 </span>
               </p>
             </div>
@@ -642,7 +641,7 @@ function UserFormModal({
         message={
           <span>
             {target?.full_name} moves from <strong>{roleLabel(target?.role)}</strong> to <strong>{roleLabel(form.role)}</strong>. Their
-            existing sessions are revoked, and the backend refuses the change with HTTP 409 if it would leave no other active
+            existing sessions are revoked, and the change is refused if it would leave no other active
             administrator.
           </span>
         }
@@ -687,8 +686,8 @@ function PasswordResetModal({
     <>
       <Modal
         open
-        title={`Administrator password reset — ${target.full_name}`}
-        description="The value is transmitted once over HTTPS, is never shown back, and this page keeps no copy of it."
+        title={`Administrator password reset for ${target.full_name}`}
+        description="The value is sent once over HTTPS, not shown back, and this page keeps no copy of it."
         onClose={onClose}
         footer={
           <>
@@ -731,11 +730,11 @@ function PasswordResetModal({
           <PasswordPolicyChecklist value={password} configuration={configuration ?? null} />
 
           <div className="rounded-xl border p-3 text-xs leading-relaxed muted" style={{ borderColor: 'var(--border)' }}>
-            <p className="panel-title mb-1">What the server does</p>
+            <p className="panel-title mb-1">What happens when you save</p>
             <p>
-              <span className="mono">apps/users/services.py · admin_set_password()</span> — bcrypt-hashes the new value, resets the
-              failed-login counter and lockout, revokes every refresh token for this account and writes an audit record. No email is
-              sent, so this path works even when SMTP is not configured.
+              The new value is stored only as a bcrypt hash, the failed-login counter and any lockout are reset, every refresh
+              token for this account is revoked and an audit record is written. No email is sent, so this works even when email
+              delivery is not configured.
             </p>
           </div>
 

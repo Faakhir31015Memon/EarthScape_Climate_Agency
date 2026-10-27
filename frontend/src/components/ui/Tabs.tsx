@@ -24,8 +24,8 @@ export function Tabs({ items, initial = 0, className }: { items: TabItem[]; init
             aria-controls={`panel-${item.id}`}
             onClick={() => setActive(item.id)}
             className={cn(
-              '-mb-px inline-flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium transition-colors',
-              item.id === active ? 'border-forest-600 text-forest-700 dark:text-forest-300' : 'border-transparent muted hover:text-[var(--text)]',
+              '-mb-px inline-flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium transition-colors duration-150',
+              item.id === active ? 'border-[var(--brand)] text-[var(--brand)]' : 'border-transparent muted hover:text-[var(--text)]',
             )}
           >
             {item.label}

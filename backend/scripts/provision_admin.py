@@ -14,7 +14,7 @@ import secrets
 import sys
 from pathlib import Path
 
-BACKEND = Path(__file__).resolve().parents[1] / "backend"
+BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND))
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")

@@ -1,4 +1,3 @@
-"""Authentication endpoints. All state is enforced server-side."""
 from __future__ import annotations
 
 import logging
@@ -18,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class RegisterView(PublicView):
-    """Self-registration. Disabled by default and never grants elevated roles."""
+    """Off by default; elevated roles cannot be self-served."""
 
     def post(self, request):
         if not services.self_registration_enabled():
@@ -175,9 +174,8 @@ class AuthConfigurationView(PublicView):
         })
 
 
-#: Capability vocabulary shared by the API and the React guards
-#: (``frontend/src/features/auth/AuthContext.tsx``). Server-side enforcement uses
-#: ``common.api.require_roles``; this map is what the UI disables or hides.
+# capability list the React guards consume; server-side enforcement
+# is common.api.require_roles, this only decides what the UI hides
 ROLE_CAPABILITIES = {
     "administrator": [
         "platform:manage",

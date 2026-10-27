@@ -118,7 +118,7 @@ export function MultiSelect({
                       <span
                         className={cn(
                           'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                          checked ? 'border-forest-600 bg-forest-600 text-white' : 'border-[var(--border-strong)]',
+                          checked ? 'border-clay-600 bg-clay-600 text-white' : 'border-[var(--border-strong)]',
                         )}
                         aria-hidden="true"
                       >

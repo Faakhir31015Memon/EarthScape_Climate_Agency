@@ -180,7 +180,7 @@ export default function UploadPage() {
       : null
   const sizeProblem =
     file && maxUploadBytes !== null && file.size > maxUploadBytes
-      ? `File is ${formatBytes(file.size)} — above the configured maximum of ${formatBytes(maxUploadBytes)}. The upload would be rejected.`
+      ? `File is ${formatBytes(file.size)}, above the configured maximum of ${formatBytes(maxUploadBytes)}. The upload would be rejected.`
       : null
   const unitsProblem = (() => {
     const text = unitsJson.trim()
@@ -192,7 +192,7 @@ export default function UploadPage() {
       }
       return null
     } catch {
-      return 'Units is not valid JSON — fix it or leave it empty.'
+      return 'Units is not valid JSON. Fix it or leave it empty.'
     }
   })()
 
@@ -253,7 +253,7 @@ export default function UploadPage() {
         setDatasetId(result.dataset.id)
         setJobId(result.ingestion_job_id)
         setJobFinished(false)
-        toast.success('Upload accepted', `${result.dataset.name} — import started (${result.executor}).`)
+        toast.success('Upload accepted', `${result.dataset.name}: import started (${result.executor}).`)
       })
       .catch((error: unknown) => setUploadError(toApiError(error)))
       .finally(() => {
@@ -272,7 +272,7 @@ export default function UploadPage() {
     api.datasets
       .setMapping(datasetId, { mapping: cleanMapping() })
       .then((result) => {
-        toast.success('Column mapping saved', `${Object.keys(result.mapping).length} fields mapped — re-run the import to apply it.`)
+        toast.success('Column mapping saved', `${Object.keys(result.mapping).length} fields mapped. Re-run the import to apply it.`)
         void mappingState.refetch()
       })
       .catch((error: unknown) => setMappingSaveError(toApiError(error)))
@@ -382,7 +382,7 @@ export default function UploadPage() {
             })
           }
           options={headerOptions}
-          placeholder="— not mapped —"
+          placeholder="Not mapped"
           disabled={!headerOptions.length}
         />
       ),
@@ -403,13 +403,13 @@ export default function UploadPage() {
   const limitsMeta = (
     <div className="flex flex-wrap items-center gap-2">
       <Badge tone="neutral">
-        {maxUploadBytes !== null ? `≤ ${formatBytes(maxUploadBytes)} per file` : statusState.loading ? 'reading size limit…' : 'size limit unavailable — server rejects oversized files'}
+        {maxUploadBytes !== null ? `≤ ${formatBytes(maxUploadBytes)} per file` : statusState.loading ? 'reading size limit…' : 'size limit unavailable; the server still rejects oversized files'}
       </Badge>
       <Badge tone="neutral">
         {maxUploadRows !== null ? `≤ ${formatNumber(maxUploadRows, 0)} rows imported` : statusState.loading ? 'reading row limit…' : 'row limit unavailable'}
       </Badge>
       {allowedExtensions.length ? <Badge tone="neutral">Accepts {allowedExtensions.join(' ')}</Badge> : null}
-      {statusState.error ? <span className="subtle">Limits could not be read from /system/status; the backend stays authoritative.</span> : null}
+      {statusState.error ? <span className="subtle">The platform’s size and row limits could not be read; the server’s own limits still apply on upload.</span> : null}
     </div>
   )
 
@@ -420,7 +420,7 @@ export default function UploadPage() {
       <PageHeader
         eyebrow="Data pipeline"
         title="Upload a dataset"
-        description="Upload sends the file and metadata to the backend, which stores it, auto-detects the format and immediately starts the import job. You can then correct the column mapping and re-run the import."
+        description="Upload sends your file and details to the platform, which stores it, auto-detects the format and immediately starts the import. You can then correct the column mapping and re-run the import."
         backTo="/app/datasets"
         meta={limitsMeta}
       />
@@ -514,7 +514,7 @@ export default function UploadPage() {
             ) : null}
             {formatRule ? (
               <div className="rounded-lg border p-3 text-xs" style={{ borderColor: 'var(--border)' }}>
-                <p className="font-semibold">Format rules for “{formatRule.format}” (from /datasets/formats)</p>
+                <p className="font-semibold">Format rules for “{formatRule.format}”</p>
                 <p className="mt-1 muted">
                   Required: <span className="mono">{formatRule.required_columns.join(', ')}</span>
                   {formatRule.delimiter ? ` · delimiter ${formatRule.delimiter}` : ''}
@@ -581,7 +581,7 @@ export default function UploadPage() {
               </div>
             </fieldset>
 
-            <Toggle checked={isPublic} onChange={setIsPublic} label="Public — visible to viewers across the platform" />
+            <Toggle checked={isPublic} onChange={setIsPublic} label="Public: visible to viewers across the platform" />
 
             {uploadProgress !== null ? (
               <div className="space-y-1">
@@ -600,9 +600,9 @@ export default function UploadPage() {
                   !file
                     ? 'Choose a file first.'
                     : !name.trim()
-                      ? 'The backend requires a dataset name.'
+                      ? 'A dataset name is required.'
                       : extensionProblem || sizeProblem || unitsProblem
-                        ? 'Fix the highlighted problems — the backend would reject this upload.'
+                        ? 'Fix the highlighted problems; this upload would be rejected.'
                         : 'Sends the multipart upload; the import starts immediately.'
                 }
               >
@@ -655,7 +655,7 @@ export default function UploadPage() {
           }
         >
           <div className="space-y-4">
-            {mappingState.loading ? <p className="text-sm muted">Loading mapping from the backend…</p> : null}
+            {mappingState.loading ? <p className="text-sm muted">Loading the column mapping…</p> : null}
             {mappingState.error ? <ErrorState error={mappingState.error} onRetry={() => void mappingState.refetch()} /> : null}
 
             {mappingState.data ? (
@@ -664,7 +664,7 @@ export default function UploadPage() {
                   columns={mappingColumns}
                   rows={mappableFields}
                   rowKey={(field) => field}
-                  empty="The backend reported no mappable fields for this dataset."
+                  empty="No mappable fields were found for this dataset."
                   caption="Canonical fields mapped to file columns"
                   compact
                 />
@@ -686,7 +686,7 @@ export default function UploadPage() {
                     className="btn btn-primary"
                     disabled={mappingSaving || !mappingComplete}
                     onClick={saveMapping}
-                    title={!mappingComplete ? 'The backend rejects mappings without an observation_date column.' : undefined}
+                    title={!mappingComplete ? 'A mapping needs an observation_date column before it can be saved.' : undefined}
                   >
                     <Save className="h-4 w-4" aria-hidden="true" /> {mappingSaving ? 'Saving…' : 'Save mapping'}
                   </button>
@@ -695,9 +695,9 @@ export default function UploadPage() {
                     className="btn btn-secondary"
                     disabled={suggesting || !headerOptions.length}
                     onClick={requestSuggestion}
-                    title="POST /datasets/column-suggestion re-runs the backend heuristic on the real headers."
+                    title="Suggests the closest match for each column using the file's own headers."
                   >
-                    <Sparkles className="h-4 w-4" aria-hidden="true" /> {suggesting ? 'Asking backend…' : 'Suggest columns'}
+                    <Sparkles className="h-4 w-4" aria-hidden="true" /> {suggesting ? 'Checking headers…' : 'Suggest columns'}
                   </button>
                   <button type="button" className="btn btn-ghost" onClick={resetToSuggestion}>
                     <RotateCw className="h-4 w-4" aria-hidden="true" /> Reset to suggestion
@@ -707,7 +707,7 @@ export default function UploadPage() {
                     className="btn btn-secondary"
                     disabled={ingestRunning || jobActive}
                     onClick={runIngest}
-                    title={jobActive ? 'An import is already running for this dataset.' : 'POST /datasets/{id}/ingest re-runs the import with the saved mapping.'}
+                    title={jobActive ? 'An import is already running for this dataset.' : 'Re-runs the import with the saved mapping.'}
                   >
                     <PlayCircle className="h-4 w-4" aria-hidden="true" /> {ingestRunning ? 'Queuing…' : jobActive ? 'Import running…' : 'Re-run ingest'}
                   </button>
@@ -725,7 +725,7 @@ export default function UploadPage() {
       {jobId !== null ? (
         <Panel
           title="3 — Ingestion progress"
-          description="Live job state, polled from GET /ingestion/jobs/{id} every few seconds until the job finishes."
+          description="Live job state, refreshed every few seconds until the job finishes."
           actions={
             <RefreshButton
               onClick={() => {
@@ -775,7 +775,7 @@ export default function UploadPage() {
                   <div className="space-y-1">
                     <p className="text-xs font-semibold">
                       Validation errors ({formatNumber(job.validation_errors.length, 0)} reported
-                      {job.validation_errors.length >= 50 ? ' — truncated by the backend' : ''})
+                      {job.validation_errors.length >= 50 ? '; the list was cut short' : ''})
                     </p>
                     <ul className="space-y-1 text-xs">
                       {job.validation_errors.slice(0, 8).map((issue, index) => (
@@ -842,7 +842,7 @@ function ApiErrorPanel({ error }: { error: ApiRequestError }) {
       <div className="flex items-start gap-3">
         <AlertOctagon className="mt-0.5 h-5 w-5 shrink-0 text-alert-critical" aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold">The backend rejected this request</h3>
+          <h3 className="text-sm font-semibold">This upload was rejected</h3>
           <p className="mt-1 text-sm leading-relaxed muted">{error.message}</p>
           {details.length ? (
             <ul className="mt-2 space-y-1 text-xs">

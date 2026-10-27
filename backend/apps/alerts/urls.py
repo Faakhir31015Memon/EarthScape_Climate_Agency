@@ -1,21 +1,18 @@
-"""URLs for alert rules and fired alerts, mounted at ``/api/v1/alerts/``."""
 from django.urls import path
 
 from apps.alerts import monitor, views
 
-# Loading the API routes is the documented place where the bounded evaluation
-# scheduler is armed (``ALERT_SCHEDULER_ENABLED``, default true; set it to false or
-# ``ALERT_EVALUATION_SECONDS=0`` to run the engine only through
-# ``POST /api/v1/alerts/rules/evaluate``). One daemon thread per process, and its
-# real state is exposed by ``GET /api/v1/system/status``.
+# Arming the scheduler at URL-import time is deliberate: ALERT_SCHEDULER_ENABLED
+# (default true) starts one daemon thread per process. Set it false, or
+# ALERT_EVALUATION_SECONDS=0, to only run the engine from
+# POST /api/v1/alerts/rules/evaluate.
 monitor.ensure_started()
 
 urlpatterns = [
     path("", views.AlertListView.as_view(), name="alerts-list"),
     path("summary", views.AlertSummaryView.as_view(), name="alerts-summary"),
     path("templates", views.RuleTemplateView.as_view(), name="alert-templates"),
-    # ``scan`` is the web client's name for the same immediate evaluation as
-    # ``rules/evaluate``; both run the engine once and report real counts.
+    # 'scan' is the web client's name for the same pass as 'rules/evaluate'.
     path("scan", views.AlertScanView.as_view(), name="alerts-scan"),
     path("rules", views.RuleListView.as_view(), name="alert-rules"),
     path("rules/evaluate", views.RuleEvaluateView.as_view(), name="alert-rules-evaluate"),

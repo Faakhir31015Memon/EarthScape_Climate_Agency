@@ -1,4 +1,3 @@
-"""Dashboard routing (mounted at ``/api/v1/dashboard/``)."""
 from django.urls import path
 
 from apps.climate import dashboard_views

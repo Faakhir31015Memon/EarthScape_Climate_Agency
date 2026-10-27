@@ -172,17 +172,6 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`
 }
 
-export function formatUptime(seconds: number | null | undefined): string {
-  if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return '—'
-  const total = Math.max(0, Math.floor(seconds))
-  const days = Math.floor(total / 86_400)
-  const hours = Math.floor((total % 86_400) / 3600)
-  const minutes = Math.floor((total % 3600) / 60)
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`
-  if (hours > 0) return `${hours}h ${minutes}m`
-  return `${minutes}m ${total % 60}s`
-}
-
 /** Countdown to a lockout expiry, phrased the way the backend throttles login. */
 export function lockCountdown(lockedUntil: string | null | undefined, now: number): string | null {
   if (!lockedUntil) return null

@@ -1,23 +1,8 @@
-"""Climate analytics services.
+"""Aggregates over stored observations, aggregation pipelines first.
 
-Every value produced here is read out of MongoDB. Two mechanisms are used
-deliberately:
-
-* **aggregation pipelines** (``$match`` / ``$group`` / ``$facet`` / ``$project`` over
-  stored fields) for set-wide aggregates such as per-region statistics, per-station
-  counts, trend buckets and coverage, and for the reads that used to drag the whole
-  collection across the wire: the newest observation per monitored point (the map
-  layer) and the count/total/mean/min/max per group-year (the historical explorer);
-* the shared :mod:`common.analytics` kernel as the fallback for any grouping or
-  frequency the pipelines do not model (correlations, anomaly detection), so the API
-  and the PySpark/MapReduce outputs stay numerically identical.
-
-Pipelines only use stages supported by both Atlas and the local document store,
-and they only touch *stored* fields - ``observation_date`` is a ``YYYY-MM-DD``
-string, so month bucketing uses ``$substr``/``year``/``month`` instead of date
-operators, and weekly or ordered buckets are folded and sorted in Python because the
-shared tier cannot sort tens of thousands of keys on the server. Empty collections
-produce empty lists plus a ``reason``; nothing is invented.
+observation_date is a YYYY-MM-DD string, so month bucketing uses $substr instead of
+date operators, and weekly or ordered buckets are folded in Python because the shared
+tier can't sort tens of thousands of keys on the server.
 """
 from __future__ import annotations
 
@@ -48,7 +33,6 @@ from common.repositories import (
     predictions,
     processing_jobs,
     regions as regions_repository,
-    saved_analyses,
     support_tickets,
     utcnow,
 )
@@ -56,9 +40,8 @@ from config import env
 
 logger = logging.getLogger(__name__)
 
-from apps.climate import explorer  # noqa: E402  (module-level keeps imports explicit)
+from apps.climate import explorer  # noqa: E402
 
-# --------------------------------------------------------------------- bounds
 MAX_PAGE_SIZE = 500
 DEFAULT_PAGE_SIZE = 50
 ANALYTICS_ROW_LIMIT = env.get_int("CLIMATE_ANALYTICS_MAX_ROWS", 60000)
@@ -87,7 +70,7 @@ FRESHNESS_LABELS = {
     "fresh": f"Newest stored observation is within {FRESH_DAYS} days.",
     "lagging": f"Newest stored observation is {FRESH_DAYS + 1}-{LAGGING_DAYS} days old.",
     "stalled": f"No observation for more than {LAGGING_DAYS} days.",
-    "no_data": "This source has no observation documents.",
+    "no_data": "This source has no stored observations.",
 }
 
 OBSERVATION_SORTS: Dict[str, List[Tuple[str, int]]] = {
@@ -107,9 +90,8 @@ DEFAULT_OBSERVATION_SORT = "-observation_date"
 LIST_PROJECTION_EXCLUSIONS = {"coordinates": 0, "provenance": 0}
 
 
-# ------------------------------------------------------------------ parameters
 def date_filter(request, *names: str) -> Tuple[Optional[str], Optional[str]]:
-    """Read an optional ``YYYY-MM-DD`` window from two interchangeable keys."""
+    """First key is the window start, any later key is the end."""
     from common.views import date_param
 
     start = None
@@ -125,7 +107,7 @@ def date_filter(request, *names: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 def first_validation_message(errors: Any) -> str:
-    """The most specific message a serializer produced, for the error envelope."""
+    """Most specific serializer message, for the error envelope."""
     if isinstance(errors, dict):
         for key, value in errors.items():
             if isinstance(value, dict):
@@ -138,10 +120,8 @@ def first_validation_message(errors: Any) -> str:
 
 
 def validated_body(serializer: Any) -> Dict[str, Any]:
-    """Validate a request body and raise the platform's 400 envelope.
-
-    ``raise_exception=True`` would surface DRF's generic wording; the client is
-    told exactly which field failed and why.
+    """Raise the platform 400 envelope naming the failed field; DRF's
+    raise_exception only gives generic wording.
     """
     if serializer.is_valid():
         return serializer.validated_data
@@ -155,7 +135,7 @@ def default_window(*, days: int = 365, end: Optional[str] = None) -> Tuple[str, 
 
 
 def regions_list(request, *, max_items: int = 50) -> List[str]:
-    """Region codes from ``?regions=`` / ``?region=`` (comma tolerant, deduped)."""
+    """Region codes from ?regions= / ?region=, comma tolerant and deduped."""
     from common.views import list_param
 
     raw = list_param(request, "regions") + list_param(request, "region")
@@ -201,7 +181,6 @@ def _dedupe_mixed(values: Sequence[Any]) -> List[Any]:
     return out
 
 
-# ------------------------------------------------------------------- filters
 def build_filters(*, start: Optional[str] = None, end: Optional[str] = None,
                   regions_filter: Optional[Sequence[str]] = None,
                   location_codes: Optional[Sequence[str]] = None,
@@ -213,11 +192,8 @@ def build_filters(*, start: Optional[str] = None, end: Optional[str] = None,
                   year: Optional[int] = None,
                   month: Optional[int] = None,
                   limit: int = ANALYTICS_ROW_LIMIT) -> Dict[str, Any]:
-    """MongoDB criteria for ``climate_observations`` plus the analytics row limit.
-
-    Delegates to :func:`common.analytics.observation_query` so the API and the
-    kernel always agree on scope, then adds the quality/source filters the
-    kernel does not model.
+    """Scope comes from analytics.observation_query; the kernel does not model
+    quality/source filters, so they are added here.
     """
     criteria = analytics.observation_query(
         dataset_ids=coerce_dataset_ids(datasets_list),
@@ -258,7 +234,7 @@ def matching_row_count(criteria: Dict[str, Any]) -> int:
 
 def fetch_rows(criteria: Dict[str, Any], *, projection: Optional[Dict[str, int]] = None,
                limit: Optional[int] = None) -> List[Dict[str, Any]]:
-    """Read observation documents through the kernel so ordering/limits match."""
+    """Kernel read so ordering and the _limit key behave the same as in aggregates."""
     row_criteria = dict(criteria)
     if limit is not None:
         row_criteria["_limit"] = min(max(int(limit), 1), analytics.MAX_QUERY_ROWS)
@@ -267,7 +243,6 @@ def fetch_rows(criteria: Dict[str, Any], *, projection: Optional[Dict[str, int]]
 
 def metric_projection(metrics: Sequence[str], *, extra: Optional[Iterable[str]] = None
                       ) -> Dict[str, int]:
-    """Inclusion projection carrying exactly the fields an analysis needs."""
     fields: Dict[str, int] = {
         "_id": 0, "observation_date": 1, "year": 1, "month": 1, "region_code": 1,
         "location_code": 1, "location_name": 1, "country": 1, "latitude": 1, "longitude": 1,
@@ -281,7 +256,6 @@ def metric_projection(metrics: Sequence[str], *, extra: Optional[Iterable[str]] 
     return fields
 
 
-# ------------------------------------------------------- reference geography
 def reference_region(code: str) -> Dict[str, Any]:
     meta = regions.REGION_META.get(code) or {}
     return {
@@ -303,7 +277,7 @@ def reference_region(code: str) -> Dict[str, Any]:
 
 
 def stored_regions(*, limit: int = 200) -> List[Dict[str, Any]]:
-    """Region documents: the ``regions`` collection when seeded, else reference data."""
+    """Region documents: the regions collection when seeded, else reference data."""
     documents = regions_repository.find({"code": {"$ne": None}}, sort=[("code", 1)], limit=limit)
     if documents:
         out: List[Dict[str, Any]] = []
@@ -651,11 +625,10 @@ ANNUAL_GROUP_FIELDS = {"none": None, "region": "region_code", "location": "locat
 
 def annual_group_totals(criteria: Dict[str, Any], metric: str, *,
                         group_by: str = "none") -> List[Dict[str, Any]]:
-    """One row per (group, year) with the count, total, mean, min and max.
+    """One row per (group, year): count, total, mean, min, max.
 
-    The historical explorer used to receive every daily document to build these
-    numbers; grouping on the server keeps a platform-wide window at one row per
-    station-year instead of the whole observation collection.
+    Grouped server-side so a platform-wide window returns one row per station-year, not
+    every daily document the explorer used to pull across.
     """
     field = ANNUAL_GROUP_FIELDS.get(group_by, "region_code")
     scoped = dict(criteria)
@@ -730,7 +703,7 @@ def observation_list(*, start: Optional[str], end: Optional[str],
     projection = dict(LIST_PROJECTION_EXCLUSIONS)
     if not include_provenance:
         projection["source_units"] = 0
-    # ``_limit`` is a private kernel key, never a Mongo field: strip it first.
+    # _limit is a private kernel key, never a Mongo field: strip it first.
     row_criteria, _ = strip_limit(criteria)
     envelope = climate_observations.paginate(row_criteria, page=page, page_size=page_size,
                                             sort=OBSERVATION_SORTS.get(sort),
@@ -739,8 +712,8 @@ def observation_list(*, start: Optional[str], end: Optional[str],
     if not envelope["items"] and envelope["total"] == 0:
         envelope["empty_state"] = {
             "available": False,
-            "reason": "No observation documents match these filters. The collection may still be "
-                      "empty - ingest a dataset to populate it.",
+            "reason": "No observations match these filters. The collection may be empty; "
+                      "ingest a dataset to populate it.",
             "matched": 0,
         }
     envelope["sort"] = sort
@@ -782,13 +755,13 @@ TREND_PERIOD_FIELDS = {"daily": ("d",), "weekly": ("wy", "ww"), "monthly": ("y",
 
 
 def _coverage_zero() -> Dict[str, Any]:
-    """The empty coverage report, identical to ``analytics.coverage_report([])``."""
+    """The empty coverage report, identical to analytics.coverage_report([])."""
     return {"observation_count": 0, "completeness": {}, "flagged": {}, "date_range": None,
             "locations": 0, "regions": 0, "datasets": 0, "sources": []}
 
 
 def _coverage_accumulators(*, group_field: Optional[str]) -> Dict[str, Any]:
-    """One ``$group`` body that measures everything ``coverage_report`` reports."""
+    """One $group body that measures everything coverage_report reports."""
     stage: Dict[str, Any] = {
         "_id": None if group_field is None else {"scope": f"${group_field}"},
         "observation_count": {"$sum": 1},
@@ -839,10 +812,9 @@ def coverage_scopes(criteria: Dict[str, Any], *, group_field: Optional[str] = No
                     ) -> List[Tuple[Optional[str], Dict[str, Any]]]:
     """Coverage measured inside MongoDB, optionally split by one field.
 
-    The kernel's :func:`analytics.coverage_report` needs every document in the window.
-    With tens of thousands of observations on the Atlas shared tier that read is the
-    slowest thing the platform does, so the same numbers are aggregated on the server
-    and only the summary is transferred.
+    analytics.coverage_report needs every document in the window; on the Atlas shared
+    tier that read is the slowest thing here, so the same numbers are aggregated on the
+    server and only the summary is transferred.
     """
     flag_id: Any = ({"scope": f"${group_field}", "flag": "$quality_flags"}
                     if group_field else {"flag": "$quality_flags"})
@@ -908,10 +880,10 @@ def _trend_sort_key(row: Dict[str, Any], *, group_field: Optional[str],
 
 def _roll_up_to_iso_weeks(buckets: List[Dict[str, Any]], *,
                           group_field: Optional[str]) -> List[Dict[str, Any]]:
-    """Combine daily buckets into the weeks the kernel's ``W-SUN`` grouper builds.
+    """Combine daily buckets into the weeks the kernel's W-SUN grouper builds.
 
-    ``W-SUN`` bins end on Sunday, which is exactly a Monday-to-Sunday ISO week, so the
-    week a day belongs to can be read off its own date and the daily sums added up.
+    W-SUN bins end on Sunday, exactly a Monday-to-Sunday ISO week, so the week a day
+    belongs to can be read off its own date and the daily sums added up.
     """
     merged: Dict[Tuple[Any, int, int], Dict[str, Any]] = {}
     for row in buckets:
@@ -945,12 +917,12 @@ def _roll_up_to_iso_weeks(buckets: List[Dict[str, Any]], *,
 def trend_series_from_database(criteria: Dict[str, Any], metric: str, *,
                                frequency: str, group_by: Optional[str],
                                require_baseline: bool = True) -> Dict[str, Any]:
-    """:func:`analytics.trend_series` computed by MongoDB rather than in Python.
+    """analytics.trend_series computed in MongoDB instead of Python.
 
-    Raises :class:`analytics.InsufficientData` with the same message the kernel raises,
-    so the caller's availability contract is unchanged. ``None`` is returned when the
-    frequency or grouping is outside what this path models and the caller must fall
-    back to the row-based kernel.
+    Raises analytics.InsufficientData with the same message the kernel raises, so the
+    caller's availability contract is unchanged. Returns None when the frequency or
+    grouping is outside what this path models and the caller must fall back to the
+    row-based kernel.
     """
     if frequency not in AGGREGATED_FREQUENCIES:
         return None  # type: ignore[return-value]
@@ -977,10 +949,10 @@ def trend_series_from_database(criteria: Dict[str, Any], metric: str, *,
         }},
     ]
     buckets = climate_observations.aggregate(pipeline, allow_disk_use=True)
-    # The buckets are ordered in Python: a ``$sort`` over tens of thousands of period
-    # keys exceeds the server's in-memory sort limit on the shared Atlas tier. Weekly
-    # trends are ordered *before* being folded, so the accumulated sums always run in
-    # the same sequence and a period cannot flip its last decimal between requests.
+    # Buckets are ordered in Python: a $sort over tens of thousands of period keys
+    # exceeds the shared Atlas tier's in-memory sort limit. Weekly trends are ordered
+    # before folding, so the accumulated sums always run in the same sequence and a
+    # period cannot flip its last decimal between requests.
     buckets.sort(key=lambda row: _trend_sort_key(
         row, group_field=group_field,
         period_fields=TREND_PERIOD_FIELDS["daily" if frequency == "weekly" else frequency]))
@@ -1005,9 +977,9 @@ def trend_series_from_database(criteria: Dict[str, Any], metric: str, *,
         value = total if aggregation == "sum" else (total / populated if populated else None)
         std: Optional[float] = None
         if populated > 1:
-            # Sample deviation, computed from the two moments because the fallback
-            # document store has no $stdDevSamp. Variance is clamped at zero so a
-            # floating-point tie cannot turn into a square root of a negative number.
+            # Sample deviation from the two moments: the fallback document store has no
+            # $stdDevSamp. Variance is clamped at zero so a floating-point tie cannot
+            # turn into a square root of a negative number.
             variance = max((float(row.get("value_sumsq") or 0.0)
                             - total * total / populated) / (populated - 1), 0.0)
             std = math.sqrt(variance)
@@ -1052,7 +1024,7 @@ def trend_payload(*, start: Optional[str], end: Optional[str],
                   countries: Optional[Sequence[str]] = None,
                   require_baseline: bool = True,
                   row_limit: int = ANALYTICS_ROW_LIMIT) -> Dict[str, Any]:
-    """``analytics.trend_series`` wrapped in an honest availability contract."""
+    """analytics.trend_series wrapped in an availability contract."""
     criteria = build_filters(start=start, end=end, regions_filter=regions_filter,
                              location_codes=location_codes, countries=countries,
                              metric=metric, limit=row_limit)
@@ -1241,8 +1213,8 @@ def persist_anomaly_scan(payload: Dict[str, Any], *, start: Optional[str], end: 
         stored_ids.append(alert_id)
         persisted += 1
         if notify and recipients:
-            # An anomaly alert that reaches nobody is a silent dashboard entry, not an
-            # alert. The rule engine already fans out; this path must match it.
+            # An alert that reaches nobody is a silent dashboard entry. The rule engine
+            # already fans out; this path has to match it.
             ids = notify["queue"](
                 recipients,
                 type="alert",
@@ -1275,19 +1247,18 @@ def persist_anomaly_scan(payload: Dict[str, Any], *, start: Optional[str], end: 
 ALERT_SCAN_WORKFLOW = "climate.anomaly_scan"
 ALERT_SCAN_RULE_PREFIX = "climate.anomaly"
 
-#: The anomaly detector grades deviations as low/medium/high, while every other alert in
-#: the platform - and the alerts API summary - speaks in info/warning/critical. One
-#: vocabulary, mapped once at the point the alert is written.
+#: The detector grades deviations low/medium/high while every other alert, and the
+#: alerts API summary, uses info/warning/critical. Mapped once at write time.
 ANOMALY_SEVERITY_MAP = {"low": "info", "medium": "warning", "high": "critical",
                         "critical": "critical", "info": "info", "warning": "warning"}
 
 
 def _anomaly_notifiers():
-    """Resolve the alert notification helpers, or ``None`` if they cannot load.
+    """Resolve the alert notification helpers, or None if they cannot load.
 
-    ``apps.alerts`` reads climate analytics for its own rule evaluation, so importing it
-    at module scope here would close a cycle. The lookup is deferred, and a failure to
-    load leaves the scan itself intact - the alerts are still real, only quieter.
+    apps.alerts reads climate analytics for its own rule evaluation, so importing it at
+    module scope here would close a cycle. The lookup is deferred, and a failure to load
+    leaves the scan intact.
     """
     try:
         from apps.alerts import notifications, rules
@@ -1302,7 +1273,7 @@ def _anomaly_notifiers():
 def anomaly_alert_document(anomaly: Dict[str, Any], *, scope: Dict[str, Any], workflow: str,
                            actor_user_id: Optional[str],
                            actor_role: Optional[str]) -> Dict[str, Any]:
-    """An ``alerts``-compatible document for a detected anomaly."""
+    """An alerts-compatible document for a detected anomaly."""
     observation_date = str(anomaly.get("observation_date") or "unknown")
     location_code = str(anomaly.get("location_code") or "GLOBAL")
     metric = str(anomaly.get("metric") or "unknown")
@@ -1313,13 +1284,13 @@ def anomaly_alert_document(anomaly: Dict[str, Any], *, scope: Dict[str, Any], wo
              f"{anomaly.get('value')}{anomaly.get('unit') or ''} at "
              f"{anomaly.get('location_name') or location_code} on {observation_date}")
     return {
-        # ---- fields the alerts API filters and indexes on
+        # fields the alerts API filters and indexes on
         "rule_key": f"{ALERT_SCAN_RULE_PREFIX}.{metric}.{anomaly.get('method', 'baseline')}",
         "triggered_at": now,
         "status": "open",
         "severity": ANOMALY_SEVERITY_MAP.get(raw_severity, "warning"),
         "anomaly_severity": raw_severity,
-        # ---- descriptive payload
+        # descriptive payload
         "kind": "anomaly",
         "source": "climate_anomaly_scan",
         "title": title,
@@ -1345,8 +1316,8 @@ def anomaly_alert_document(anomaly: Dict[str, Any], *, scope: Dict[str, Any], wo
         "source_name": anomaly.get("source_name"),
         "explanation": anomaly.get("explanation"),
         "caveat": anomaly.get("caveat") or (
-            "A statistical deviation against the stored reference period - not, by itself, "
-            "evidence that an event is scientifically exceptional."),
+            "A statistical deviation against the stored reference period. On its own it does "
+            "not make an event scientifically exceptional."),
         "scan": {"workflow": workflow, "scope": scope, "requested_by": actor_user_id,
                  "requested_role": actor_role, "processing_mode": "mongodb"},
         "acknowledged_by": None,
@@ -1421,9 +1392,9 @@ def latest_points_from_database(criteria: Dict[str, Any], metrics: Sequence[str]
                                 ) -> List[Dict[str, Any]]:
     """The newest stored observation per monitored point, resolved inside MongoDB.
 
-    ``$first`` reads each field in ``$sort`` order, so a station's values always come
-    from its own most recent document. The ``$project`` comes before the sort because
-    sorting whole observation documents crosses the server's in-memory sort limit.
+    $first reads each field in $sort order, so a station's values come from its own most
+    recent document. $project comes before the sort because sorting whole observation
+    documents crosses the server's in-memory sort limit.
     """
     projection: Dict[str, int] = {"_id": 0, "location_code": 1}
     projection.update({name: 1 for name in LATEST_POINT_FIELDS})
@@ -1515,12 +1486,12 @@ def map_data(*, metrics: Sequence[str], start: Optional[str], end: Optional[str]
         "matched_observations": matched,
         "generated_at": utcnow().isoformat(),
         "data_note": (
-            f"{len(points)} monitored point(s) built from {matched} stored observation "
-            "document(s). Each value is the most recent measurement recorded for that station - "
-            "not an interpolated grid cell and not a model output."
+            f"{len(points)} station{'' if len(points) == 1 else 's'} built from "
+            f"{matched:,} stored observations. Each value is the most recent measurement "
+            "recorded at that station."
             if points else
             "No observations are stored for this filter set, so the map has no points to show. "
-            "Ingest a dataset to populate it; nothing here is estimated or filled in."
+            "Ingest a dataset to populate it."
         ),
     }
 
@@ -1623,7 +1594,7 @@ def freshness_status(lag: Optional[int]) -> str:
 
 
 def lag_days(value: Any, *, today: Optional[date] = None) -> Optional[int]:
-    """Whole days between a stored date and "now" - never a negative lag."""
+    """Whole days between a stored date and today, floored at 0."""
     parsed = parse_date(value)
     if parsed is None:
         return None
@@ -1720,9 +1691,8 @@ def scoped_coverage(*, regions_filter: Optional[Sequence[str]],
     """Per-region and per-dataset coverage, aggregated in MongoDB.
 
     Each dimension keeps the scope the row-based version read: regions ignore the dataset
-    filter, datasets ignore region and country filters. ``cap`` bounds how many scopes are
-    reported per dimension, highest observation count first, and every scope is measured in
-    full rather than from a sampled window of documents.
+    filter, datasets ignore region and country filters. cap bounds how many scopes are
+    reported per dimension, highest observation count first.
     """
     region_criteria = build_filters(start=start, end=end, regions_filter=regions_filter,
                                     countries=countries, limit=analytics.MAX_QUERY_ROWS)
@@ -1758,7 +1728,7 @@ def scoped_coverage(*, regions_filter: Optional[Sequence[str]],
 # ------------------------------------------------------------------- stations
 def stations(*, regions_filter: Optional[Sequence[str]] = None,
              countries: Optional[Sequence[str]] = None) -> Dict[str, Any]:
-    """Monitored locations from the ``regions`` collection plus live observation counts."""
+    """Monitored locations from the regions collection plus live observation counts."""
     index = region_index()
     criteria = build_filters(regions_filter=regions_filter, countries=countries,
                              limit=analytics.MAX_QUERY_ROWS)
@@ -1830,8 +1800,8 @@ def stations(*, regions_filter: Optional[Sequence[str]] = None,
                            if any(region.get("source") == "regions_collection"
                                   for region in index.values()) else "reference"),
         "note": None if items else (
-            "No monitored stations are available: the regions collection is empty and "
-            "climate_observations holds no documents yet."),
+            "No monitored stations are available: no regions are defined and no observations "
+            "are stored yet."),
         "generated_at": utcnow().isoformat(),
     }
 
@@ -1891,7 +1861,7 @@ def region_summary(code: str, *, start: Optional[str] = None,
         "statistics": stats or {
             "observation_count": 0, "first_date": None, "last_date": None,
             "location_count": len(locations), "metrics": {},
-            "reason": "No observation documents exist for this region yet.",
+            "reason": "No observations exist for this region yet.",
         },
         "location_count": len(locations),
         "locations": locations[:200],
@@ -1948,9 +1918,8 @@ EXPORT_COLUMNS = [
 def export_projection() -> Dict[str, int]:
     """A pure inclusion projection: a CSV carries exactly the export columns.
 
-    MongoDB (and the local store) reject a projection that mixes inclusions with
-    exclusions, so the heavy ``coordinates``/``provenance`` sub-documents are
-    simply not listed here instead of being excluded explicitly.
+    MongoDB and the local store reject a projection that mixes inclusions with
+    exclusions, so the heavy coordinates/provenance sub-documents are simply not listed.
     """
     fields = {column: 1 for column in EXPORT_COLUMNS}
     fields["_id"] = 0
@@ -2054,11 +2023,10 @@ def csv_data_lines(rows: Iterable[Dict[str, Any]]) -> List[str]:
 
 
 def export_stream(meta: Dict[str, Any], *, chunk_documents: int = 1000) -> Iterable[str]:
-    """Streaming CSV body: comment header (with real counts), header row, then rows.
+    """Streaming CSV body: comment header, header row, then rows.
 
-    A server-side cursor is used so a large export never materialises in memory;
-    if the active document store cannot provide one, the export still completes
-    through the bounded ``find`` path.
+    A server-side cursor keeps a large export out of memory; if the active document
+    store cannot provide one, the export still completes through the bounded find path.
     """
     yield from csv_header_lines(meta)
     criteria, _ = strip_limit(meta["criteria"])
@@ -2112,87 +2080,6 @@ def _compact(value: Any) -> str:
     return compact(value)
 
 
-# ------------------------------------------------------------- saved analyses
-def list_saved_analyses(user_id: str, *, role: str, page: int, page_size: int,
-                        search: Optional[str] = None) -> Dict[str, Any]:
-    criteria: Dict[str, Any] = ({} if role == "administrator"
-                                else {"$or": [{"owner_user_id": str(user_id)}, {"is_shared": True}]})
-    if search:
-        criteria["name"] = {"$regex": escape_regex(search), "$options": "i"}
-    envelope = saved_analyses.paginate(criteria, page=page, page_size=page_size,
-                                      sort=[("updated_at", -1)])
-    envelope["items"] = [present_saved_analysis(item) for item in envelope["items"]]
-    return envelope
-
-
-def create_saved_analysis(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    now = utcnow()
-    document = {
-        "name": str(payload["name"])[:140],
-        "description": str(payload.get("description") or "")[:500],
-        "owner_user_id": str(user_id),
-        "filters": payload.get("filters") or {},
-        "chart_config": payload.get("chart_config") or {},
-        "notes": str(payload.get("notes") or "")[:2000],
-        "created_at": now,
-        "updated_at": now,
-        "is_shared": bool(payload.get("is_shared")),
-        "schema_version": 1,
-    }
-    document["_id"] = saved_analyses.insert_one(document)
-    return present_saved_analysis(document)
-
-
-def update_saved_analysis(document_id: str, payload: Dict[str, Any], *, user_id: str,
-                          role: str) -> Dict[str, Any]:
-    document = owned_saved_analysis(document_id, user_id=user_id, role=role)
-    updates: Dict[str, Any] = {"updated_at": utcnow()}
-    for field in ("name", "description", "filters", "chart_config", "notes", "is_shared"):
-        if field in payload:
-            updates[field] = payload[field]
-    updated = saved_analyses.update_one({"_id": document["_id"]}, {"$set": updates},
-                                       return_document=True)
-    return present_saved_analysis(repositories.serialize(updated) or {})
-
-
-def get_saved_analysis(document_id: str, *, user_id: str, role: str) -> Dict[str, Any]:
-    document = owned_saved_analysis(document_id, user_id=user_id, role=role)
-    return present_saved_analysis(repositories.serialize(document) or {})
-
-
-def delete_saved_analysis(document_id: str, *, user_id: str, role: str) -> int:
-    document = owned_saved_analysis(document_id, user_id=user_id, role=role)
-    return saved_analyses.delete_many({"_id": document["_id"]})
-
-
-def owned_saved_analysis(document_id: str, *, user_id: str, role: str) -> Dict[str, Any]:
-    from common.repositories import to_object_id
-
-    document = saved_analyses.find_one({"_id": to_object_id(document_id)})
-    if document is None:
-        raise ApiError("not_found", "No such saved analysis.")
-    if role != "administrator" and str(document.get("owner_user_id")) != str(user_id):
-        raise ApiError(
-            "permission_denied",
-            "Only the owner or an administrator may access this saved analysis.",
-        )
-    return document
-
-
-def present_saved_analysis(document: Dict[str, Any]) -> Dict[str, Any]:
-    out = repositories.serialize(document) or dict(document)
-    out.pop("_id", None)
-    out["id"] = str(out.get("id") or "")
-    out["owner_user_id"] = str(out.get("owner_user_id") or "")
-    for field in ("created_at", "updated_at"):
-        out[field] = _iso(out.get(field))
-    return out
-
-
-def escape_regex(text: str) -> str:
-    return re.sub(r"[.*+?^${}()|[\]\\]", r"\\\g<0>", str(text))[:60]
-
-
 # ------------------------------------------------------------------- analytics
 def list_summaries(*, metric: Optional[str] = None, workflow: Optional[str] = None,
                    processing_mode: Optional[str] = None, prefix: Optional[str] = None,
@@ -2220,7 +2107,7 @@ def list_summaries(*, metric: Optional[str] = None, workflow: Optional[str] = No
                                               if item.get("processing_mode")}),
         "note": None if items else (
             "No stored aggregates exist yet. Run POST /api/v1/analytics/recompute, or wait for "
-            "a MapReduce/PySpark workflow to publish one."),
+            "a scheduled recompute to publish one."),
         "generated_at": utcnow().isoformat(),
     }
 
@@ -2248,7 +2135,7 @@ def summary_by_key(key: str) -> Dict[str, Any]:
 def recompute_core_aggregates(*, start: Optional[str] = None, end: Optional[str] = None,
                               metric: Optional[str] = None, limit: int = ANALYTICS_ROW_LIMIT,
                               processing_mode: str = "mongodb") -> Dict[str, Any]:
-    """Recompute the core aggregates from MongoDB and store them via ``store_summary``."""
+    """Recompute the core aggregates from MongoDB and store them via store_summary."""
     started = utcnow()
     stored: List[Dict[str, Any]] = []
     skipped: List[Dict[str, Any]] = []
@@ -2464,7 +2351,7 @@ def trend_slope_report(*, metric: str, group_by: str, frequency: str = "annual",
                        base_from: Optional[str] = None, base_to: Optional[str] = None,
                        limit: int = ANALYTICS_ROW_LIMIT) -> Dict[str, Any]:
     """Per-group OLS slope over an aggregated series plus deltas against a base period."""
-    # Callers may pass a year (``1991``) or a date (``1991-05-01``): compare years.
+    # Callers may pass a year (1991) or a date (1991-05-01): compare years.
     base_from = explorer.normalise_period(base_from)
     base_to = explorer.normalise_period(base_to)
     series = trend_payload(start=start, end=end, regions_filter=regions_filter,
@@ -2655,7 +2542,7 @@ def history_payload(*, metric: str, regions_filter: Optional[Sequence[str]],
 
 # ------------------------------------------------------------------- dashboard
 def dashboard_summary(user_id: str, *, role: str, name: str = "") -> Dict[str, Any]:
-    """Real computed platform state. No decorative numbers, no zero-filled guesses."""
+    """Platform state tiles for the overview dashboard."""
     totals = platform_totals(user_id=user_id)
     window_start, window_end = default_window(days=SUMMARY_WINDOW_DAYS)
     newest = newest_observation_date()
@@ -2704,8 +2591,7 @@ def dashboard_summary(user_id: str, *, role: str, name: str = "") -> Dict[str, A
             "available": bool(ranked),
             "reason": None if ranked else (
                 "No stored observation has a temperature value, so regions cannot be ranked."),
-            "note": "Each value is the mean of the daily measurements actually stored for that "
-                    "region - not a model output or an interpolated grid.",
+            "note": "Each value is the mean of the daily measurements stored for that region.",
         },
         "recent_anomalies": alert_context,
         "forecast_summaries": forecast_summaries(),
@@ -2716,8 +2602,7 @@ def dashboard_summary(user_id: str, *, role: str, name: str = "") -> Dict[str, A
             "per_source": current_data["per_source"],
             "available": bool(quality_coverage["observation_count"]),
             "reason": None if quality_coverage["observation_count"] else (
-                "No observation documents fall inside the recent window, so data quality cannot "
-                "be measured."),
+                "No observations fall inside the recent window, so data quality cannot be measured."),
         },
         "pipeline_status": pipeline_status(),
         "alerts": recent_alerts(limit=10),
@@ -2818,6 +2703,49 @@ def recent_alerts(*, limit: int = 10) -> List[Dict[str, Any]]:
     return [present_alert(repositories.serialize(document) or {}) for document in documents]
 
 
+def _first_forecast_step(document: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract first step data uniformly whether values is a list of dicts or list of floats (with series/timestamps)."""
+    series = document.get("series")
+    if isinstance(series, list) and series and isinstance(series[0], dict):
+        first = min(series, key=lambda s: (str(s.get("timestamp") or "~"), s.get("step") or 0))
+        return {
+            "forecast_date": first.get("timestamp"),
+            "value": first.get("value"),
+            "unit": document.get("units") or document.get("unit"),
+            "lower_bound": first.get("lower"),
+            "upper_bound": first.get("upper"),
+        }
+
+    values = document.get("values") or []
+    if not values:
+        return {}
+
+    if isinstance(values[0], dict):
+        dict_steps = [v for v in values if isinstance(v, dict)]
+        first = min(dict_steps, key=lambda row: str(row.get("forecast_date") or "~"), default={})
+        return {
+            "forecast_date": first.get("forecast_date"),
+            "value": first.get("value"),
+            "unit": first.get("unit") or document.get("unit") or document.get("units"),
+            "lower_bound": first.get("lower_bound"),
+            "upper_bound": first.get("upper_bound"),
+        }
+
+    first_val = values[0] if isinstance(values[0], (int, float)) else None
+    timestamps = document.get("timestamps") or []
+    forecast_date = timestamps[0] if timestamps else None
+    unc = document.get("uncertainty") or {}
+    lower_list = unc.get("lower") if isinstance(unc, dict) else None
+    upper_list = unc.get("upper") if isinstance(unc, dict) else None
+    return {
+        "forecast_date": forecast_date,
+        "value": first_val,
+        "unit": document.get("units") or document.get("unit"),
+        "lower_bound": lower_list[0] if isinstance(lower_list, list) and lower_list else None,
+        "upper_bound": upper_list[0] if isinstance(upper_list, list) and upper_list else None,
+    }
+
+
 def forecast_summaries(*, limit: int = 25) -> Dict[str, Any]:
     documents = predictions.find({}, sort=[("generated_at", -1)], limit=200)
     if not documents:
@@ -2828,31 +2756,29 @@ def forecast_summaries(*, limit: int = 25) -> Dict[str, Any]:
         }
     latest: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
     for document in documents:
-        key = (document.get("region_code"), document.get("target_variable"),
+        key = (document.get("region_code") or document.get("region"), document.get("target_variable"),
                document.get("location_code"))
         latest.setdefault(key, document)
     items = []
     for document in list(latest.values())[:limit]:
-        steps = document.get("values") or []
-        # A forecast is stored as the whole horizon series, so the card shows the nearest
-        # step rather than a top-level value the writer never puts there.
-        first = min(steps, key=lambda row: str(row.get("forecast_date") or "~"), default={})
+        step_info = _first_forecast_step(document)
+        steps_count = len(document.get("values") or document.get("series") or [])
         items.append({
             "id": str(document.get("_id")),
-            "region_code": document.get("region_code"),
+            "region_code": document.get("region_code") or document.get("region"),
             "location_code": document.get("location_code"),
             "target_variable": document.get("target_variable"),
-            "origin_date": document.get("forecast_origin_date"),
-            "forecast_date": first.get("forecast_date"),
-            "predicted_value": first.get("value"),
-            "unit": first.get("unit"),
-            "confidence_low": first.get("lower_bound"),
-            "confidence_high": first.get("upper_bound"),
-            "forecast_steps": len(steps),
+            "origin_date": document.get("forecast_origin_date") or document.get("origin_date"),
+            "forecast_date": step_info.get("forecast_date"),
+            "predicted_value": step_info.get("value"),
+            "unit": step_info.get("unit") or document.get("unit") or document.get("units") or "",
+            "confidence_low": step_info.get("lower_bound"),
+            "confidence_high": step_info.get("upper_bound"),
+            "forecast_steps": steps_count,
             "model_id": str(document.get("model_id")) if document.get("model_id") else None,
             "model_name": document.get("model_name"),
             "generated_at": _iso(document.get("generated_at")),
-            "horizon_days": document.get("horizon_days"),
+            "horizon_days": document.get("horizon_days") or document.get("horizon_steps") or document.get("horizon"),
         })
     return {
         "available": bool(items),
@@ -2938,7 +2864,7 @@ def quick_actions(role: str, *, name: str = "", has_data: bool = True) -> List[D
          "requires": "administrator", "enabled": True},
         {"id": "train-model", "label": "Train a forecast model", "route": "/models",
          "requires": "administrator", "enabled": True},
-        {"id": "view-audit", "label": "Review the audit trail", "route": "/system/audit",
+        {"id": "check-health", "label": "Check system health", "route": "/system/services",
          "requires": "administrator", "enabled": True},
     ]
     if role == "administrator":
@@ -2977,8 +2903,6 @@ WIDGET_CATALOGUE: List[Dict[str, Any]] = [
      "endpoint": "/dashboard/activity", "requires": "audit-or-jobs", "role": "viewer"},
     {"id": "stations", "title": "Monitored stations", "kind": "table",
      "endpoint": "/climate/stations", "requires": "none", "role": "viewer"},
-    {"id": "saved-analyses", "title": "Saved analyses", "kind": "list",
-     "endpoint": "/climate/saved", "requires": "none", "role": "climate_analyst"},
     {"id": "export-panel", "title": "CSV export", "kind": "action",
      "endpoint": "/climate/export", "requires": "observations", "role": "climate_analyst"},
 ]
@@ -2996,9 +2920,6 @@ def widget_catalogue(user_id: str, *, role: str) -> Dict[str, Any]:
     populated = {name: _count(climate_observations, {name: {"$ne": None}})
                  for name in ("temperature_c", "precipitation_mm")}
     facts["two-metrics"] = 1 if all(populated.values()) else 0
-    saved_count = saved_analyses.count({"$or": [{"owner_user_id": str(user_id)},
-                                                {"is_shared": True}]})
-    facts["saved-analyses"] = saved_count
     widgets = []
     for widget in WIDGET_CATALOGUE:
         requirement = widget.get("requires", "none")
@@ -3027,9 +2948,9 @@ def widget_catalogue(user_id: str, *, role: str) -> Dict[str, Any]:
 
 def _widget_reason(requirement: str) -> str:
     return {
-        "observations": "No observation documents are stored yet.",
+        "observations": "No observations are stored yet.",
         "two-metrics": "At least two metrics need populated values before a correlation exists.",
-        "predictions": "The predictions collection is empty - no model has produced a forecast.",
+        "predictions": "No forecasts exist yet; no model has produced one.",
         "processing-jobs": "No processing jobs have been submitted.",
         "audit-or-jobs": "No audit events or job records exist yet.",
     }.get(requirement, "Required data is not available yet.")
@@ -3052,7 +2973,7 @@ ACTIVITY_KINDS = ("audit", "ingestion", "processing")
 def activity_stream(*, page: int, page_size: int, kinds: Sequence[str],
                     outcome: Optional[str] = None, action: Optional[str] = None,
                     since: Optional[str] = None) -> Dict[str, Any]:
-    """Merged audit + job activity with real totals and Python-side ordering."""
+    """Merged audit + job activity, counted and ordered in Python."""
     wanted = [kind for kind in (kinds or ACTIVITY_KINDS) if kind in ACTIVITY_KINDS] or \
         list(ACTIVITY_KINDS)
     since_moment = parse_moment(since)
@@ -3100,8 +3021,8 @@ def activity_stream(*, page: int, page_size: int, kinds: Sequence[str],
         "has_previous": page > 1,
         "sources": {name: len(events) for name, events in sources},
         "note": None if merged else (
-            "No audit events or job records exist yet - the activity feed fills itself once "
-            "ingestion, processing or administration activity is performed."),
+            "No audit events or job records yet. The activity feed fills in once there is "
+            "ingestion, processing or administration activity."),
         "generated_at": utcnow().isoformat(),
     }
 
@@ -3229,18 +3150,14 @@ __all__ = [
     "comparison_payload",
     "correlation_payload",
     "country_options",
-    "create_saved_analysis",
     "dashboard_summary",
     "date_filter",
     "default_window",
-    "delete_saved_analysis",
     "export_plan",
     "export_stream",
     "filter_options",
     "first_validation_message",
-    "get_saved_analysis",
     "history_payload",
-    "list_saved_analyses",
     "list_summaries",
     "location_options",
     "map_data",
@@ -3266,7 +3183,6 @@ __all__ = [
     "summary_by_key",
     "trend_payload",
     "trend_slope_report",
-    "update_saved_analysis",
     "validated_body",
     "widget_catalogue",
     "yearly_region_normals",

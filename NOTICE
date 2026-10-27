@@ -3,37 +3,23 @@
 EarthScape Climate Agency
 Copyright (c) 2026 Faakhir Memon
 
-This product bundles material under different terms. Read each file before
-redistributing:
+Platform source code (`backend/`, `frontend/`, `docker-compose.yml`) is released
+under the MIT Licence — see [`LICENSE`](LICENSE).
 
-- **Platform source code** (`backend/`, `frontend/`, `docker-compose.yml`) —
-  MIT Licence, see [`LICENSE`](LICENSE). The licence requires that the copyright
-  line and this notice travel with any copy.
-- **Name and marks** ("EarthScape", "EarthScape Climate Agency", the wordmark
-  and logo) — **not** covered by the MIT Licence. See
-  [`TRADEMARKS.md`](TRADEMARKS.md).
-- **Third-party software.** The platform runs on components supplied by other
-  authors: Django, djangorestframework, drf-spectacular, PyMongo, dnspython,
-  mongomock, PyJWT, bcrypt, pydantic, pandas, numpy, openpyxl, xlrd, pyxlsb,
-  odfpy, msoffcrypto-tool, python-dateutil, chardet, requests, scikit-learn,
-  joblib, XGBoost, PySpark, Apache Arrow, reportlab, Celery, redis-py, hdfs;
-  and on the front end React, React DOM, React Router, Recharts, Leaflet,
-  react-leaflet, lucide-react, axios, React Hook Form, zod, Tailwind CSS,
-  PostCSS, Autoprefixer, TypeScript and Vite. Each stays under its own licence,
-  which is shipped inside the package pinned in `backend/requirements.txt` or
-  `frontend/package.json`. Nothing here re-licenses them.
-- **Upstream platforms and data services.** MongoDB Atlas, NASA POWER, the Hadoop
-  / HDFS ecosystem and OpenStreetMap map tiles are named to identify what the
-  platform talks to. They remain governed by their own operators' terms, which
-  are not modified or granted by this notice.
-- **Data.** Observation, forecast and dataset records stored in a deployment's
-  database belong to whoever's agreement collected them. The code licence does
-  not transfer any data rights, and this repository ships no sample observations.
-- **Numerical and statistical outputs.** Values the platform reports are read
-  out of stored records; they are described as such in the UI and in
-  `README.md`. Nothing in this notice presents them as a warranty of accuracy.
+Third-party components. The platform runs on libraries supplied by other
+authors: Django, djangorestframework, drf-spectacular, PyMongo, dnspython,
+PyJWT, bcrypt, pydantic, pandas, numpy, openpyxl, xlrd, pyxlsb, odfpy,
+python-dateutil, chardet, requests, scikit-learn, joblib, reportlab and Celery
+on the backend; React, React Router, Recharts, Leaflet, react-leaflet,
+lucide-react, axios, Tailwind CSS, Vite and TypeScript on the front end. Each
+stays under its own licence, shipped inside the package pinned in
+`backend/requirements.txt` or `frontend/package.json`. Nothing here re-licenses
+them.
 
-Attribution kept intact in the running application: the footer names the
-platform and links to its privacy and terms pages; the analytics screens state
-the reference period, the baseline sample size and the method behind every
-number they show.
+Upstream platforms and data services. MongoDB, NASA POWER, Open-Meteo and the
+OpenStreetMap map tiles are named only to identify what the platform talks to.
+They remain governed by their own operators' terms.
+
+Data. Observation, forecast and dataset records stored in a deployment's
+database belong to whoever's agreement collected them. The code licence does not
+transfer any data rights.

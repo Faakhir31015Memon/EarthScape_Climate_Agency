@@ -1,19 +1,8 @@
-"""Alert rule definitions and the rule evaluation engine.
+"""Alert rule definitions and the evaluation engine.
 
-Why rules live in the ``alerts`` collection
--------------------------------------------
-The specification lists a single ``alerts`` collection, so rules are stored there
-too and separated by ``document_type == "rule"``. Fired alerts are every document
-in that collection *without* that marker. Both share the ``rule_key`` index
-(``common/collections.py``), so an alert can always be traced back to the rule that
-produced it and dedupe lookups stay on one indexed path.
-
-Evaluation contract
--------------------
-The engine never invents a number: every candidate alert value, baseline and
-deviation comes from ``common.analytics`` reading ``climate_observations`` (or from
-stored ``predictions`` documents). If the required observations are not there, the
-rule records an honest ``no_matching_observations`` state and fires nothing.
+Rules are stored in the alerts collection with document_type == "rule"; fired alerts
+are the documents without that marker. Both use the rule_key index from
+common/collections.py, so a fired alert traces back to its rule on one indexed path.
 """
 from __future__ import annotations
 
@@ -40,8 +29,8 @@ RULE_MARKER = "rule"
 SEVERITIES = ("info", "warning", "critical")
 ALERT_STATUSES = ("open", "acknowledged", "resolved", "dismissed")
 OPERATORS = ("gt", "lt", "between", "outside_band", "deviation_gt_sigma", "anomaly")
-#: ``applicable_sources`` may name observation sources (matched against
-#: ``source_name``) plus these control tokens that select evaluation targets.
+# applicable_sources may name observation sources (matched against source_name)
+# plus these control tokens, which pick the evaluation target.
 SOURCE_CONTROL_TOKENS = ("observations", "predictions")
 ALERT_SOURCES = ("rule_engine", "anomaly_scan", "prediction")
 
@@ -49,8 +38,7 @@ SCAN_LOOKBACK_DAYS = max(1, min(env.get_int("ALERT_SCAN_LOOKBACK_DAYS", 7), 366)
 MAX_ROWS_PER_RULE = min(20000, max(1000, env.get_int("ALERT_SCAN_MAX_ROWS", 20000)))
 MAX_ALERTS_PER_RULE_RUN = max(1, env.get_int("ALERT_MAX_FIRES_PER_RULE", 25))
 
-#: Starting points offered to the UI. Every template is a payload this module can
-#: actually create and evaluate - they differ only in threshold and severity.
+# Starting points offered to the UI; they differ only in threshold and severity.
 RULE_TEMPLATES: List[Dict[str, Any]] = [
     {
         "key": "heat-warning",
@@ -113,7 +101,7 @@ RULE_TEMPLATES: List[Dict[str, Any]] = [
 
 
 def templates() -> List[Dict[str, Any]]:
-    """The rule templates on offer, marked with whether their variable is stored yet."""
+    """Adds supported_variable so the UI can flag templates for unstored variables."""
     known = set(analytics.METRICS)
     output = []
     for template in RULE_TEMPLATES:
@@ -125,6 +113,7 @@ def templates() -> List[Dict[str, Any]]:
     return output
 
 
+# --------------------------------------------------------------------- rule CRUD
 # --------------------------------------------------------------------- rule CRUD
 def rule_key_for(name: str, existing: Iterable[str]) -> str:
     base = re.sub(r"[^a-z0-9]+", "-", (name or "rule").strip().lower()).strip("-")[:48] or "rule"
@@ -848,7 +837,7 @@ def _json_safe(value: Any) -> Any:
 
 
 def evaluate_enabled_rules() -> Dict[str, Any]:
-    """Scheduled entry point: evaluate every enabled rule and report real counts."""
+    """Scheduled entry point: evaluate every enabled rule and return the counts."""
     started = utcnow()
     rules = alerts.find({"document_type": RULE_MARKER, "is_enabled": True},
                        sort=[("created_at", 1)], limit=200)
@@ -1020,7 +1009,7 @@ def summary() -> Dict[str, Any]:
     stamps = [item.get("last_evaluated_at") for item in evaluated if item.get("last_evaluated_at")]
     return {
         "total": repository.count(criteria),
-        # Flat keys are the shape the web client binds to; they are the same real counts.
+        # Flat keys are the shape the web client binds to; they are the same counts.
         "open": by_status.get("open", 0),
         "acknowledged": by_status.get("acknowledged", 0),
         "resolved": by_status.get("resolved", 0),

@@ -267,7 +267,7 @@ export interface TrendScope {
 
 /**
  * `GET /climate/trends` (trend_payload). The backend always returns `series`
- * (empty when unavailable) plus an honest `available`/`reason` pair.
+ * (empty when unavailable) plus an `available`/`reason` pair.
  */
 export interface TrendResponse {
   metric: Metric
@@ -779,20 +779,6 @@ export interface FilterOptionsResponse {
   observation_window: { newest_date: string | null; total_observations: number }
   limits: { max_page_size: number; max_export_rows: number; analytics_row_limit: number }
   generated_at: string
-}
-
-export interface SavedAnalysis {
-  id: string
-  name: string
-  description: string | null
-  owner_user_id: string
-  filters: Record<string, unknown>
-  chart_config: Record<string, unknown>
-  notes: string | null
-  is_shared: boolean
-  created_at: string
-  updated_at: string
-  schema_version: number
 }
 
 /* ---------------------------------------------------------------- dashboard */
@@ -1330,8 +1316,6 @@ export interface EngineHealth {
     note?: string
   }
   hadoop: { bin_configured: boolean; version: string | null; cluster_configured: boolean; detail: string }
-  kafka: { enabled: boolean; brokers: string | null; reachable: boolean; detail: string }
-  airflow: { enabled: boolean; detail: string }
   data_lake: {
     mode: string
     root: string | null
@@ -1954,53 +1938,6 @@ export interface SystemStatusResponse extends HealthResponse {
   import_compat?: Record<string, unknown>
   alert_monitor?: Record<string, unknown>
   ingestion_scheduler?: Record<string, unknown>
-}
-
-/** `GET /system/audit` item - measured: no `created_at`, no `actor_name`. */
-export interface AuditLogEntry {
-  id: string
-  action: string
-  outcome: 'success' | 'failure' | 'denied'
-  actor_role: string
-  actor_user_id: string | null
-  actor_name: string
-  created_at: string | null
-  environment: string
-  metadata: Record<string, unknown>
-  request_id: string | null
-  resource_id: string | null
-  resource_type: string
-  source_ip: string | null
-}
-
-export interface PlatformSettings {
-  key: string
-  value: unknown
-  label?: string
-  description?: string
-  updated_at?: string
-  updated_by?: string | null
-}
-
-export interface SettingsResponse {
-  settings: PlatformSettings[]
-  env_derived: {
-    self_registration_enabled: boolean
-    analyst_self_registration_enabled: boolean
-    password_reset_enabled: boolean
-    email_delivery_ready: boolean
-    force_atlas_connection: boolean
-    database_mode: string
-    max_upload_bytes: number
-    max_upload_rows: number
-    redis_configured: boolean
-    hdfs_configured: boolean
-    spark_master?: string | null
-    kafka_enabled: boolean
-    airflow_enabled: boolean
-  }
-  editable_keys: string[]
-  note: string
 }
 
 export interface SystemMetricsResponse {

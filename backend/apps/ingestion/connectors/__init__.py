@@ -1,9 +1,3 @@
-"""Source-connector registry.
-
-``CONNECTORS`` is the authoritative ``name -> instance`` mapping used by the
-ingestion service and API.  ``connector_status()`` reports the configuration and
-reachability of every registered source for the UI, never leaking secrets.
-"""
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -30,7 +24,7 @@ CONNECTORS: Dict[str, SourceConnector] = {
     "open_meteo": LiveClimateConnector(),
 }
 
-# Friendly names accepted from the API request body.
+# alternate source names accepted from the API
 ALIASES: Dict[str, str] = {
     "nasa": "nasa_power",
     "noaa": "noaa_cdo",

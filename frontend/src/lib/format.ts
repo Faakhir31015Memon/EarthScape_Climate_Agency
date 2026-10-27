@@ -1,16 +1,16 @@
 import type { Metric, Severity } from '../types/api'
 
 export const METRIC_META: Record<Metric, { label: string; unit: string; short: string; color: string; aggregation: 'mean' | 'sum' }> = {
-  temperature_c: { label: 'Mean temperature', unit: '°C', short: 'Temp', color: '#c0562f', aggregation: 'mean' },
-  temperature_min_c: { label: 'Minimum temperature', unit: '°C', short: 'Min', color: '#3b9af6', aggregation: 'mean' },
-  temperature_max_c: { label: 'Maximum temperature', unit: '°C', short: 'Max', color: '#e98513', aggregation: 'mean' },
-  precipitation_mm: { label: 'Precipitation', unit: 'mm', short: 'Rain', color: '#257ceb', aggregation: 'sum' },
-  relative_humidity_pct: { label: 'Relative humidity', unit: '%', short: 'RH', color: '#559c66', aggregation: 'mean' },
-  wind_speed_ms: { label: 'Wind speed', unit: 'm/s', short: 'Wind', color: '#4d8f62', aggregation: 'mean' },
-  wind_direction_deg: { label: 'Wind direction', unit: '°', short: 'Dir', color: '#94744e', aggregation: 'mean' },
-  surface_pressure_hpa: { label: 'Surface pressure', unit: 'hPa', short: 'Pressure', color: '#1e51af', aggregation: 'mean' },
-  cloud_coverage_pct: { label: 'Cloud coverage', unit: '%', short: 'Cloud', color: '#86978b', aggregation: 'mean' },
-  solar_radiation_kwh_m2: { label: 'Solar radiation', unit: 'kWh/m²', short: 'Solar', color: '#e9b23c', aggregation: 'mean' },
+  temperature_c: { label: 'Mean temperature', unit: '°C', short: 'Temp', color: '#c97145', aggregation: 'mean' },
+  temperature_min_c: { label: 'Minimum temperature', unit: '°C', short: 'Min', color: '#4e8aa8', aggregation: 'mean' },
+  temperature_max_c: { label: 'Maximum temperature', unit: '°C', short: 'Max', color: '#b98b2a', aggregation: 'mean' },
+  precipitation_mm: { label: 'Precipitation', unit: 'mm', short: 'Rain', color: '#265a76', aggregation: 'sum' },
+  relative_humidity_pct: { label: 'Relative humidity', unit: '%', short: 'RH', color: '#6c9c62', aggregation: 'mean' },
+  wind_speed_ms: { label: 'Wind speed', unit: 'm/s', short: 'Wind', color: '#8fb883', aggregation: 'mean' },
+  wind_direction_deg: { label: 'Wind direction', unit: '°', short: 'Dir', color: '#a0855d', aggregation: 'mean' },
+  surface_pressure_hpa: { label: 'Surface pressure', unit: 'hPa', short: 'Pressure', color: '#77a9c2', aggregation: 'mean' },
+  cloud_coverage_pct: { label: 'Cloud coverage', unit: '%', short: 'Cloud', color: '#899189', aggregation: 'mean' },
+  solar_radiation_kwh_m2: { label: 'Solar radiation', unit: 'kWh/m²', short: 'Solar', color: '#d2a94a', aggregation: 'mean' },
 }
 
 export const ALL_METRICS = Object.keys(METRIC_META) as Metric[]
@@ -54,8 +54,19 @@ export function formatBytes(value: number | null | undefined): string {
   return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
 
-export function parseDate(value: string | null | undefined): Date | null {
-  if (!value) return null
+/** Uptime as reported by the API process, trimmed to the two units that matter. */
+export function formatUptime(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return '—'
+  const total = Math.max(0, Math.floor(seconds))
+  const days = Math.floor(total / 86_400)
+  const hours = Math.floor((total % 86_400) / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m ${total % 60}s`
+}
+
+export function parseDate(value: string | null | undefined): Date | null {  if (!value) return null
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
@@ -129,12 +140,40 @@ export function severityTone(severity?: Severity | string | null): 'neutral' | '
   }
 }
 
-const PROPER_NAMES: Record<string, string> = { pyspark: 'PySpark', mapreduce: 'MapReduce' }
+/** Words that must keep their provider's own capitalisation wherever they appear. */
+const PROPER_NAMES: Record<string, string> = {
+  pyspark: 'PySpark',
+  mapreduce: 'MapReduce',
+  nasa: 'NASA',
+  power: 'POWER',
+  noaa: 'NOAA',
+  cdo: 'CDO',
+  meteo: 'Meteo',
+  api: 'API',
+  hdfs: 'HDFS',
+  csv: 'CSV',
+  json: 'JSON',
+  parquet: 'Parquet',
+  netcdf: 'NetCDF',
+  mongodb: 'MongoDB',
+}
+
+// Labels whose words all belong to one name, checked before word-by-word casing.
+const COMPOUND_NAMES: Record<string, string> = {
+  random_forest: 'Random Forest',
+  xgboost: 'XGBoost',
+  'local-mongodb': 'Self-hosted MongoDB',
+  'local-development': 'In-process document store',
+  'in-process-thread-pool': 'In-process thread pool',
+}
 
 export function humanise(value?: string | null): string {
   if (!value) return ''
+  const compound = COMPOUND_NAMES[value.toLowerCase()]
+  if (compound) return compound
   return value
     .replaceAll('_', ' ')
+    .replaceAll('-', ' ')
     .split(' ')
     .map((word, index) => PROPER_NAMES[word.toLowerCase()]
       ?? (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))

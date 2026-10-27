@@ -123,13 +123,15 @@ export default function SystemHealthPage() {
 
   const db = health.data?.database
   const isAtlas = db?.mode === 'atlas'
+  const isSelfHosted = db?.mode === 'local-mongodb'
+  const realServer = isAtlas || isSelfHosted
 
   return (
     <div>
       <PageHeader
         eyebrow="Administration"
         title="System health"
-        description="Live component, service, dependency, throughput and backup status reported directly by the backend. Nothing here is inferred — unavailable capabilities say so."
+        description="Live component, service, dependency, throughput and backup status, reported directly by the backend. Unavailable capabilities say so."
         meta={
           health.data ? (
             <>
@@ -153,11 +155,11 @@ export default function SystemHealthPage() {
 
       {/* ------------------------------------------------------- datastore mode */}
       <div
-        className={`mb-6 rounded-xl border p-4 ${isAtlas ? 'border-forest-300 bg-forest-50/50 dark:bg-forest-900/20' : 'border-solar-400 bg-solar-50/60 dark:bg-solar-900/20'}`}
+        className={`mb-6 rounded-xl border p-4 ${realServer ? 'border-forest-300 bg-forest-50/50 dark:bg-forest-900/20' : 'border-solar-400 bg-solar-50/60 dark:bg-solar-900/20'}`}
         role="status"
       >
         <div className="flex flex-wrap items-center gap-3">
-          <Database className={`h-5 w-5 shrink-0 ${isAtlas ? 'text-forest-700 dark:text-forest-300' : 'text-solar-700 dark:text-solar-300'}`} aria-hidden="true" />
+          <Database className={`h-5 w-5 shrink-0 ${realServer ? 'text-forest-700 dark:text-forest-300' : 'text-solar-700 dark:text-solar-300'}`} aria-hidden="true" />
           <h2 className="text-sm font-semibold">Datastore in use</h2>
           <ModeBadge mode={db?.mode} detail={db ? `database=${db.database}, ok=${db.ok}` : undefined} />
           {db ? <Badge tone={db.ok ? 'success' : 'danger'} title={db.ok ? 'A store answered the health probe' : 'The store did not answer the health probe'}>{db.ok ? 'store ok' : 'store down'}</Badge> : null}
@@ -167,19 +169,25 @@ export default function SystemHealthPage() {
             This instance is connected to <strong>MongoDB Atlas</strong> (<Mono>{db?.database}</Mono>). Backups use{' '}
             <Mono>mongodump</Mono> when it is available on the host.
           </p>
+        ) : isSelfHosted ? (
+          <p className="mt-2 text-sm leading-relaxed muted">
+            This instance talks to a MongoDB server this host runs itself, for database{' '}
+            <Mono>{db?.database}</Mono>. Writes are durable across restarts, and backups work the same way; it is simply
+            not the managed Atlas service. Point <code className="kbd">MONGODB_URI</code> at an Atlas cluster to move it.
+          </p>
         ) : (
           <div className="mt-2 text-sm leading-relaxed muted">
             <p className="font-medium text-solar-800 dark:text-solar-200">
               This instance is <strong>not</strong> using MongoDB Atlas. It is running the mode{' '}
               <Mono>{db?.mode ?? 'unknown'}</Mono>
               {db?.mode === 'local-development'
-                ? ' — an in-process document store used for local development only.'
-                : ' — the document store has not finished initialising.'}
+                ? ' (an in-process document store, for local development only).'
+                : ' (the document store has not finished initialising).'}
             </p>
             <p className="mt-2">
               Data lives only in this process and is <strong>not durable</strong> across restarts; counts and backups
-              reflect local JSON snapshots, not a real cluster. To force a real Atlas connection, set{' '}
-              <code className="kbd">MONGODB_URI</code> to the cluster connection string and{' '}
+              reflect local JSON snapshots, not a cluster. To connect to a live Atlas cluster, set{' '}
+              <code className="kbd">MONGODB_URI</code> to the connection string and{' '}
               <code className="kbd">FORCE_ATLAS_CONNECTION</code> to <Mono>true</Mono> in the backend environment, then
               restart. Until then, treat this as a non-production datastore.
             </p>
@@ -202,7 +210,7 @@ export default function SystemHealthPage() {
           </div>
         </Panel>
 
-        <Panel title="Live service probes" description="GET /system/services — reachability checked at request time." dense>
+        <Panel title="Live service probes" description="GET /system/services. Reachability checked at request time." dense>
           {services.error ? <ErrorState error={services.error} onRetry={() => void services.refetch()} /> : null}
           <div className="grid gap-3 sm:grid-cols-2">
             {(services.data?.items ?? []).map((service) => {
@@ -224,7 +232,7 @@ export default function SystemHealthPage() {
         {/* --------------------------------------------------------- metrics */}
         <Panel
           title="Latency & throughput"
-          description={`GET /system/metrics (window: ${metrics.data?.window ?? '—'}). Read once on load and on Refresh — never polled. Null capabilities are shown as "not measured".`}
+          description={`GET /system/metrics (window: ${metrics.data?.window ?? '—'}). Read on load and on Refresh; not polled. Null capabilities are shown as "not measured".`}
           dense
           className="lg:col-span-2"
         >
@@ -239,7 +247,7 @@ export default function SystemHealthPage() {
         </Panel>
 
         {/* ----------------------------------------------------- dependencies */}
-        <Panel title="Dependencies" description="GET /system/dependencies — installed versions and CLI presence probed on the host." dense>
+        <Panel title="Dependencies" description="GET /system/dependencies. Installed versions and CLI presence probed on the host." dense>
           {dependencies.error ? <ErrorState error={dependencies.error} onRetry={() => void dependencies.refetch()} /> : null}
           <div className="table-wrap">
             <table className="data text-[13px]">
@@ -273,7 +281,7 @@ export default function SystemHealthPage() {
         </Panel>
 
         {/* ------------------------------------------------------ endpoint map */}
-        <Panel title="API surface" description="GET /system/endpoints — the groups the backend advertises (read-only summary)." dense>
+        <Panel title="API surface" description="GET /system/endpoints. The groups the backend advertises (read-only summary)." dense>
           {endpointCatalog.error ? <ErrorState error={endpointCatalog.error} onRetry={() => void endpointCatalog.refetch()} /> : null}
           <ul className="space-y-2">
             {(endpointCatalog.data?.groups ?? []).map((group) => (
@@ -289,7 +297,7 @@ export default function SystemHealthPage() {
         </Panel>
 
         {/* ---------------------------------------------------- status extras */}
-        <Panel title="Runtime context" description="GET /system/status — a few environment facts." dense className="lg:col-span-2">
+        <Panel title="Runtime context" description="GET /system/status. A few environment facts." dense className="lg:col-span-2">
           {status.error ? <ErrorState error={status.error} onRetry={() => void status.refetch()} /> : null}
           {status.data ? (
             <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
@@ -309,7 +317,7 @@ export default function SystemHealthPage() {
       {/* ----------------------------------------------------------- backups */}
       <Panel
         title="Backups"
-        description="GET /system/backups — snapshots under the backup root. Only an administrator can trigger one."
+        description="GET /system/backups. Snapshots under the backup root. Only an administrator can trigger one."
         className="mt-6"
         actions={
           <button
@@ -373,7 +381,7 @@ export default function SystemHealthPage() {
           <span aria-hidden="true">ⓘ</span>
           <span>
             Size, document count and sha256 come from the manifest the backend wrote when the snapshot was taken.
-            “Restore verified” is only ever set by the backend after a real restore round-trip — this page never marks
+            “Restore verified” is set by the backend only after a restore round-trip succeeds; this page does not mark
             a snapshot as verified itself.
           </span>
         </p>
@@ -392,7 +400,8 @@ export default function SystemHealthPage() {
         message={
           <span>
             The backend writes a real snapshot to the backup root and computes its size, document count and sha256
-            from actual file reads. It uses <Mono>mongodump</Mono> only when connected to Atlas and the tool is on{' '}
+            from actual file reads. It uses <Mono>mongodump</Mono> only when the datastore is a real MongoDB server and
+            the tool is on{' '}
             PATH, otherwise it falls back to a local JSON copy. This action is audited and requires an administrator.
           </span>
         }
@@ -494,7 +503,7 @@ function MetricsPanel({ raw }: { raw: import('../../types/api').SystemMetricsRes
         </div>
       ) : (
         <p className="text-xs subtle" role="status">
-          Per-endpoint breakdown: <strong>not measured</strong> — {notMeasured('by_endpoint_group')}.
+          Per-endpoint breakdown: <strong>not measured</strong>. {notMeasured('by_endpoint_group')}.
         </p>
       )}
     </div>

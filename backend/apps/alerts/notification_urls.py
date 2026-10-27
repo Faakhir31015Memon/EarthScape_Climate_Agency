@@ -1,4 +1,3 @@
-"""URLs for in-app notifications, mounted at ``/api/v1/notifications/``."""
 from django.urls import path
 
 from apps.alerts import notification_views as views

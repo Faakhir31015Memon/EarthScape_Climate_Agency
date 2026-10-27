@@ -184,7 +184,7 @@ class DataLake:
 
     def storage_reference(self, logical_key: str, *, layer: Optional[str] = None,
                           partition: Optional[Dict[str, Any]] = None) -> str:
-        """The URI that gets recorded - reflects the real backend, portably.
+        """The URI that gets recorded - reflects the configured backend, portably.
 
         ``lake://<layer>/<key>`` resolves against this deployment's lake root, so
         the same recorded reference works on a second machine or in a container;

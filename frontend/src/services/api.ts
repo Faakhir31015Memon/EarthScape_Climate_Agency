@@ -1,5 +1,5 @@
 /**
- * Typed API client. One function per real backend endpoint. Pages never call axios
+ * Typed API client. One function per backend endpoint. Pages never call axios
  * directly; route paths, query keys, request bodies and response-envelope unwrapping
  * live here. Every path below was verified against the mounted Django URLs and
  * `APPEND_SLASH = False` (collection routes need the trailing slash).
@@ -27,7 +27,6 @@ import type {
   AnomalyResponse,
   AnomalyScanResponse,
   AuthConfiguration,
-  AuditLogEntry,
   BackupRunResponse,
   BackupsResponse,
   ColumnSuggestionResponse,
@@ -89,9 +88,7 @@ import type {
   ReportTypesResponse,
   ReportsListResponse,
   RolesResponse,
-  SavedAnalysis,
   ServicesResponse,
-  SettingsResponse,
   StationsResponse,
   StatusNoteResponse,
   SupportCategoriesResponse,
@@ -430,33 +427,6 @@ export const climateApi = {
   },
 }
 
-/* --------------------------------------------------------------- saved analyses */
-
-export const savedApi = {
-  list(params: PageParams & { search?: string } = {}): Promise<Paginated<SavedAnalysis>> {
-    return apiGet<Paginated<SavedAnalysis>>('/climate/saved', params)
-  },
-  get(id: string): Promise<SavedAnalysis> {
-    return apiGet<SavedAnalysis>(`/climate/saved/${id}`)
-  },
-  save(payload: {
-    name: string
-    description?: string
-    filters?: Record<string, unknown>
-    chart_config?: Record<string, unknown>
-    notes?: string
-    is_shared?: boolean
-  }): Promise<SavedAnalysis> {
-    return apiPost<SavedAnalysis>('/climate/saved', payload)
-  },
-  update(id: string, changes: Record<string, unknown>): Promise<SavedAnalysis> {
-    return apiPatch<SavedAnalysis>(`/climate/saved/${id}`, changes)
-  },
-  remove(id: string): Promise<{ deleted: boolean; id: string }> {
-    return apiDelete<{ deleted: boolean; id: string }>(`/climate/saved/${id}`)
-  },
-}
-
 /* -------------------------------------------------------------- dashboard */
 
 export const dashboardApi = {
@@ -473,29 +443,6 @@ export const dashboardApi = {
 export const analyticsApi = {
   summaries(params: { metric?: string; workflow?: string; processing_mode?: string; page?: number } = {}): Promise<AnalyticsSummariesResponse> {
     return apiGet<AnalyticsSummariesResponse>('/analytics/summaries', params)
-  },
-  // Saved analyses live under /climate/saved (no /analytics/saved exists).
-  listSaved(params: PageParams & { search?: string } = {}): Promise<Paginated<SavedAnalysis>> {
-    return savedApi.list(params)
-  },
-  getSaved(id: string): Promise<SavedAnalysis> {
-    return savedApi.get(id)
-  },
-  save(payload: {
-    name: string
-    description?: string
-    filters?: Record<string, unknown>
-    chart_config?: Record<string, unknown>
-    notes?: string
-    is_shared?: boolean
-  }): Promise<SavedAnalysis> {
-    return savedApi.save(payload)
-  },
-  updateSaved(id: string, changes: Record<string, unknown>): Promise<SavedAnalysis> {
-    return savedApi.update(id, changes)
-  },
-  deleteSaved(id: string): Promise<{ deleted: boolean; id: string }> {
-    return savedApi.remove(id)
   },
   // /analytics/export does not exist; the CSV export route is /climate/export.
   exportCsv(params: RangeParams & { metric?: Metric }): Promise<void> {
@@ -769,15 +716,6 @@ export const systemApi = {
   endpoints(): Promise<{ groups: EndpointGroup[] }> {
     return apiGet<{ groups: EndpointGroup[] }>('/system/endpoints')
   },
-  audit(params: PageParams & { action?: string; outcome?: string; actor_role?: string } = {}): Promise<Paginated<AuditLogEntry>> {
-    return apiGet<Paginated<AuditLogEntry>>('/system/audit', params)
-  },
-  settings(): Promise<SettingsResponse> {
-    return apiGet<SettingsResponse>('/system/settings')
-  },
-  updateSettings(changes: Record<string, unknown>): Promise<SettingsResponse> {
-    return apiPatch<SettingsResponse>('/system/settings', changes)
-  },
   backups(): Promise<BackupsResponse> {
     return apiGet<BackupsResponse>('/system/backups')
   },
@@ -798,7 +736,6 @@ export const api = {
   datasets: datasetsApi,
   ingestion: ingestionApi,
   climate: climateApi,
-  saved: savedApi,
   dashboard: dashboardApi,
   analytics: analyticsApi,
   processing: processingApi,

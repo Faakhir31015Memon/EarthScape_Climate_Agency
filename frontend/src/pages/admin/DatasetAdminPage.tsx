@@ -20,11 +20,10 @@ import {
   StatusBadge,
   TableSkeleton,
   type Column,
-  type Option,
 } from '../../components/ui'
 import { ActionFeedback, CodeCell, ConfigRequirement, MetadataView, type Feedback } from './components/AdminBits'
 import { PAGE_SIZE, describeError, noteFrom, redactIfNeeded, unwrapOne } from './components/adminUtils'
-import { formatBytes, formatDate, formatNumber, humanise, relativeTime } from '../../lib/format'
+import { formatDate, formatNumber, humanise, relativeTime } from '../../lib/format'
 import type { Dataset, DatasetStatus, FormatDocumentation, IngestionJob, Paginated, SourceType, ValidationReport } from '../../types/api'
 
 const STATUS_OPTIONS: DatasetStatus[] = ['draft', 'validating', 'validated', 'ingesting', 'ready', 'failed', 'archived']
@@ -80,7 +79,7 @@ const EXPECTED_CONNECTORS: { name: string; sourceType: string; envKeys: string; 
     sourceType: 'nasa_power',
     envKeys: 'NASA_POWER_BASE_URL',
     requiresKey: false,
-    hint: 'NASA POWER needs no API key — only outbound network access.',
+    hint: 'NASA POWER needs no API key, just outbound network access.',
   },
   {
     name: 'noaa_cdo',
@@ -94,7 +93,7 @@ const EXPECTED_CONNECTORS: { name: string; sourceType: string; envKeys: string; 
     sourceType: 'live_api',
     envKeys: 'LIVE_CLIMATE_PROVIDER, LIVE_CLIMATE_BASE_URL, LIVE_CLIMATE_API_KEY',
     requiresKey: false,
-    hint: 'Key-free by default; LIVE_CLIMATE_PROVIDER must name a registered provider. Polling of daily values, not a sensor stream.',
+    hint: 'Key-free by default; LIVE_CLIMATE_PROVIDER must name a registered provider. It polls daily values.',
   },
 ]
 
@@ -143,7 +142,6 @@ export default function DatasetAdminPage() {
 
   const connectors = useAsync(() => api.ingestion.connectors(), [])
   const formats = useAsync(() => api.datasets.formats(), [])
-  const settings = useAsync(() => api.system.settings(), [])
 
   const detail = useAsync(
     () => (selected ? api.datasets.get(selected.id).then((raw) => unwrapOne<Dataset>(raw)) : Promise.resolve(null)),
@@ -196,7 +194,7 @@ export default function DatasetAdminPage() {
           source: connector,
           source_type: dataset.source_type,
           dataset_id: dataset.id,
-          name: `admin re-sync — ${dataset.name}`,
+          name: `admin re-sync of ${dataset.name}`,
           triggered_by: 'manual',
         }
         const raw = await api.ingestion.start(payload as Parameters<typeof api.ingestion.start>[0])
@@ -431,15 +429,6 @@ export default function DatasetAdminPage() {
 
   const formatDocs = useMemo<FormatDocumentation[]>(() => formats.data?.formats ?? [], [formats.data])
 
-  const derived = settings.data?.env_derived
-  const uploadLimits = useMemo<Option[]>(() => {
-    if (!derived) return []
-    return [
-      { value: 'bytes', label: `Upload size limit: ${formatBytes(derived.max_upload_bytes)}` },
-      { value: 'rows', label: `Upload row limit: ${derived.max_upload_rows.toLocaleString()} rows` },
-    ]
-  }, [derived])
-
   return (
     <div>
       <PageHeader
@@ -451,7 +440,6 @@ export default function DatasetAdminPage() {
             <>
               <Badge tone="neutral">{list.data.total.toLocaleString()} dataset(s)</Badge>
               <span className="subtle">page {list.data.page} of {Math.max(list.data.pages, 1)}</span>
-              {derived ? <Badge tone="info">{humanise(derived.database_mode)} store</Badge> : null}
             </>
           ) : null
         }
@@ -513,7 +501,7 @@ export default function DatasetAdminPage() {
       </FilterBar>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Panel title="Datasets" description="GET /api/v1/datasets — administrators see all records; the server hides storage_uri from anyone without a right to it." dense>
+        <Panel title="Datasets" description="GET /api/v1/datasets. Administrators see all records; storage_uri is hidden from anyone without access to it." dense>
           {list.loading ? <TableSkeleton rows={6} columns={8} /> : (
             <DataTable
               caption="All datasets"
@@ -569,7 +557,7 @@ export default function DatasetAdminPage() {
 
           <Panel
             title="Source connectors"
-            description="GET /api/v1/ingestion/connectors — configuration state only; secret values stay masked by env.mask_value()."
+            description="GET /api/v1/ingestion/connectors. Configuration state only; secret values stay masked."
             dense
             actions={<RefreshButton onClick={() => void connectors.refetch()} busy={connectors.refreshing} label="Probe" />}
           >
@@ -577,8 +565,8 @@ export default function DatasetAdminPage() {
               <>
                 <ErrorState error={connectors.error} onRetry={() => void connectors.refetch()} />
                 <p className="mt-3 text-xs leading-relaxed muted">
-                  The connector endpoint has not answered, so the entries below are the static registry names only — their configuration
-                  state is unknown until an endpoint answers. Each is listed with the environment key it needs.
+                  The connector endpoint has not answered, so the entries below are just the static registry names. Their configuration
+                  state stays unknown until it responds. Each is listed with the environment key it needs.
                 </p>
                 <ul className="mt-3 space-y-3">
                   {EXPECTED_CONNECTORS.map((entry) => (
@@ -629,21 +617,10 @@ export default function DatasetAdminPage() {
           </Panel>
 
           <Panel
-            title="Upload limits & accepted formats"
-            description="Ceilings come from GET /api/v1/system/settings (env-derived); format rules from GET /api/v1/datasets/formats."
+            title="Accepted formats"
+            description="Format rules from GET /api/v1/datasets/formats."
             dense
           >
-            {settings.error ? <ErrorState error={settings.error} onRetry={() => void settings.refetch()} /> : null}
-            {uploadLimits.length > 0 ? (
-              <ul className="mb-3 space-y-1">
-                {uploadLimits.map((entry) => (
-                  <li key={entry.value} className="text-sm muted">{entry.label}</li>
-                ))}
-                <li className="text-sm muted">Allowed extensions: the server rejects executables and markup (FORBIDDEN_EXTENSIONS in apps/datasets/views.py).</li>
-              </ul>
-            ) : (
-              <p className="text-xs subtle">{settings.loading ? 'Reading limits…' : 'The settings endpoint has not answered, so the ceilings are unknown — they are not guessed here.'}</p>
-            )}
             {formats.error ? <ErrorState error={formats.error} onRetry={() => void formats.refetch()} /> : null}
             {formatDocs.length === 0 && !formats.loading && !formats.error ? (
               <p className="text-xs subtle">The formats endpoint returned no documentation entries.</p>
@@ -695,7 +672,7 @@ export default function DatasetAdminPage() {
         message={
           <span>
             <strong>{selected?.name}</strong> will move to <strong>archived</strong> and disappear from the analyst library. The stored
-            file, its observations and its ingestion history are retained — this is a soft archive, and the backend rejects the request
+            file, its observations and its ingestion history are retained. This is a soft archive, and the backend rejects the request
             with HTTP 403 unless the caller is an administrator. The action is written to the audit trail as{' '}
             <span className="mono">dataset.archived</span>.
           </span>
@@ -853,7 +830,7 @@ function DatasetDetail({
       ) : dataset.validation_report ? (
         <p className="mt-3 text-xs subtle">
           The stored validation object has no report content this screen can read (keys{' '}
-          <span className="mono">{Object.keys(dataset.validation_report).join(', ') || 'none'}</span>) — nothing is inferred from it.
+          <span className="mono">{Object.keys(dataset.validation_report).join(', ') || 'none'}</span>). It shows nothing beyond those keys.
           {hasStoredFile ? ' Use Re-validate to rebuild it from the stored file.' : ' This dataset records no stored file, so no re-validation can run.'}
         </p>
       ) : (
@@ -905,7 +882,7 @@ function DatasetDetail({
               ) : null}
               {job.validation_errors && job.validation_errors.length > 0 ? (
                 <p className="mt-1 subtle">
-                  {job.validation_errors.length} validation rejection(s) —{' '}
+                  {job.validation_errors.length} validation rejection(s):{' '}
                   {job.validation_errors.slice(0, 3).map((issue) => `${issue.code}${issue.count ? ` ×${issue.count}` : ''}`).join(', ')}
                 </p>
               ) : null}

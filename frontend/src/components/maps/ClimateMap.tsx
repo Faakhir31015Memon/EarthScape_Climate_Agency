@@ -6,9 +6,9 @@ import { Layers, Maximize2 } from 'lucide-react'
 import type { MapDataResponse, MapPoint, Metric } from '../../types/api'
 import { formatNumber, metricLabel, relativeTime } from '../../lib/format'
 
-const COLD = [37, 124, 235]
-const HOT = [198, 58, 58]
-const GREEN = [39, 99, 58]
+const COLD = [38, 90, 118]
+const HOT = [169, 59, 44]
+const GREEN = [53, 83, 47]
 
 function interpolate(from: number[], to: number[], ratio: number): string {
   const channel = from.map((value, index) => Math.round(value + (to[index] - value) * ratio))
@@ -16,12 +16,12 @@ function interpolate(from: number[], to: number[], ratio: number): string {
 }
 
 export function colorForValue(value: number | null, min: number, max: number, metric?: Metric): string {
-  if (value === null || !Number.isFinite(value)) return 'rgba(134, 151, 139, 0.5)'
+  if (value === null || !Number.isFinite(value)) return 'rgba(137, 145, 137, 0.5)'
   const span = max - min || 1
   const ratio = Math.max(0, Math.min(1, (value - min) / span))
   if (metric?.startsWith('temperature')) return interpolate(COLD, HOT, ratio)
-  if (metric === 'precipitation_mm') return interpolate([191, 227, 254], [30, 69, 138], ratio)
-  return interpolate([189, 222, 197], GREEN, ratio)
+  if (metric === 'precipitation_mm') return interpolate([207, 226, 235], [32, 72, 94], ratio)
+  return interpolate([216, 231, 208], GREEN, ratio)
 }
 
 function FitBounds({ bounds }: { bounds: [number, number, number, number] | null }) {
@@ -156,7 +156,7 @@ export function ClimateMap({ data, metric, unit, height = 520, onSelectPoint, de
               const clusterMean = cluster.measurements[metric]?.mean ?? null
               const icon = L.divIcon({
                 className: 'earthscape-marker',
-                html: `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:9999px;font:600 12px Inter,system-ui;color:#fff;background:${colorForValue(
+                html: `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:9999px;font:600 12px 'IBM Plex Sans',system-ui;color:#fff;background:${colorForValue(
                   clusterMean,
                   min,
                   max,
@@ -202,7 +202,6 @@ export function ClimateMap({ data, metric, unit, height = 520, onSelectPoint, de
             {formatNumber(max, 1)} {unit}
           </span>
         </div>
-        <p className="subtle">{data.data_note}</p>
       </div>
 
       {zoom < detailZoom && data.clusters.length > 0 ? (

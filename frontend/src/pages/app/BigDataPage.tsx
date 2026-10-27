@@ -1,9 +1,9 @@
 /**
- * Big Data workspace — the distributed-processing surface. It reports the real
+ * Big Data workspace — the distributed-processing surface. It reports the configured
  * storage mode (local filesystem vs HDFS/data lake), lets an analyst launch a
  * map/reduce or Spark workflow and track it, and lists the Parquet/aggregation
  * jobs. When the cluster is not configured it says so and shows the backend's
- * own setup guidance instead of pretending a run happened.
+ * own setup guidance.
  */
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -81,11 +81,11 @@ export default function BigDataPage() {
       <PageHeader
         eyebrow="Data pipeline"
         title="Big Data workspace"
-        description="Distributed processing, the data lake, and Parquet/aggregation outputs — reported exactly as the backend is configured."
+        description="Distributed processing, the data lake, and Parquet/aggregation outputs, shown as this deployment is configured."
         actions={<RefreshButton onClick={refreshAll} busy={lakeState.refreshing || enginesState.refreshing} />}
       />
 
-      {/* (d) honest mode banner */}
+      {/* (d) mode banner */}
       <div
         className="flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3"
         style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)' }}
@@ -98,7 +98,7 @@ export default function BigDataPage() {
           <p className="text-xs muted">
             {clusterMode
               ? 'A distributed engine is configured; runs execute on the cluster.'
-              : 'Running on the local single-node engine. Large aggregations execute in-process rather than on a Hadoop/Spark cluster.'}
+              : 'Running on the local single-node engine. Large aggregations run in-process instead of on a Hadoop/Spark cluster.'}
           </p>
         </div>
         <Badge tone={clusterMode ? 'info' : 'neutral'}>{clusterMode ? 'cluster' : 'local-development'}</Badge>
@@ -107,7 +107,7 @@ export default function BigDataPage() {
       {engines.length && engines[0]?.note ? <p className="text-xs italic muted">{engines[0].note}</p> : null}
 
       {/* (a) data lake */}
-      <Panel title="Data lake" description="Storage roots and partitions as reported by the backend.">
+      <Panel title="Data lake" description="Storage roots and partitions as this deployment reports them.">
         {lakeState.loading ? <TableSkeleton rows={3} columns={3} /> : null}
         {lakeState.error ? (
           <ErrorState error={lakeState.error} onRetry={() => void lakeState.refetch()} />
@@ -119,10 +119,10 @@ export default function BigDataPage() {
             title="No data lake roots are available"
             description={
               <>
-                <span>{lake.message ?? 'The backend reported no readable storage roots for the current mode.'}</span>
+                <span>{lake.message ?? 'No readable storage roots were found for the current mode.'}</span>
                 {setupInstructions(engines) ? (
                   <span className="mt-1 block text-xs">
-                    Setup guidance from the backend: {setupInstructions(engines)}
+                    Setup guidance: {setupInstructions(engines)}
                   </span>
                 ) : null}
               </>
@@ -160,7 +160,7 @@ export default function BigDataPage() {
 
             {lake.partitions > 0 ? (
               <p className="text-xs subtle">
-                Partitions reported by the backend: <span className="mono">{formatNumber(lake.partitions, 0)}</span>
+                Partitions recorded here: <span className="mono">{formatNumber(lake.partitions, 0)}</span>
               </p>
             ) : (
               <p className="text-xs subtle">No partitions reported for this mode. {lake.message || ''}</p>
@@ -174,7 +174,7 @@ export default function BigDataPage() {
         {workflowsState.loading ? <p className="text-xs subtle">Loading workflows…</p> : null}
         {workflowsState.error ? <ErrorState error={workflowsState.error} onRetry={() => void workflowsState.refetch()} /> : null}
         {!workflowsState.loading && bigDataWorkflows.length === 0 && !workflowsState.error ? (
-          <EmptyState title="No distributed workflows registered" description="The processing app exposes no map/reduce or Spark workflows in this deployment." />
+          <EmptyState title="No distributed workflows registered" description="No map/reduce or Spark workflows are available in this deployment." />
         ) : null}
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {bigDataWorkflows.map((workflow) => (
@@ -253,10 +253,8 @@ export default function BigDataPage() {
       <Panel title="Documentation">
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="muted">
-            Repository guide: <span className="mono">README.md</span> · Pipeline job layout:{' '}
-            <span className="mono">backend/data-pipeline/mapreduce/README.md</span> · Deployment:{' '}
-            <span className="mono">backend/infrastructure/README.md</span> · ML layer:{' '}
-            <span className="mono">backend/ml/README.md</span>
+            The repository guide covers the overall platform; the pipeline, deployment and machine-learning packages each have their own
+            setup notes. Ask your administrator for the copy shipped with this release.
           </span>
         </div>
       </Panel>
@@ -283,7 +281,7 @@ function setupInstructions(engines: EngineHealth[]): string | null {
   if (!engine) return null
   const hints = [
     engine.hdfs?.detail,
-    !engine.hdfs?.configured ? 'HDFS is not configured — the lake falls back to local storage.' : null,
+    !engine.hdfs?.configured ? 'HDFS is not configured, so the lake falls back to local storage.' : null,
     engine.spark?.error ?? (!engine.spark?.installed ? 'Spark is not installed on this node.' : null),
     engine.hadoop?.detail ?? (!engine.hadoop?.cluster_configured ? 'No Hadoop cluster is configured.' : null),
   ].filter(Boolean)
@@ -331,7 +329,7 @@ function TrackedJob({ job, onClear }: { job: ProcessingJob; onClear: () => void 
           </ul>
         </div>
       ) : running ? (
-        <p className="text-xs subtle">No outputs yet — the job is still running.</p>
+        <p className="text-xs subtle">No outputs yet. The job is still running.</p>
       ) : (
         <p className="text-xs subtle">This job produced no recorded output paths.</p>
       )}

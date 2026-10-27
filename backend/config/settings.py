@@ -17,7 +17,6 @@ sys.path.insert(0, str(BASE_DIR))
 # ``ml/`` and ``data-pipeline/`` are packages inside ``backend/``, so the BASE_DIR entry
 # above already lets management commands, the dev server and any worker resolve
 # ``import ml.*`` the same way.
-
 env.validate_startup()
 
 SECRET_KEY = env.get_str("DJANGO_SECRET_KEY")

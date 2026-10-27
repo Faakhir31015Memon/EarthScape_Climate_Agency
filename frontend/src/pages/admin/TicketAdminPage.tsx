@@ -97,7 +97,7 @@ export default function TicketAdminPage() {
       <PageHeader
         eyebrow="Administration"
         title="Support & feedback"
-        description="The support queue and user feedback. Staff see the whole queue; anyone else sees only their own tickets — the server enforces that either way."
+        description="The support queue and user feedback. Staff see the whole queue; anyone else sees only their own tickets. The server enforces this either way."
       />
       <Tabs items={tabs} />
     </div>
@@ -474,7 +474,7 @@ function CommentRow({ comment }: { comment: TicketComment }) {
           <span className="font-medium">{comment.author_name || comment.author_user_id}</span> · {humanise(comment.author_role)}
         </span>
         <span className="flex items-center gap-2">
-          {comment.internal ? <Badge tone="warning" title="Internal note — visible to staff only">internal</Badge> : null}
+          {comment.internal ? <Badge tone="warning" title="Internal note, visible to staff only">internal</Badge> : null}
           <span>{formatDate(comment.created_at, true)}</span>
         </span>
       </div>
@@ -638,7 +638,7 @@ function FeedbackDetailModal({
                 <Select id="fb-set-status" options={toOptions(FEEDBACK_STATUSES)} value={status} onChange={(next) => setStatus(next as FeedbackRecord['status'])} ariaLabel="Set feedback status" disabled={busy} />
               </Field>
               <div className="flex items-end text-xs subtle">
-                <span>“Planned”/“addressed” are not supported by this endpoint — choose the closest of the three real statuses.</span>
+                <span>“Planned” and “addressed” are not supported by this endpoint; choose the closest of the three available statuses.</span>
               </div>
             </div>
             <div className="mt-3">

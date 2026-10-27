@@ -1,4 +1,3 @@
-"""Request validation for the alert-rule, alert and notification APIs."""
 from __future__ import annotations
 
 from rest_framework import serializers
@@ -65,8 +64,8 @@ class RuleUpdateSerializer(serializers.Serializer):
                                        max_length=500)
 
     def validate_condition(self, value: dict) -> dict:
-        # Partial condition updates are merged with the stored condition by the engine,
-        # but an explicitly supplied condition must be complete.
+        # Engine merges a partial condition with the stored one; a supplied
+        # condition has to be complete.
         if not value.get("operator"):
             raise serializers.ValidationError("condition.operator is required.")
         return value

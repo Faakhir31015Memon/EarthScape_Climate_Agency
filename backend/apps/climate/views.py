@@ -1,9 +1,6 @@
-"""Climate analytics endpoints (``/api/v1/climate/``).
-
-Read endpoints return real aggregates and never invent a series: when the stored
-record is too thin, the response says so with a reason and the available versus
-required counts. Write and export endpoints are enforced server-side by role and
-audited through :mod:`common.audit`.
+"""Endpoints for /api/v1/climate/. A too-thin record comes back with a reason and the
+available vs required counts instead of a series. Write and export endpoints are
+role-gated server-side and audited via common.audit.
 """
 from __future__ import annotations
 
@@ -17,8 +14,6 @@ from apps.climate import explorer, services
 from apps.climate.serializers import (
     ANOMALY_METHODS,
     AnomalyScanSerializer,
-    SavedAnalysisSerializer,
-    SavedAnalysisUpdateSerializer,
     metric_or_400,
 )
 from common import analytics, audit
@@ -93,10 +88,10 @@ END_WINDOW_KEYS = ("end", "to", "date_end")
 
 
 def _window(request, *, default_days: int | None = None) -> tuple:
-    """Read the inclusive ``YYYY-MM-DD`` window, honouring every alias.
+    """Read the inclusive YYYY-MM-DD window, accepting every alias.
 
-    ``common.views.date_filter`` pairs one start key with one end key, so the
-    aliases are folded here instead of silently dropping ``?end=``.
+    common.views.date_filter pairs one start key with one end key, so the aliases are
+    folded here to avoid dropping ?end=.
     """
     start = None
     for key in START_WINDOW_KEYS:
@@ -144,7 +139,7 @@ class ObservationListView(AuthenticatedView):
 
 
 class TrendView(PublicView):
-    """``analytics.trend_series`` with an honest insufficient-data state."""
+    """analytics.trend_series with an insufficient-data state."""
 
     def get(self, request):
         metric = metric_or_400(str_param(request, "metric", "temperature_c"))
@@ -198,7 +193,7 @@ class RegionListView(PublicView):
                     "first_date": None,
                     "last_date": None,
                     "metrics": {},
-                    "reason": "No observation documents exist for this region yet.",
+                    "reason": "No observations exist for this region yet.",
                 },
                 "available": bool(stats and stats["observation_count"]),
                 "geography_source": document.get("source", "reference"),
@@ -231,7 +226,7 @@ class RegionDetailView(PublicView):
 
 
 class AnomalyListView(PublicView):
-    """Anomaly detection over the stored record (``analytics.detect_anomalies``)."""
+    """Anomaly detection over the stored record (analytics.detect_anomalies)."""
 
     def get(self, request):
         metric = metric_or_400(str_param(request, "metric", "temperature_c"))
@@ -503,62 +498,3 @@ class ObservationExportView(BaseView):
         response["Cache-Control"] = "no-store"
         response["X-Content-Type-Options"] = "nosniff"
         return response
-
-
-class SavedAnalysisListView(BaseView):
-    """Saved explorer views: list and create."""
-
-    authentication_classes = [MongoJWTAuthentication]
-    permission_classes = [IsAuthenticatedAccount]
-
-    def get(self, request):
-        page, page_size = _page(request)
-        payload = services.list_saved_analyses(
-            request.user.id,
-            role=request.user.role,
-            page=page,
-            page_size=page_size,
-            search=str_param(request, "search"),
-        )
-        return Response(payload)
-
-    def post(self, request):
-        document = services.create_saved_analysis(
-            request.user.id,
-            services.validated_body(SavedAnalysisSerializer(data=request.data or {})),
-        )
-        audit.for_request(request, action="climate.saved_analysis_created",
-                          resource_type="saved_analysis", resource_id=document.get("id"),
-                          metadata={"name": document.get("name")})
-        return Response(document, status=201)
-
-
-class SavedAnalysisDetailView(BaseView):
-    """Read or delete one saved analysis: owner or administrator only."""
-
-    authentication_classes = [MongoJWTAuthentication]
-    permission_classes = [IsAuthenticatedAccount]
-
-    def get(self, request, document_id: str):
-        return Response(services.get_saved_analysis(document_id, user_id=request.user.id,
-                                                   role=request.user.role))
-
-    def patch(self, request, document_id: str):
-        serializer = SavedAnalysisUpdateSerializer(data=request.data or {}, partial=True)
-        updates = services.validated_body(serializer)
-        if not updates:
-            raise ApiError("validation_failed", "No updatable fields were supplied.")
-        document = services.update_saved_analysis(document_id, updates,
-                                                 user_id=request.user.id,
-                                                 role=request.user.role)
-        audit.for_request(request, action="climate.saved_analysis_updated",
-                          resource_type="saved_analysis", resource_id=document_id)
-        return Response(document)
-
-    def delete(self, request, document_id: str):
-        deleted = services.delete_saved_analysis(document_id, user_id=request.user.id,
-                                                 role=request.user.role)
-        audit.for_request(request, action="climate.saved_analysis_deleted",
-                          resource_type="saved_analysis", resource_id=document_id,
-                          outcome="success" if deleted else "failure")
-        return Response({"deleted": bool(deleted), "id": document_id})

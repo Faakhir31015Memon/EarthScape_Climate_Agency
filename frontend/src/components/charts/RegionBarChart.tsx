@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { Metric, RegionAggregate } from '../../types/api'
 import { formatNumber, humanise } from '../../lib/format'
-import { AXIS_LINE, AXIS_TICK, ChartFooter, ChartTooltipContent, GRID_STROKE, colorAt } from './chartKit'
+import { AXIS_LINE, AXIS_TICK, ChartFooter, ChartTooltipContent, DRAW_MS, GRID_STROKE, colorAt, useDrawIn } from './chartKit'
 
 export function RegionBarChart({
   regions,
@@ -41,6 +41,8 @@ export function RegionBarChart({
     [regions, max, showStd],
   )
 
+  const drawIn = useDrawIn()
+
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center rounded-lg border border-dashed py-12 text-sm muted" style={{ borderColor: 'var(--border-strong)' }}>
@@ -58,7 +60,14 @@ export function RegionBarChart({
             <XAxis type="number" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} unit={` ${unit}`} domain={['auto', 'auto']} />
             <YAxis type="category" dataKey="region" tick={AXIS_TICK} axisLine={AXIS_LINE} tickLine={false} width={130} />
             <Tooltip content={<ChartTooltipContent unit={unit} />} cursor={{ fill: 'var(--surface-muted)' }} />
-            <Bar dataKey="value" name={label ?? humanise(metric)} radius={[0, 4, 4, 0]} isAnimationActive={false}>
+            <Bar
+              dataKey="value"
+              name={label ?? humanise(metric)}
+              radius={[0, 4, 4, 0]}
+              isAnimationActive={drawIn}
+              animationDuration={DRAW_MS}
+              animationEasing="ease-out"
+            >
               <LabelList dataKey="observations_label" position="right" style={{ fill: 'var(--text-subtle)', fontSize: 10 }} />
               {data.map((entry, index) => (
                 <Cell key={entry.code} fill={colorAt(index)} fillOpacity={0.85} />

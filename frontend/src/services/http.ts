@@ -32,7 +32,10 @@ export class ApiRequestError extends Error {
  * Access tokens live in memory so a refreshed token is never read from disk twice;
  * the refresh token is persisted so a page reload can silently re-authenticate.
  */
-const memory = { access: null as string | null, refresh: null as string | null }
+const memory = { access: null as string | null, refresh: null as null | string, expiresAt: null as null | number }
+
+/** Rotate this much before expiry so a request never travels on a dead token. */
+const REFRESH_LEAD_MS = 60_000
 
 function readStored(key: string): string | null {
   try {
@@ -61,6 +64,8 @@ export const tokenStore = {
   save(pair: TokenPair): void {
     memory.access = pair.access_token
     memory.refresh = pair.refresh_token
+    const expiresAt = Date.parse(pair.access_expires_at ?? '')
+    memory.expiresAt = Number.isNaN(expiresAt) ? null : expiresAt
     writeStored(REFRESH_KEY, pair.refresh_token)
   },
   hydrate(): boolean {
@@ -70,6 +75,7 @@ export const tokenStore = {
   clear(): void {
     memory.access = null
     memory.refresh = null
+    memory.expiresAt = null
     writeStored(ACCESS_KEY, null)
     writeStored(REFRESH_KEY, null)
   },
@@ -83,15 +89,25 @@ export const http: AxiosInstance = axios.create({
   headers: { Accept: 'application/json' },
 })
 
-http.interceptors.request.use((config) => {
+http.interceptors.request.use(async (config) => {
   const retriable = config as RetriableConfig
   if (!retriable._skipAuth && tokenStore.access) {
-    const headers = AxiosHeaders.from(retriable.headers)
-    headers.set('Authorization', `Bearer ${tokenStore.access}`)
-    retriable.headers = headers
+    // Rotating here means an ordinary 20-minute session never logs a 401 in the
+    // console on its way to a new token.
+    if (isNearExpiry()) await singleFlightRefresh()
+    if (tokenStore.access) {
+      const headers = AxiosHeaders.from(retriable.headers)
+      headers.set('Authorization', `Bearer ${tokenStore.access}`)
+      retriable.headers = headers
+    }
   }
   return retriable
 })
+
+function isNearExpiry(): boolean {
+  if (memory.expiresAt === null) return false
+  return Date.now() > memory.expiresAt - REFRESH_LEAD_MS
+}
 
 let refreshFlight: Promise<string | null> | null = null
 
@@ -120,6 +136,19 @@ function singleFlightRefresh(): Promise<string | null> {
     })
   }
   return refreshFlight
+}
+
+/**
+ * Returns a usable access token, rotating a persisted session first when the
+ * in-memory token is missing or nearly spent. Calling this before the first
+ * request of a reload means the reload never travels on a dead token, so the
+ * browser logs no 401 for a session that is perfectly resumable.
+ */
+export async function ensureAccessToken(): Promise<string | null> {
+  if ((!tokenStore.access || isNearExpiry()) && tokenStore.refresh) {
+    await singleFlightRefresh()
+  }
+  return tokenStore.access
 }
 
 export type UnauthorizedListener = () => void
@@ -155,7 +184,7 @@ function describe(error: unknown): ApiRequestError {
     const status = error.response?.status ?? 0
     if (status === 0 && !error.response) {
       return new ApiRequestError(
-        'The platform API is unreachable. Check that the backend service is running.',
+        'The platform cannot be reached right now. Please check your connection and try again.',
         'network_error',
         0,
       )

@@ -1,9 +1,5 @@
-"""Model-management endpoints mounted at /api/v1/models/.
-
-Roles: every authenticated role may read models; climate analysts and
-administrators may train and retrain; only administrators may activate, retire,
-patch or delete. Viewers are strictly read-only.
-"""
+"""Model-management endpoints. Any role reads; analysts/admins train and retrain;
+only admins activate, retire, patch and delete."""
 from __future__ import annotations
 
 from rest_framework import status
@@ -17,9 +13,8 @@ from common.views import AuthenticatedView, int_param, str_param
 
 
 class MLView(AuthenticatedView):
-    """Authenticated base for this app: platform convention is that every view
-    declares ``authentication_classes`` explicitly (``common.views.BaseView``
-    keeps the list empty)."""
+    """Base view. Each view declares authentication_classes explicitly, since
+    common.views.BaseView leaves the list empty."""
 
     authentication_classes = [MongoJWTAuthentication]
 
@@ -127,12 +122,8 @@ class RetrainModelView(MLView):
 
 
 class ModelArtifactView(MLView):
-    """GET /api/v1/models/<id>/artifacts/<kind>.
-
-    kind = report (markdown), metrics (JSON metrics), features (feature
-    definition JSON) for any authenticated role; kind = model (the raw joblib
-    artifact) requires administrator.
-    """
+    """Artifact download by kind. report/metrics/features open to any role;
+    kind=model (raw joblib) is admin-only."""
 
     def get(self, request, model_id: str, kind: str):
         document = services.get_model(model_id)

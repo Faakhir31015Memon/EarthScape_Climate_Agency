@@ -128,8 +128,8 @@ export default function ReportsPage() {
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold leading-tight sm:text-[28px]">Reports and exports</h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed muted">
-              Generate reports from the catalogue and download them when the file exists. Statuses are shown exactly as the server reports them; a report that
-              could not be built explains why (insufficient data, export too large) instead of producing an empty artifact.
+              Generate reports from the catalogue and download them once the file exists. Statuses are the server's own. When a report can't be built, it
+              says why: insufficient data, or an export too large.
             </p>
           </div>
         </div>
@@ -138,7 +138,7 @@ export default function ReportsPage() {
       {types.error ? <ErrorState error={types.error} onRetry={() => void types.refetch()} /> : null}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-        <Panel title="Report types" description="Only types the backend can compute now are selectable; others show their blocker.">
+        <Panel title="Report types" description="Only report types that can be computed from the current record are selectable; the others show what is blocking them.">
           {types.loading && !catalog ? <Skeleton className="h-40 w-full" /> : null}
           {catalog ? (
             <div className="grid gap-2 sm:grid-cols-2">
@@ -198,7 +198,7 @@ export default function ReportsPage() {
               </button>
 
               {created ? (
-                <p className="mt-2 text-xs muted" role="status">Report "{created.label}" queued with status <StatusBadge value={created.status} kind="job" /> — watch the table below.</p>
+                <p className="mt-2 text-xs muted" role="status">Report "{created.label}" queued with status <StatusBadge value={created.status} kind="job" />. Watch the table below.</p>
               ) : null}
             </div>
           </Panel>
@@ -225,7 +225,7 @@ export default function ReportsPage() {
         {list.loading ? <Skeleton className="h-40 w-full" /> : null}
         {list.error ? <ErrorState error={list.error} onRetry={() => void list.refetch()} /> : null}
         {!list.loading && (list.data?.items.length ?? 0) === 0 ? (
-          <EmptyState title="No reports yet" description="Generate a report above; it appears here with its real status." />
+          <EmptyState title="No reports yet" description="Generate a report above. It appears here with its status." />
         ) : null}
         <DataTable columns={reportColumns(canManage, setConfirm)} rows={list.data?.items ?? []} rowKey={(report) => report.id} empty="No records" />
         <Pagination meta={list.data ?? undefined} onPage={setPage} label="reports" />
@@ -258,7 +258,7 @@ function TypeCard({ item, selected, disabled, onSelect }: { item: ReportTypeCata
       onClick={onSelect}
       disabled={disabled}
       aria-pressed={selected}
-      className={`card-tight text-left transition-colors ${selected ? 'ring-2 ring-forest-500/60' : ''} ${disabled ? 'opacity-60' : ''}`}
+      className={`card-tight text-left transition-colors ${selected ? 'ring-2 ring-clay-500/60' : ''} ${disabled ? 'opacity-60' : ''}`}
       title={!item.computable_now ? item.reason ?? 'Not computable with current data' : undefined}
     >
       <div className="flex items-start justify-between gap-2">
@@ -345,7 +345,7 @@ function reportColumns(canManage: boolean, onConfirm: (value: { action: 'delete'
       cell: (report) => (
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{report.title || report.label}</p>
-          <p className="text-xs subtle">{humanise(report.report_type)} · {report.format.toUpperCase()}</p>
+          <p className="text-xs subtle">{humanise(report.report_type)} · {report.format ? report.format.toUpperCase() : 'not recorded'}</p>
         </div>
       ),
     },

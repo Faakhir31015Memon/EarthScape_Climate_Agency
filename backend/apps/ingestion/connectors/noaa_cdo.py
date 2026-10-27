@@ -10,9 +10,8 @@ Implemented API surface:
 * ``/stations``   - station lookup (bounded by datasetid, date and locationid)
 * ``/data``       - observation search with offset/limit pagination
 
-The connector reports an honest ``needs_configuration`` state whenever the token is
-absent and never returns a fabricated success.  Date ranges and ``locationid``
-arguments are validated before a request is issued.
+The connector raises ``needs_configuration`` whenever the token is absent.  Date
+ranges and ``locationid`` arguments are validated before a request is issued.
 """
 from __future__ import annotations
 
@@ -41,7 +40,7 @@ PAGE_SIZE = 100
 RATE_LIMIT_PER_MINUTE = 30
 
 # A documented, conservative mapping from CDO daily GHCND-style datatypes to canonical
-# fields.  Datatypes outside this table are recorded, not invented.
+# fields.  Datatypes outside this table are recorded without a canonical field.
 DATATYPE_MAP: Dict[str, Dict[str, Any]] = {
     "TMAX": {"field": "temperature_max_c", "scale": 1.0, "unit": "celsius"},
     "TMIN": {"field": "temperature_min_c", "scale": 1.0, "unit": "celsius"},

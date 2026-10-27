@@ -1,4 +1,4 @@
-"""Streaming ingestion: guarded Kafka path and honest polling path.
+"""Streaming ingestion over the data lake (batched micro-streams).
 
 Both paths emit canonical observations validated by ``validation`` and checked
 for schema equality by ``streaming.schema_compat``.

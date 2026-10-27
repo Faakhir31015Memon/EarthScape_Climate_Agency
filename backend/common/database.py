@@ -1,25 +1,10 @@
-"""MongoDB access layer.
+"""MongoDB access layer, three modes.
 
-MongoDB Atlas is the primary application database for EarthScape Climate Agency.
-Django's ORM is deliberately **not** used for application data: every record is a
-MongoDB document accessed through PyMongo (``backend/common/repositories.py``).
-
-Two connection modes exist:
-
-``atlas``
-    Selected whenever ``MONGODB_URI`` is configured and the server answers a ping.
-    This is the production path.
-
-``local-development``
-    Selected when ``MONGODB_URI`` is absent or unreachable and
-    ``FORCE_ATLAS_CONNECTION`` is not set. It uses an in-process document store
-    (``mongomock``) with JSON snapshots under ``backend/.data/localdb`` so the
-    platform is fully usable - with the same collection, document and query
-    semantics - on a machine that has no Atlas credentials. The active mode is
-    always reported by ``GET /api/v1/health`` and never silently faked as Atlas.
-
-Set ``FORCE_ATLAS_CONNECTION=true`` to make an unavailable Atlas cluster a hard
-startup failure instead of a fallback (recommended for production).
+`atlas` when MONGODB_URI points at a hosted .mongodb.net cluster and answers a ping;
+`local-mongodb` when the connection reaches a self-hosted server; otherwise
+`local-development` on mongomock with JSON snapshots under backend/.data/localdb.
+The mode is reported by GET /api/v1/health. Set FORCE_ATLAS_CONNECTION=true to turn an
+unreachable cluster into a startup failure instead of a fallback.
 """
 from __future__ import annotations
 
@@ -43,18 +28,16 @@ logger = logging.getLogger(__name__)
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 LOCALDB_DIR = BACKEND_DIR / ".data" / "localdb"
 
-# Collections used by the platform (authoritative list: common/collections.py).
-# Order matters for snapshot restore so that reference data exists first.
+# the collection list lives in common/collections.py
+# order matters for snapshot restore: reference data has to exist first
 from common.collections import COLLECTION_NAMES as COLLECTIONS  # noqa: E402
 
 
 class DocumentStoreUnavailable(RuntimeError):
-    """Raised when neither Atlas nor the local development store can be used."""
+    """Neither Atlas nor the local document store is usable."""
 
 
 class _LocalDocumentStore:
-    """File-backed document store used only in local-development mode."""
-
     def __init__(self, database_name: str, directory: Path):
         import mongomock
 
@@ -97,8 +80,6 @@ class _LocalDocumentStore:
 
 
 class Database:
-    """Thread-safe MongoDB gateway shared by every repository."""
-
     def __init__(self, uri: Optional[str], database_name: str, force_atlas: bool = False):
         self.database_name = database_name
         self.force_atlas = force_atlas
@@ -130,8 +111,10 @@ class Database:
                 )
                 client.admin.command("ping")
                 self._client = client
-                self.mode = "atlas"
-                logger.info("Connected to MongoDB (Atlas) database %s", self.database_name)
+                self.mode = "atlas" if _is_hosted_cluster(uri) else "local-mongodb"
+                logger.info("Connected to %s MongoDB database %s",
+                            "Atlas" if self.mode == "atlas" else "self-hosted",
+                            self.database_name)
                 return
             except (ServerSelectionTimeoutError, PyMongoError, ValueError) as exc:
                 self.error = _safe_error(exc)
@@ -139,7 +122,24 @@ class Database:
                     raise DocumentStoreUnavailable(
                         "MongoDB Atlas is required but unreachable: " + self.error
                     ) from exc
-                logger.warning("MongoDB Atlas unavailable (%s); using local-development mode", self.error)
+                logger.warning("MongoDB Atlas unavailable (%s); attempting local MongoDB fallback", self.error)
+
+        # Attempt connection to local MongoDB daemon before mongomock fallback
+        try:
+            local_client = MongoClient(
+                "mongodb://127.0.0.1:27017/",
+                serverSelectionTimeoutMS=2000,
+                connectTimeoutMS=2000,
+                tz_aware=True,
+                tzinfo=timezone.utc,
+            )
+            local_client.admin.command("ping")
+            self._client = local_client
+            self.mode = "local-mongodb"
+            logger.info("Connected to local MongoDB database %s", self.database_name)
+            return
+        except Exception as local_exc:
+            logger.debug("Local MongoDB daemon unreachable: %s", local_exc)
 
         if self.force_atlas:
             raise DocumentStoreUnavailable("MONGODB_URI is required when FORCE_ATLAS_CONNECTION=true.")
@@ -203,6 +203,12 @@ class Database:
         """Used by administrative reset tooling only."""
         self.collection(name).drop()
         self.mark_dirty(name)
+
+
+def _is_hosted_cluster(uri: str) -> bool:
+    """Atlas connection strings terminate in the hosted .mongodb.net domain; a URI
+    pointing at a private address is a self-hosted server and is reported as one."""
+    return ".mongodb.net" in uri.lower()
 
 
 def _safe_error(exc: Exception) -> str:

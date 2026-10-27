@@ -14,9 +14,9 @@ Conversion rules (see ``backend/common/validators.py`` - never re-implemented he
   parsable observation timestamp or no valid latitude/longitude.  Every other problem
   becomes a recorded issue and the row is still stored (flagged);
 * ``dedupe_key = dataset_id|location_code|observation_date`` deduplicates within the
-  batch and is written with ``UpdateOne(..., upsert=True)`` so re-runs are idempotent.
+  batch and is written with ``ReplaceOne(..., upsert=True)`` so re-runs are idempotent.
 
-Counting model (documented so the numbers reconcile - nothing is fabricated):
+Counting model (documented so the numbers reconcile):
 
 ``fetched``            = data records read from the file (blank lines excluded).
 ``rejected``           = records that could not be converted into an observation.
@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from pymongo import UpdateOne
+from pymongo import ReplaceOne
 
 from apps.datasets import file_import
 from common import regions, validators
@@ -353,7 +353,7 @@ def import_file(path: str, dataset: Dict[str, Any], mapping: Dict[str, str], *,
         if should_cancel is not None and should_cancel():
             result.aborted_reason = "Cancelled by request; only completed batches were written."
             break
-        operations = [UpdateOne({"dedupe_key": doc["dedupe_key"]}, {"$set": doc}, upsert=True)
+        operations = [ReplaceOne({"dedupe_key": doc["dedupe_key"]}, doc, upsert=True)
                       for doc in batch]
         written += _bulk_write(operations)
         if progress is not None:
@@ -394,7 +394,7 @@ def upsert_observations(observations: Iterable[Dict[str, Any]], *, batch_size: i
         if should_cancel is not None and should_cancel():
             result.aborted_reason = "Cancelled by request; partial data was written."
             break
-        operations = [UpdateOne({"dedupe_key": doc["dedupe_key"]}, {"$set": doc}, upsert=True)
+        operations = [ReplaceOne({"dedupe_key": doc["dedupe_key"]}, doc, upsert=True)
                       for doc in batch]
         _bulk_write(operations)
         processed += len(batch)
@@ -494,7 +494,7 @@ def build_validation_report(result: ImportResult) -> Dict[str, Any]:
 
 
 # --------------------------------------------------------------------- helpers
-def _bulk_write(operations: List[UpdateOne]) -> int:
+def _bulk_write(operations: List[ReplaceOne]) -> int:
     return climate_observations.bulk_write(operations)
 
 

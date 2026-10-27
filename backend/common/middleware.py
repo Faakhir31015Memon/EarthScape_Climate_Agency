@@ -317,8 +317,8 @@ class RequestCoalescingMiddleware:
     impatient refresh click, a scripted loop - costs the platform one MongoDB read.
     The first request runs and the others join it, then replay its JSON answer with
     ``X-Request-Coalesced``; a duplicate that arrives inside the short replay window
-    is answered from memory without touching the database at all. Nothing is
-    invented: the bytes are the same ones the aggregation produced.
+    is answered from memory without touching the database at all. The replayed
+    bytes are the same ones the aggregation produced.
 
     Sustained pressure on a *different* heavy endpoint is met by the slot limit,
     which returns ``429 server_busy`` with a ``Retry-After`` instead of queueing

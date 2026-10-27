@@ -176,7 +176,7 @@ export default function DatasetsPage() {
       <PageHeader
         eyebrow="Data pipeline"
         title="Dataset library"
-        description="Every registered source — uploaded files, API providers and sample sets — with its real ingestion status."
+        description="Every registered source: uploaded files, API providers and sample sets, each with its ingestion status."
         actions={
           <div className="flex items-center gap-2">
             <RefreshButton onClick={() => void state.refetch()} busy={state.refreshing} />
@@ -189,7 +189,7 @@ export default function DatasetsPage() {
                 type="button"
                 className="btn btn-secondary btn-sm"
                 disabled
-                title="This session has not been issued the datasets:upload capability — sign out and sign in again to refresh it."
+                title="This session hasn't been issued the datasets:upload capability. Sign out and sign in again to refresh it."
               >
                 <Upload className="h-4 w-4" aria-hidden="true" /> Import data
               </button>
@@ -225,7 +225,7 @@ export default function DatasetsPage() {
                 title={debouncedTerm || status || sourceType ? 'No datasets match these filters' : 'No datasets registered yet'}
                 description={
                   canUpload
-                    ? 'Upload a CSV/JSON/XLSX file or connect an API source to begin. Nothing is shown here until data is actually registered.'
+                    ? 'Upload a CSV/JSON/XLSX file or connect an API source to begin. The list stays empty until data is registered.'
                     : 'No datasets match the current view. Ask an analyst or administrator to register data.'
                 }
                 action={
@@ -246,14 +246,14 @@ export default function DatasetsPage() {
 
       <Panel
         title="Source connectors"
-        description="Configuration state reported by GET /ingestion/connectors — a connector only shows as configured when the backend says it is."
+        description="Configuration state read live from the platform. A connector shows as configured only when it is."
       >
         {connectorsState.loading ? <p className="text-xs subtle">Checking connectors…</p> : null}
         {connectorsState.error ? <ErrorState error={connectorsState.error} onRetry={() => void connectorsState.refetch()} /> : null}
         {!connectorsState.loading && connectors.length === 0 && !connectorsState.error ? (
           <EmptyState
             title="No connectors reported"
-            description="The backend did not return any source connectors, so their configuration state is unknown rather than assumed."
+            description="No source connectors were available, so their configuration state is unknown."
           />
         ) : null}
         {connectorsState.data?.note ? <p className="mb-3 text-xs subtle">{connectorsState.data.note}</p> : null}

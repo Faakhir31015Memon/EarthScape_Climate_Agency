@@ -1,13 +1,7 @@
-"""Report generators and artefact writers (CSV / PDF / JSON).
+"""Report generators plus CSV/PDF/JSON writers.
 
-Every generator computes from documents that already exist, through
-``common.analytics`` for measurement maths and the repositories for job, dataset,
-forecast and audit history. When the required documents are missing, the generator
-returns an explicit ``insufficient_data`` result that says what was looked for and
-what was found - a report is never padded with invented numbers.
-
-Artefact contract: each written file (CSV, PDF and JSON alike) carries the filters
-and provenance block inside it, so a downloaded artefact can be audited on its own.
+Generators compute only from stored documents. When the data is missing they
+return an insufficient_data artefact saying what was looked for.
 """
 from __future__ import annotations
 
@@ -33,7 +27,7 @@ from common.repositories import (  # noqa: E402
     predictions as predictions_repo,
     processing_jobs,
 )
-from common.validators import to_float  # noqa: E402  (defensive numeric parsing)
+from common.validators import to_float  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +60,7 @@ REPORT_TYPES: Dict[str, Dict[str, Any]] = {
     "anomaly": {
         "label": "Anomaly report",
         "description": "Statistical deviations measured against the climatology computed from "
-                       "the stored record itself.",
+                       "the stored data.",
         "required_data": "enough climate_observations to build a baseline (>= 8 periods)",
         "collections": ["climate_observations"],
         "default_filters": {"metric": "temperature_c", "sigma": 2.5},
@@ -175,7 +169,7 @@ def _provenance(filters: Dict[str, Any], collections: List[str], *, method: str,
         "database_name": database.database_name,
         "schema_version": SCHEMA_VERSION,
         "model_metadata": model_metadata or None,
-        "statement": "All figures are computed from stored documents; nothing is estimated.",
+        "statement": "All figures are computed from stored data.",
     }
 
 
@@ -184,13 +178,8 @@ def _artifact(*, report_type: str, filters: Dict[str, Any], title: str,
               provenance: Dict[str, Any], chart: Optional[Dict[str, Any]] = None,
               reason: Optional[str] = None,
               insufficient: bool = False) -> Dict[str, Any]:
-    """Build an artefact description.
-
-    ``insufficient=True`` means the single row is the honest explanation, not data:
-    the artefact is then flagged ``insufficient_data`` and its measured ``row_count``
-    stays zero so nothing downstream can mistake the note for a result set. An
-    artefact with no rows at all is always reported as insufficient.
-    """
+    """Marks the artefact insufficient_data when rows is empty or insufficient is
+    set; row_count stays 0 so the explanatory note row is never counted as data."""
     insufficient = bool(insufficient) or not rows
     return {
         "report_type": report_type,
@@ -436,9 +425,8 @@ def generate_forecast(filters: Dict[str, Any]) -> Dict[str, Any]:
             window["$gte"] = filters["start_date"]
         if filters.get("end_date"):
             window["$lte"] = filters["end_date"]
-        # A stored forecast is one document holding a dated series, so the window has to
-        # select on the series element, not on a document-level ``forecast_date`` that
-        # does not exist.
+        # the window has to select on the series element; there is no
+        # document-level forecast_date to filter on
         criteria["values.forecast_date"] = window
     documents = predictions_repo.find(criteria, sort=[("generated_at", -1)],
                                      limit=min(filters["limit"], 1000))
@@ -463,27 +451,44 @@ def generate_forecast(filters: Dict[str, Any]) -> Dict[str, Any]:
                 "evaluation_metrics": model.get("evaluation_metrics"),
                 "trained_on": model.get("trained_on") or model.get("training_window"),
             }
-        unit = document.get("unit") or analytics.METRIC_UNITS.get(
+        unit = document.get("unit") or document.get("units") or analytics.METRIC_UNITS.get(
             str(document.get("target_variable") or ""), None)
-        # ``values`` is the forecast series; a document without points contributes no row.
-        for point in document.get("values") or []:
-            rows.append([
-                _iso_day(point.get("forecast_date") or document.get("forecast_date")),
-                document.get("target_variable") or document.get("metric"),
-                document.get("region_code"), document.get("location_code"),
-                document.get("location_name"),
-                to_float(point.get("value")), unit,
-                to_float(point.get("lower_bound")), to_float(point.get("upper_bound")),
-                point.get("horizon_days") or document.get("horizon_days"),
-                model.get("name") or document.get("model_name"),
-                model.get("version") or document.get("model_version"),
-                model.get("algorithm"),
-                _iso_day(document.get("generated_at"), with_time=True),
-            ])
+        series = document.get("series") or []
+        if series and isinstance(series[0], dict):
+            for point in series:
+                rows.append([
+                    _iso_day(point.get("timestamp") or document.get("forecast_date")),
+                    document.get("target_variable") or document.get("metric"),
+                    document.get("region_code") or document.get("region"), document.get("location_code"),
+                    document.get("location_name"),
+                    to_float(point.get("value")), unit,
+                    to_float(point.get("lower")), to_float(point.get("upper")),
+                    point.get("horizon_days") or document.get("horizon_days") or document.get("horizon_steps"),
+                    model.get("name") or document.get("model_name"),
+                    model.get("version") or document.get("model_version"),
+                    model.get("algorithm") or document.get("algorithm"),
+                    _iso_day(document.get("generated_at"), with_time=True),
+                ])
+        else:
+            for point in document.get("values") or []:
+                if isinstance(point, dict):
+                    rows.append([
+                        _iso_day(point.get("forecast_date") or document.get("forecast_date")),
+                        document.get("target_variable") or document.get("metric"),
+                        document.get("region_code") or document.get("region"), document.get("location_code"),
+                        document.get("location_name"),
+                        to_float(point.get("value")), unit,
+                        to_float(point.get("lower_bound")), to_float(point.get("upper_bound")),
+                        point.get("horizon_days") or document.get("horizon_days") or document.get("horizon_steps"),
+                        model.get("name") or document.get("model_name"),
+                        model.get("version") or document.get("model_version"),
+                        model.get("algorithm") or document.get("algorithm"),
+                        _iso_day(document.get("generated_at"), with_time=True),
+                    ])
     if not any(row[5] is not None for row in rows):
         return _insufficient("forecast", filters,
                              "The stored forecast documents carry no numeric series values, so "
-                             "there is nothing honest to report.",
+                             "there is nothing to report.",
                              collections=["predictions", "model_registry"])
     metadata = _metadata(filters, data_source=_source_label(["predictions", "model_registry"]),
                          units=None, date_range=None, row_count=len(rows))
@@ -644,7 +649,6 @@ GENERATORS: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {
 
 
 def generate(report_type: str, raw_filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Validate filters, run the generator and return the artefact description."""
     if report_type not in GENERATORS:
         raise ReportDataError(f"Unknown report type '{report_type}'.")
     merged = {**(REPORT_TYPES[report_type].get("default_filters") or {}),
@@ -654,7 +658,7 @@ def generate(report_type: str, raw_filters: Optional[Dict[str, Any]] = None) -> 
 
 
 def computable_now(report_type: str) -> Dict[str, Any]:
-    """Cheap, honest probe: does the underlying collection hold anything?"""
+    """Counts raw documents only; says nothing about whether filters match rows."""
     spec = REPORT_TYPES[report_type]
     counts: Dict[str, int] = {}
     for name in spec["collections"]:
@@ -697,7 +701,6 @@ def catalogue() -> List[Dict[str, Any]]:
 
 # --------------------------------------------------------------------- writers
 def write_csv(artifact: Dict[str, Any], path: str) -> Dict[str, Any]:
-    """Stream the artefact to disk with its provenance block as comment lines."""
     from pathlib import Path
 
     target = Path(path)
@@ -757,7 +760,6 @@ def write_json(artifact: Dict[str, Any], path: str) -> Dict[str, Any]:
 
 
 def write_pdf(artifact: Dict[str, Any], path: str) -> Dict[str, Any]:
-    """Render the artefact with reportlab: header, provenance, chart, table, page numbers."""
     from pathlib import Path
 
     from reportlab.lib import colors
@@ -893,8 +895,8 @@ def _chart_flowable(chart: Dict[str, Any]) -> Any:
     x_high = max(pair[0] for pair in points)
     y_low = min(pair[1] for pair in points)
     y_high = max(pair[1] for pair in points)
-    # A degenerate range (one point, or a flat series) would make reportlab refuse
-    # to place ticks, so the bounds are widened by one unit and reported as such.
+    # a single point or flat series leaves reportlab no room for ticks;
+    # widen the bounds by one unit
     plot.xValueAxis.valueMin = x_low
     plot.xValueAxis.valueMax = x_high if x_high > x_low else x_low + 1
     plot.yValueAxis.valueMin = y_low
@@ -922,7 +924,7 @@ def _chart_from_pairs(pairs: List[Tuple[int, Any]], *, title: str, x_label: str,
 
 
 def _column_widths(columns: List[str], rows: List[List[Any]], available: float) -> List[float]:
-    """Proportional widths from the *raw* cell text (never from Paragraph objects)."""
+    """Proportional widths from the raw cell text, never from Paragraph objects."""
     from reportlab.lib.units import mm
 
     longest = []

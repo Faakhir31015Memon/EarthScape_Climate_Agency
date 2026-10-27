@@ -1,13 +1,13 @@
 """Notification creation, delivery policy and read state.
 
-Delivery honesty:
+Delivery behaviour:
 
 * ``in_app`` notifications are *stored* and then read by the recipient; a document
   becomes ``sent`` once it is durably persisted (never before).
 * ``email`` notifications are only attempted when ``common.emailer.is_configured()``
   is true. Otherwise the document is written with ``delivery_status="suppressed"``
-  and an explicit reason, so the UI can say "email is not configured here" instead
-  of pretending a message was delivered.
+  and an explicit reason, so the UI can say "email is not configured here" rather
+  than marking a message as delivered.
 * A ``dedupe_key`` plus the cooldown window stops the same unchanged condition from
   notifying twice, and retry attempts are capped by ``NOTIFICATION_MAX_ATTEMPTS``.
 """
@@ -180,7 +180,7 @@ def _mark_failure(repository, notification_id: str, attempts: int, reason: str) 
 
 
 def retry_due_notifications(limit: int = 50) -> Dict[str, int]:
-    """Deliver notifications whose retry window has opened. Returns real counts."""
+    """Deliver notifications whose retry window has opened. Returns per-outcome counts."""
     repository = notifications
     now = utcnow()
     due = repository.find({"delivery_status": {"$in": ["pending", "failed"]},

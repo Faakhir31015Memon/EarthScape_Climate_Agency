@@ -78,7 +78,7 @@ class EngineHealthView(ProcessingView):
 
 
 class DataLakeView(ProcessingView):
-    """``GET /api/v1/processing/data-lake`` - honest lake inventory."""
+    """``GET /api/v1/processing/data-lake`` - lake inventory."""
 
     def get(self, request):
         lake = get_data_lake()
@@ -170,7 +170,7 @@ class JobListView(ProcessingView):
 
         try:
             executor = runner.submit(workflow_id, document["id"], parameters)
-        except Exception as exc:  # noqa: BLE001 - dispatch failure must fail the job honestly
+        except Exception as exc:  # noqa: BLE001 - dispatch failure must fail the job
             logger.error("Processing dispatch failed: %s", type(exc).__name__)
             jobs_service.fail_job(document["id"],
                                     f"background dispatch failed: {type(exc).__name__}")

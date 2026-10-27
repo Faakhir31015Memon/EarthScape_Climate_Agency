@@ -289,7 +289,9 @@ def _new_seed_job(dataset_id: str, locations: List[Dict[str, Any]], start: datet
     regions_list = sorted({item["region_code"] for item in locations})
     return {
         "source_name": "NASA POWER", "source_type": "nasa_power",
+        "source_name": "NASA POWER", "source_type": "nasa_power",
         "dataset_id": maybe_object_id(dataset_id), "job_type": "api_sync", "status": "queued",
+        "created_at": utcnow(), "updated_at": utcnow(),
         "started_at": utcnow(), "completed_at": None, "records_fetched": 0, "records_accepted": 0,
         "records_rejected": 0, "records_skipped": 0, "duplicate_count": 0, "validation_errors": [],
         "retry_count": 0, "max_retries": 0,

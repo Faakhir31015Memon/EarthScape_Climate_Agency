@@ -101,7 +101,7 @@ export default function ModelRegistryPage() {
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold leading-tight sm:text-[28px]">Model registry</h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed muted">
-              Every trained model with its real evaluation metrics, lineage and lifecycle actions. Only one version per model name can be active at a time;
+              Every trained model with its evaluation metrics, lineage and lifecycle actions. Only one version per model name can be active at a time;
               activating retires the previous active version server-side.
             </p>
           </div>
@@ -155,7 +155,7 @@ export default function ModelRegistryPage() {
           }
         >
           {hasTraining ? (
-            <p className="mb-2 text-xs subtle">Some models are still training — this table refreshes every 5s.</p>
+            <p className="mb-2 text-xs subtle">Some models are still training. This table refreshes every 5s.</p>
           ) : null}
           <DataTable
             columns={columns(setSelectedId)}
@@ -227,7 +227,9 @@ function columns(setSelected: (id: string) => void): Column<ModelRecord>[] {
       header: 'Model',
       cell: (model) => (
         <button type="button" className="link text-left" onClick={() => setSelected(model.id)}>
-          <span className="block max-w-[16rem] truncate font-medium">{model.name}</span>
+          <span className="block max-w-[16rem] truncate font-medium" title={model.name}>
+            {model.name}
+          </span>
           <span className="mono text-xs subtle">v{model.version}</span>
         </button>
       ),
@@ -334,7 +336,7 @@ function ModelDetail({
         </button>
         <span
           className="inline-flex items-center gap-1 self-center text-xs subtle"
-          title="Models cannot be deleted from the registry UI; deleting a model is an administrator-only API operation and stored forecasts keep their metric snapshot."
+          title="Models cannot be deleted from this screen; deleting a model is an administrator-only operation and stored forecasts keep their recorded metrics."
         >
           <Trash2 className="h-3.5 w-3.5" /> Delete not permitted here
         </span>
@@ -372,8 +374,8 @@ function ModelDetail({
           />
           {metrics.baseline_mae != null && metrics.mae != null ? (
             <p className="mt-2 text-xs muted">
-              Model MAE <span className="mono">{formatNumber(metrics.mae, 2)}</span> vs baseline <span className="mono">{formatNumber(metrics.baseline_mae, 2)}</span> —
-              a positive skill means the model beat the naive baseline on real test rows.
+              Model MAE <span className="mono">{formatNumber(metrics.mae, 2)}</span> vs baseline <span className="mono">{formatNumber(metrics.baseline_mae, 2)}</span>.
+              A positive skill means the model beat the naive baseline on the test rows.
             </p>
           ) : null}
         </section>
@@ -413,7 +415,7 @@ function ModelDetail({
                 <li key={item.feature} className="flex items-center gap-2 text-xs">
                   <span className="w-40 shrink-0 truncate" title={item.feature}>{item.feature}</span>
                   <span className="h-2 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: 'var(--surface-muted)' }}>
-                    <span className="block h-full rounded-full bg-forest-600" style={{ width: `${Math.max(4, (Math.abs(item.importance) / maxImportance) * 100)}%` }} />
+                    <span className="block h-full rounded-full bg-clay-600 transition-[width] duration-500" style={{ width: `${Math.max(4, (Math.abs(item.importance) / maxImportance) * 100)}%` }} />
                   </span>
                   <span className="mono w-14 text-right">{formatNumber(item.importance, 3)}</span>
                 </li>

@@ -23,14 +23,14 @@ type LoginValues = z.infer<typeof loginSchema>
 function guidanceFor(error: ApiRequestError): string | null {
   switch (error.code) {
     case 'credentials_invalid':
-      return 'The email address and password are checked together, so a failure looks identical whether or not the account exists. Repeated failures temporarily lock the account.'
+      return 'Email and password are checked together, so a wrong answer looks the same whether or not the account exists. Keep trying and the account locks for a while.'
     case 'account_locked':
-      return `The account is locked after too many failed attempts. It unlocks by itself after about ${LOGIN_LOCKOUT.minutes} minutes; an administrator can clear the lock sooner.`
+      return `Too many failed attempts locked this account. It unlocks by itself after about ${LOGIN_LOCKOUT.minutes} minutes, and an administrator can clear the lock sooner.`
     case 'account_disabled':
-      return 'This account has been deactivated. An administrator can reactivate it from user management.'
+      return 'This account has been deactivated. An administrator can turn it back on from user management.'
     case 'email_not_verified':
     case 'email_unverified':
-      return 'Sign-in is blocked until the address is confirmed. Check your inbox, or ask an administrator to mark the address verified.'
+      return 'Sign-in waits until the address is confirmed. Check your inbox, or ask an administrator to confirm it for you.'
     default:
       return null
   }
@@ -120,7 +120,7 @@ export default function LoginPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         {resetDisabled ? (
-          <span className="muted">Self-service recovery is off here — an administrator issues reset links.</span>
+          <span className="muted">Self-service recovery is off here. An administrator sets passwords instead.</span>
         ) : (
           <Link to="/forgot-password" className="link">
             Forgot your password?
@@ -134,7 +134,7 @@ export default function LoginPage() {
       </div>
 
       <p className="text-xs leading-relaxed subtle">
-        Your password is sent only to this deployment&rsquo;s API over the connection it is configured with, and is never displayed or stored by the browser.
+        Your password goes only to this deployment's API, over the connection the deployment uses. The page does not keep it in the browser.
       </p>
     </form>
   )

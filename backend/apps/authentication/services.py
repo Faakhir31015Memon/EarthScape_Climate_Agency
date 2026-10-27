@@ -1,4 +1,4 @@
-"""Authentication domain services backed by the MongoDB ``users`` collection."""
+"""Authentication domain services backed by the MongoDB users collection."""
 from __future__ import annotations
 
 import logging
@@ -19,11 +19,8 @@ LOCKOUT_MINUTES = env.get_int("LOGIN_LOCKOUT_MINUTES", 15)
 
 
 class AuthError(ApiError):
-    """A refused credential or session, reported with its own status code.
-
-    Being an :class:`ApiError` is what makes the platform envelope (and the 401/403
-    the frontend branches on) reach the client; a plain exception here would surface
-    as an unhandled 500.
+    """An ApiError so the response uses the platform envelope;
+    a plain exception here would surface as an unhandled 500.
     """
 
     def __init__(self, code: str, message: str, status: int = 400):
@@ -41,7 +38,7 @@ def get_user(user_id: str) -> Optional[Dict[str, Any]]:
 def create_user(*, full_name: str, email: str, password: str, role: str,
                 created_by: Optional[str] = None, require_email_verification: Optional[bool] = None,
                 organisation: Optional[str] = None, email_verified: bool = False) -> Dict[str, Any]:
-    """Provision an account. Password hashing happens here and nowhere else."""
+    """The only place a password gets hashed."""
     normalized = security.normalize_email(email)
     if not security.valid_email(normalized):
         raise AuthError("email_invalid", "Enter a valid email address.")
@@ -84,7 +81,7 @@ def create_user(*, full_name: str, email: str, password: str, role: str,
 
 
 def public_profile(document: Dict[str, Any]) -> Dict[str, Any]:
-    """Presentation shape. Never includes the password hash or internal counters."""
+    """Omits password_hash and the login counters."""
     return {
         "id": str(document["_id"]),
         "full_name": document.get("full_name"),
@@ -101,11 +98,11 @@ def public_profile(document: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# ------------------------------------------------------------------ login flow
+
 def authenticate(email: str, password: str, *, request=None) -> Dict[str, Any]:
     document = get_user_by_email(email)
     if document is None:
-        # Same message and similar cost whether or not the account exists.
+        # dummy verify keeps the response time and message identical for unknown emails
         security.verify_password(password or "x", "$2b$12$" + "x" * 53)
         audit.for_request(request, action="auth.login", resource_type="session",
                           outcome="failure", metadata={"email_domain": _domain(email)})
@@ -177,7 +174,7 @@ def issue_token_pair(document: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def rotate_refresh_token(raw_refresh: str, *, request=None) -> Dict[str, Any]:
-    """Refresh-token rotation. Reuse of a rotated token revokes the whole family."""
+    """Reusing an already-rotated token revokes every token in its family."""
     token_hash = security.hash_refresh_token(raw_refresh)
     stored = refresh_tokens.find_one({"token_hash": token_hash})
     if stored is None:
@@ -260,16 +257,15 @@ def change_password(user_id: str, current_password: str, new_password: str, *, r
                       resource_id=user_id, outcome="success", actor_user_id=user_id)
 
 
-# ---------------------------------------------------------------- password reset
 def begin_password_reset(email: str, *, request=None) -> Dict[str, Any]:
-    """Create a single-use reset token. Delivery requires configured SMTP."""
+    """Single-use token; without SMTP configured the reply is configuration_required."""
     if not env.get_bool("ENABLE_PASSWORD_RESET", True):
         raise AuthError("feature_disabled", "Password recovery is disabled on this deployment.", 503)
 
     document = get_user_by_email(email)
     smtp_ready = bool(env.get_raw("SMTP_HOST")) and env.get_bool("ENABLE_EMAIL_NOTIFICATIONS")
     if document is None:
-        # Do not reveal whether an account exists.
+        # same reply either way, so this cannot be used to probe for accounts
         return {"status": "accepted", "delivered": False,
                 "note": "If an account exists for this address, recovery instructions were sent."}
 
@@ -355,16 +351,11 @@ def _source_ip(request) -> Optional[str]:
 
 
 def self_registration_enabled() -> bool:
-    """Self-registration is on unless a deployment explicitly closes it.
-
-    It can only ever produce the least-privileged role, so an unset key is not a
-    privilege escalation path.
-    """
+    """Default-on is safe: registration_role() clamps to the lowest role."""
     return env.get_bool("ENABLE_SELF_REGISTRATION", True)
 
 
 def registration_role(role: Optional[str]) -> str:
-    """Self-registration can only ever produce the least privileged role."""
     if env.get_bool("ALLOW_ANALYST_SELF_REGISTRATION") and role == "climate_analyst":
         return "climate_analyst"
     return VIEWER

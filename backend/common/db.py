@@ -1,8 +1,7 @@
 """PyMongo access layer.
 
-MongoDB is the primary application database. Django's ORM is intentionally unused, so
-every persistence path in this project goes through the repositories built on top of
-the helpers here.
+Django's ORM is unused in this project, so every persistence path goes through the
+repositories built on these helpers.
 """
 
 from __future__ import annotations
@@ -21,26 +20,9 @@ from common.env import ENV, resolve_mongodb_uri
 COLLECTIONS: dict[str, str] = {
     "users": "users",
     "refresh_tokens": "refresh_tokens",
-    "password_resets": "password_resets",
     "datasets": "datasets",
     "ingestion_jobs": "ingestion_jobs",
     "climate_observations": "climate_observations",
-    "analytics_summaries": "analytics_summaries",
-    "processing_jobs": "processing_jobs",
-    "model_registry": "model_registry",
-    "predictions": "predictions",
-    "alert_rules": "alert_rules",
-    "alert_events": "alert_events",
-    "notifications": "notifications",
-    "reports": "reports",
-    "saved_analyses": "saved_analyses",
-    "audit_logs": "audit_logs",
-    "support_tickets": "support_tickets",
-    "ticket_messages": "ticket_messages",
-    "feedback": "feedback",
-    "platform_settings": "platform_settings",
-    "rate_limits": "rate_limits",
-    "stream_checkpoints": "stream_checkpoints",
 }
 
 _state: dict[str, Any] = {"client": None, "failure": None}
@@ -60,7 +42,6 @@ def as_utc(value: Optional[datetime]) -> Optional[datetime]:
 
 
 def client() -> MongoClient:
-    """Return a lazily created, process-wide pooled client."""
     with _lock:
         if _state["client"] is None:
             uri = resolve_mongodb_uri()
@@ -100,7 +81,7 @@ def collection(name: str):
 
 
 def ping(timeout_ms: int = 2500) -> dict[str, Any]:
-    """Non-raising connectivity probe; never echoes the connection string."""
+    """Returns reachable=False instead of raising; the URI is never echoed."""
     try:
         c = client()
         info = c.admin.command("ping")

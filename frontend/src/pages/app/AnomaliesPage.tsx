@@ -1,8 +1,8 @@
 /**
- * Anomalies — detection across methods with an honest explanation surface. Each
+ * Anomalies — detection across methods with an explanation surface. Each
  * anomaly is shown with the detector's own explanation and the method caveat,
- * verbatim; the σ threshold and baseline are the analyst's inputs, not hidden
- * magic. Nothing here asserts a detection the backend did not return.
+ * verbatim; the σ threshold and baseline are analyst inputs from the request
+ * form. The list contains only detections returned by the backend.
  */
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -251,7 +251,7 @@ export default function AnomaliesPage() {
         >
           <AlertTriangle className="h-4 w-4 shrink-0 text-solar-600" aria-hidden="true" />
           <span>
-            Results were truncated to the returned limit — the anomaly count below is not exhaustive of the period.
+            Results were truncated to the returned limit, so the count below isn't the full period.
           </span>
         </div>
       ) : null}

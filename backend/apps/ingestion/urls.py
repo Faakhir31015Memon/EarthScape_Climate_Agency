@@ -1,7 +1,9 @@
 """Ingestion routing (mounted at ``/api/v1/ingestion/``)."""
 from django.urls import path
 
-from apps.ingestion import views
+from apps.ingestion import scheduler, views
+
+scheduler.start_if_enabled()
 
 urlpatterns = [
     path("jobs", views.JobsView.as_view(), name="ingestion-jobs"),

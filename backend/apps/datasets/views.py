@@ -702,12 +702,11 @@ def _format_documentation() -> List[Dict[str, Any]]:
          "notes": "Arrays and NDJSON stream without loading the whole file; other shapes are size-guarded."},
         {"format": "xlsx", "required_columns": required_core,
          "optional_columns": dataset_serializers.MAPPABLE_FIELDS, "unit_rules": _unit_rules(),
-         "notes": "First worksheet, header on the first row; values are read, not formulas. The "
+         "notes": "First worksheet, header on the first row. Cell values are read as stored; formulas are not evaluated. The "
                   "same reader also accepts .xlsm, .xltx and .xltm."},
         {"format": "xlsm", "required_columns": required_core,
          "optional_columns": dataset_serializers.MAPPABLE_FIELDS, "unit_rules": _unit_rules(),
-         "notes": "Macro-enabled workbook: only cell values are read and the macro stream is "
-                  "never executed."},
+         "notes": "Macro-enabled workbook. Cell values are read; the macro stream is not executed."},
         {"format": "xltx", "required_columns": required_core,
          "optional_columns": dataset_serializers.MAPPABLE_FIELDS, "unit_rules": _unit_rules(),
          "notes": "OOXML worksheet template; .xltm is read the same way."},

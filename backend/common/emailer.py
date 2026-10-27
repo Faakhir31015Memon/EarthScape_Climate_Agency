@@ -1,7 +1,7 @@
-"""Outbound email. Disabled unless SMTP is explicitly configured.
+"""Outbound email over SMTP.
 
-No message is ever sent when ``ENABLE_EMAIL_NOTIFICATIONS`` is false, and failures
-are recorded rather than presented as success.
+Nothing is sent unless ENABLE_EMAIL_NOTIFICATIONS and SMTP_HOST are both set;
+delivery failures are logged and audited, and the call returns False.
 """
 from __future__ import annotations
 

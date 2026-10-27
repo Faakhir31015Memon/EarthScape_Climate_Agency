@@ -1,16 +1,10 @@
-"""Request validation for the datasets API (DRF serializers, no ORM).
-
-MongoDB documents are validated by ``common/validators.py`` and the repository
-layer, so these serializers only shape *incoming requests* - they never touch the
-database directly.
-"""
+"""Request validation for the datasets API. No ORM."""
 from __future__ import annotations
 
 from rest_framework import serializers
 
 from common import validators
 
-# A column mapping may target any canonical field the importer understands.
 MAPPABLE_FIELDS = list(validators.RANGE_LIMITS) + [
     "observation_date", "latitude", "longitude", "location_code",
     "location_name", "region_code", "country", "provider_record_id",
@@ -21,8 +15,6 @@ DATASET_STATUSES = ("draft", "validating", "validated", "ingesting", "ready", "f
 
 
 class ColumnSuggestionSerializer(serializers.Serializer):
-    """Used by the upload wizard before a file exists (``column-suggestion``)."""
-
     headers = serializers.ListField(child=serializers.CharField(max_length=200),
                                     min_length=1, max_length=400, allow_empty=False)
     source_hint = serializers.CharField(required=False, allow_blank=True, max_length=60)
@@ -42,8 +34,6 @@ class ColumnSuggestionSerializer(serializers.Serializer):
 
 
 class ColumnMappingSerializer(serializers.Serializer):
-    """Persists a user-confirmed ``{canonical_field: source_header}`` mapping."""
-
     mapping = serializers.DictField(child=serializers.CharField(max_length=200))
     units = serializers.DictField(child=serializers.CharField(max_length=40), required=False)
     location_defaults = serializers.DictField(required=False)
@@ -67,8 +57,6 @@ class ColumnMappingSerializer(serializers.Serializer):
 
 
 class DatasetUpdateSerializer(serializers.Serializer):
-    """PATCH fields for a dataset document."""
-
     name = serializers.CharField(required=False, max_length=200)
     description = serializers.CharField(required=False, allow_blank=True, max_length=2000)
     tags = serializers.ListField(child=serializers.CharField(max_length=60), required=False,
@@ -79,8 +67,6 @@ class DatasetUpdateSerializer(serializers.Serializer):
 
 
 class DatasetUploadMetadataSerializer(serializers.Serializer):
-    """Validated metadata supplied alongside the multipart upload."""
-
     name = serializers.CharField(max_length=200)
     description = serializers.CharField(required=False, allow_blank=True, max_length=2000)
     source_type = serializers.ChoiceField(choices=SOURCE_TYPES, required=False,

@@ -1,8 +1,6 @@
-"""JWT issuance plus refresh-token rotation with server-side revocation.
-
-Access tokens are short-lived and stateless. Refresh tokens are opaque random strings;
-only their SHA-256 hash is stored, and each refresh rotates the token (the presented
-token is revoked, a successor is issued), with reuse detection for a revoked token.
+"""JWT access tokens plus rotating refresh tokens, revoked server-side.
+Refresh tokens are random strings stored only as SHA-256 hashes.
+Reuse of a rotated token revokes the whole family.
 """
 
 from __future__ import annotations
@@ -66,12 +64,11 @@ def issue_refresh(identity, *, family: str | None = None, device_hint: str = "")
 
 
 def rotate_refresh(presented: str) -> tuple[dict, str]:
-    """Exchange a refresh token for a new one; detect replay of a used token."""
     record = find_one("refresh_tokens", {"token_hash": _hash(presented or "")})
     if not record:
         raise Unauthorized("Refresh token is not recognised. Please sign in again.")
     if record.get("revoked_at"):
-        # Replay of a rotated token means the token leaked: kill the whole family.
+        # reuse of a rotated token means it leaked, kill the family
         revoke_family(record["family"], reason="refresh_reuse_detected")
         logger.warning("refresh token reuse detected", extra={"event": "token_reuse"})
         raise Forbidden("This session was ended because a refresh token was reused.")

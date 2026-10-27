@@ -1,4 +1,3 @@
-"""Climate analytics routing (mounted at ``/api/v1/climate/``)."""
 from django.urls import path
 
 from apps.climate import views
@@ -19,7 +18,4 @@ urlpatterns = [
     path("metrics", views.MetricCatalogueView.as_view(), name="climate-metrics"),
     path("filter-options", views.FilterOptionsView.as_view(), name="climate-filter-options"),
     path("export", views.ObservationExportView.as_view(), name="climate-export"),
-    path("saved", views.SavedAnalysisListView.as_view(), name="climate-saved-list"),
-    path("saved/<str:document_id>", views.SavedAnalysisDetailView.as_view(),
-         name="climate-saved-detail"),
 ]

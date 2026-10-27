@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import api from '../../services/api'
-import { onUnauthorized, tokenStore } from '../../services/http'
+import { ensureAccessToken, onUnauthorized, tokenStore } from '../../services/http'
 import type { Account, AuthConfiguration, Role } from '../../types/api'
 
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous'
@@ -130,6 +130,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadProfile = useCallback(async () => {
     if (!tokenStore.hydrate() && !tokenStore.access) {
       setStatus('anonymous')
+      return
+    }
+    if (!(await ensureAccessToken())) {
+      clearSession()
       return
     }
     try {

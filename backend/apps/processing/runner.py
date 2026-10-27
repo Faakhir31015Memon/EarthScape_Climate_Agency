@@ -1,18 +1,7 @@
-"""Registered processing task bodies dispatched through :mod:`common.tasks`.
+"""Registered processing task bodies dispatched through common.tasks.
 
-Rules:
-
-* Every task is registered under a stable name from
-  :data:`apps.processing.workflows.WORKFLOWS`; the API can only dispatch by
-  that registry key - never by a client-supplied module, callable or path.
-* Subprocess invocations use an *argument list* with ``shell=False`` and never
-  interpolate a client-controlled token into the executable or script path.
-* Before executing, the runner re-checks the engine via
-  :func:`apps.processing.engines.workflow_availability`; when the engine is
-  genuinely unavailable the job transitions to ``failed`` with the specific
-  reason rather than faking success.
-* Any exception escaping the executor becomes a sanitised ``error_message`` on
-  the job document (no tracebacks, no connection strings).
+Dispatch is by registry key only; subprocesses run argument lists with
+shell=False and failures become sanitised error_message fields on the job.
 """
 from __future__ import annotations
 
@@ -45,8 +34,8 @@ DEFAULT_STREAMING_TIMEOUT = int(env.get_int("PROCESSING_STREAMING_TIMEOUT_SECOND
 # --------------------------------------------------------------------- subprocesses
 def _run_subprocess(command: List[str], *, cwd: Path, timeout: int, env_extra: Optional[Dict[str, str]] = None
                     ) -> Dict[str, Any]:
-    """Run a whitelisted command list. Never ``shell=True``; env extras only come
-    from server-side constants (dataset ids validated upstream)."""
+    """Run a whitelisted command list. Never shell=True; env extras are
+    server-side constants only (dataset ids validated upstream)."""
     merged_env = dict(__import__("os").environ)
     merged_env["PYTHONPATH"] = str(BACKEND_DIR) + (
         __import__("os").pathsep + merged_env.get("PYTHONPATH", "") if merged_env.get("PYTHONPATH") else "")
@@ -392,10 +381,10 @@ for _workflow_id, _entry in workflows.WORKFLOWS.items():
 
 
 def submit(workflow_id: str, job_id: str, parameters: Dict[str, Any]) -> str:
-    """Queue the workflow through ``common.tasks``.
+    """Queue the workflow through common.tasks.
 
-    Celery is used only when its broker is reachable (see :func:`common.tasks.backend`);
-    otherwise the in-process thread pool executes the same registered callable.
+    Jobs run on the in-process
+    thread pool runs the same registered callable.
     """
     entry = workflows.require_workflow(workflow_id)
     return tasks.submit(entry["task_name"], job_id=job_id, job_type="processing",

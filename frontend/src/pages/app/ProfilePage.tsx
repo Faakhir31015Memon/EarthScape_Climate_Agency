@@ -15,7 +15,7 @@ const UNIT_OPTIONS: Record<keyof UserPreferences['units'], { value: string; labe
     { value: 'fahrenheit', label: 'Fahrenheit (°F)' },
   ],
   precipitation: [
-    { value: 'millimeters', label: 'Millimetres (mm)' },
+    { value: 'millimetres', label: 'Millimetres (mm)' },
     { value: 'inches', label: 'Inches (in)' },
   ],
   wind: [
@@ -24,6 +24,28 @@ const UNIT_OPTIONS: Record<keyof UserPreferences['units'], { value: string; labe
     { value: 'mph', label: 'Miles per hour (mph)' },
     { value: 'knots', label: 'Knots' },
   ],
+}
+
+/**
+ * Accounts created before preferences were structured store a partial document
+ * (or none at all), so every field is read through this merge.
+ */
+function normalisePreferences(stored: unknown): UserPreferences {
+  const value = (stored && typeof stored === 'object' ? stored : {}) as Record<string, unknown>
+  const units = (value.units && typeof value.units === 'object' ? value.units : {}) as Record<string, string>
+  const channels = (value.notification_channels && typeof value.notification_channels === 'object'
+    ? value.notification_channels
+    : {}) as Record<string, boolean>
+  return {
+    theme: value.theme === 'dark' ? 'dark' : 'light',
+    units: {
+      temperature: units.temperature === 'fahrenheit' ? 'fahrenheit' : 'celsius',
+      precipitation: units.precipitation === 'inches' ? 'inches' : 'millimetres',
+      wind: ['km_h', 'mph', 'knots'].includes(units.wind ?? '') ? units.wind! : 'm_s',
+    },
+    notification_channels: { in_app: channels.in_app !== false, email: channels.email === true },
+    dashboard_region: typeof value.dashboard_region === 'string' ? value.dashboard_region : null,
+  }
 }
 
 export default function ProfilePage() {
@@ -38,7 +60,7 @@ export default function ProfilePage() {
   const [profileMsg, setProfileMsg] = useState<string | null>(null)
   const [profileError, setProfileError] = useState<ApiRequestError | null>(null)
 
-  const [prefs, setPrefs] = useState<UserPreferences | null>(account?.preferences ?? null)
+  const [prefs, setPrefs] = useState<UserPreferences | null>(() => normalisePreferences(account?.preferences))
   const [prefsBusy, setPrefsBusy] = useState(false)
   const [prefsMsg, setPrefsMsg] = useState<string | null>(null)
   const [prefsError, setPrefsError] = useState<ApiRequestError | null>(null)
@@ -92,17 +114,17 @@ export default function ProfilePage() {
 
   async function applyTheme(next: 'light' | 'dark') {
     setTheme(next)
-    if (prefs) await persistPreferences({ ...prefs, theme: next }, `theme → ${next}`)
+    if (prefs) await persistPreferences({ ...prefs, theme: next }, `theme set to ${next}`)
   }
 
   async function applyDensity(next: 'comfortable' | 'compact') {
     setDensity(next)
-    if (prefs) await persistPreferences({ ...prefs, density: next }, `density → ${next}`)
+    if (prefs) await persistPreferences({ ...prefs, density: next }, `density set to ${next}`)
   }
 
   function savePreferences() {
     if (!prefs || !account) return
-    const base = account.preferences
+    const base = normalisePreferences(account.preferences)
     const changed: string[] = []
     if (prefs.units.temperature !== base.units.temperature) changed.push('temperature unit')
     if (prefs.units.precipitation !== base.units.precipitation) changed.push('precipitation unit')
@@ -124,12 +146,12 @@ export default function ProfilePage() {
         <h1 className="text-2xl font-semibold leading-tight sm:text-[28px]">Your profile</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed muted">
           Account details, interface preferences and password management for <span className="font-medium">{account.email}</span>. Preferences are stored on
-          your account so they follow you across devices; every save below reports exactly which field changed.
+          your account so they follow you across devices; each save below reports which field changed.
         </p>
       </header>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <Panel title="Account summary" description="Read from the signed-in session (/auth/me).">
+        <Panel title="Account summary" description="Read from your signed-in session.">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
             <Summary label="Name" value={account.full_name} />
             <Summary label="Email" value={<span className="break-all">{account.email}</span>} />
@@ -145,7 +167,7 @@ export default function ProfilePage() {
           {!account.email_verified ? (
             <div className="mt-4">
               {emailDelivery ? (
-                <Hint>Your email address is not verified yet. Verification is handled by the platform's email service; this screen does not claim a verification message was sent unless the server performs it.</Hint>
+                <Hint>Your email address isn't verified yet. Verification runs through the platform's email service, so this page won't report a sent message unless the server sent one.</Hint>
               ) : (
                 <Hint>Email delivery is not configured on this deployment, so a verification email cannot be sent. An administrator can confirm this status directly.</Hint>
               )}
@@ -238,7 +260,7 @@ export default function ProfilePage() {
               <div className="flex flex-wrap gap-6">
                 <Toggle checked={prefs.notification_channels.in_app} onChange={(next) => setPrefs({ ...prefs, notification_channels: { ...prefs.notification_channels, in_app: next } })} label="In-app notifications" />
                 <Toggle checked={prefs.notification_channels.email} onChange={(next) => setPrefs({ ...prefs, notification_channels: { ...prefs.notification_channels, email: next } })} label="Email notifications" />
-                {!emailDelivery ? <span className="text-xs subtle">Email delivery is not configured on this deployment, so the email toggle is saved as a preference but no email can actually be sent.</span> : null}
+                {!emailDelivery ? <span className="text-xs subtle">Email delivery isn't configured on this deployment, so the email toggle is saved but no email is sent.</span> : null}
               </div>
 
               <div className="flex items-center gap-2">
@@ -411,7 +433,7 @@ function PasswordPanel({
           <KeyRound className="h-4 w-4" /> {busy ? 'Updating…' : 'Update password'}
         </button>
         {message ? <p className="mt-1 text-xs text-forest-600 dark:text-forest-300" role="status">{message}</p> : null}
-        {!emailDelivery ? <Hint>Because email delivery is not configured, a password-reset link cannot be emailed from this screen — set a new password directly using your current one.</Hint> : null}
+        {!emailDelivery ? <Hint>Email delivery isn't configured, so a reset link can't be emailed from here. Set a new password directly using your current one.</Hint> : null}
         {error ? <ErrorState error={error} onRetry={() => void submit()} /> : null}
       </div>
     </Panel>

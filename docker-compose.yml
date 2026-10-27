@@ -8,6 +8,8 @@
 # The `hadoop`/`spark` services provide a single-node cluster so the distributed code
 # paths can be exercised on a developer machine. They are heavyweight and therefore
 # behind the `cluster` profile: `docker compose --profile cluster up`.
+# Background jobs run in-process (thread pool) inside the backend container; no
+# separate worker or scheduler containers are needed.
 #
 # Configuration lives with the code that reads it, in backend/.env. Compose needs it
 # twice: `env_file:` hands the raw keys to the containers, and the ${...} values below
@@ -45,11 +47,6 @@ x-backend-env: &backend-env
   DATA_LAKE_BACKEND: ${DATA_LAKE_BACKEND:-auto}
   SPARK_MASTER: ${SPARK_MASTER:-local[*]}
   SPARK_ENABLED: ${SPARK_ENABLED:-true}
-  KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
-  AIRFLOW_ENABLED: ${AIRFLOW_ENABLED:-false}
-  REDIS_URL: redis://redis:6379/0
-  CELERY_BROKER_URL: redis://redis:6379/1
-  CELERY_RESULT_BACKEND: redis://redis:6379/2
   ENABLE_EMAIL_NOTIFICATIONS: ${ENABLE_EMAIL_NOTIFICATIONS:-false}
   SMTP_HOST: ${SMTP_HOST:-}
   SMTP_PORT: ${SMTP_PORT:-587}
@@ -83,34 +80,6 @@ services:
       gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3
       --timeout 120 --access-logfile - --error-logfile -
 
-  worker:
-    image: earthscape/backend:${IMAGE_TAG:-local}
-    build:
-      context: .
-      dockerfile: backend/infrastructure/docker/Dockerfile.backend
-    restart: unless-stopped
-    env_file: backend/.env
-    environment: *backend-env
-    command: celery -A apps.monitoring.celery_tasks worker --loglevel=INFO --concurrency=${BACKGROUND_WORKERS:-4}
-    volumes:
-      - backend-data:/app/backend/.data
-      - data-lake:/app/.data-lake
-    depends_on:
-      backend:
-        condition: service_started
-      redis:
-        condition: service_healthy
-
-  scheduler:
-    image: earthscape/backend:${IMAGE_TAG:-local}
-    restart: unless-stopped
-    env_file: backend/.env
-    environment: *backend-env
-    command: celery -A apps.monitoring.celery_tasks beat --loglevel=INFO
-    depends_on:
-      redis:
-        condition: service_healthy
-
   frontend:
     build:
       context: .
@@ -125,19 +94,9 @@ services:
       backend:
         condition: service_started
 
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
   # ---------------------------------------------------------------- data lake
+  # Single-node Hadoop + Spark for exercising the distributed code paths
+  # (docker compose --profile cluster up). Heavyweight, so opt-in.
   namenode:
     profiles: ["cluster"]
     image: apache/hadoop:3.3.6
@@ -199,7 +158,6 @@ services:
 volumes:
   backend-data:
   data-lake:
-  redis-data:
   hdfs-name:
   hdfs-data:
   # mongo-data:

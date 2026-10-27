@@ -1,19 +1,18 @@
 """Health, readiness and platform-status API for ``/api/v1/`` and ``/api/v1/system/``.
 
-Honesty rules that every view in this module implements:
+Contract that every view in this module follows:
 
-* Never claim a component is available without an actual probe.
-* Never leak a secret (MongoDB URI, SMTP credentials, JWT signing key).
-* ``background.executor`` says ``celery`` only when the broker answers; otherwise
-  it reports the real in-process pool name so operators know what is executing.
+* Component availability is reported only from an actual probe.
+* Secrets (MongoDB URI, SMTP credentials, JWT signing key) are never returned.
+* ``background.executor`` reports the in-process pool so operators know what is executing.
 * ``processing_mode`` is derived from :func:`apps.processing.engines.engine_health`
-  so the value matches what the next job will actually use.
+  so the value matches what the next job will use.
 * ``/system/metrics`` reports request totals + latency as ``null`` and lists them
   under ``unavailable`` because the middleware does not keep an accumulator;
-  only jobs and resources are computed from truth.
-* ``backups`` writes real bytes under ``backend/.data/backups`` and computes a
-  real sha256/size/count; ``restore_verified`` is set true **only** if the code
-  below actually performed a verification round-trip.
+  jobs and resources are computed from the stored documents.
+* ``backups`` writes files under ``backend/.data/backups`` and computes their
+  sha256/size/count; ``restore_verified`` is set true **only** if the code
+  below performed a verification round-trip.
 """
 from __future__ import annotations
 
@@ -55,7 +54,6 @@ from common.data_lake import LAYERS, get_data_lake  # noqa: E402
 from common.database import DocumentStoreUnavailable, get_database  # noqa: E402
 from common.repositories import (  # noqa: E402
     RepositoryError,
-    audit_logs,
     users,
 )
 from common.repositories import (  # noqa: E402
@@ -63,7 +61,6 @@ from common.repositories import (  # noqa: E402
     datasets,
     ingestion_jobs,
     model_registry,
-    platform_settings,
     predictions,
     processing_jobs,
     reports,
@@ -91,33 +88,6 @@ API_VERSION = str(django_settings.SPECTACULAR_SETTINGS.get("VERSION", "0.0.0"))
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 BACKUP_ROOT = MEDIA_ROOT / "backups"
 BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
-
-# --- whitelisted keys PATCH /api/v1/system/settings can edit (never a security env)
-EDITABLE_SETTINGS: Dict[str, Dict[str, Any]] = {
-    "platform_display_name": {"label": "Platform display name", "type": "str",
-                                       "max_length": 80},
-    "platform_tagline": {"label": "Short tagline", "type": "str", "max_length": 160},
-    "default_theme": {"label": "Default theme", "type": "choice",
-                               "choices": ("light", "dark", "system")},
-    "report_retention_days": {"label": "Report retention (days)", "type": "int",
-                                       "min": 1, "max": 3650},
-    "report_max_active_per_user": {"label": "Max active reports per account",
-                                            "type": "int", "min": 1, "max": 200},
-    "alert_cooldown_minutes": {"label": "Alert cooldown (minutes)", "type": "int",
-                                        "min": 1, "max": 1440},
-    "data_lake_retention_days": {"label": "Data-lake retention (days)", "type": "int",
-                                          "min": 1, "max": 3650},
-    "self_service_registration_note": {"label": "Registration banner note",
-                                                 "type": "str", "max_length": 200},
-}
-
-# --- Security env keys the API must NEVER let a client flip
-PROTECTED_ENV_KEYS = (
-    "FORCE_ATLAS_CONNECTION", "MONGODB_URI", "DJANGO_DEBUG", "DJANGO_SECRET_KEY",
-    "JWT_SIGNING_KEY", "SMTP_PASSWORD", "NOAA_API_KEY", "REDIS_URL",
-    "CELERY_BROKER_URL", "CELERY_RESULT_BACKEND", "AIRFLOW_BASE_URL",
-)
-
 
 # ============================================================================= views
 class SystemView(AuthenticatedView):
@@ -249,7 +219,7 @@ class SystemStatusView(SystemView):
 
 
 class SystemMetricsView(SystemView):
-    """``GET /api/v1/system/metrics`` - real numbers where possible, null + ``unavailable`` list otherwise."""
+    """``GET /api/v1/system/metrics`` - numbers where computable, null + ``unavailable`` list otherwise."""
 
     def get(self, request):
         window = str_param(request, "window", "hourly",
@@ -283,149 +253,6 @@ class EndpointCatalogView(SystemView):
 
 AUDIT_SCALAR_FIELDS = ("action", "outcome", "actor_role", "actor_user_id", "environment",
                       "request_id", "resource_id", "resource_type", "source_ip")
-
-
-def _actor_names(entries: List[Dict[str, Any]]) -> Dict[str, str]:
-    """Display names for the actors on this page, resolved with one query."""
-    wanted = {str(entry.get("actor_user_id") or "") for entry in entries}
-    wanted.discard("")
-    if not wanted:
-        return {}
-    resolved: Dict[str, str] = {}
-    for account in users.find({}, limit=2000):
-        identifier = str(account.get("_id"))
-        if identifier in wanted:
-            resolved[identifier] = str(account.get("full_name") or account.get("email") or "")
-    return resolved
-
-
-def _audit_entry(document: Dict[str, Any], names: Dict[str, str]) -> Dict[str, Any]:
-    """One audit row for the API.
-
-    ``scrub()`` keeps scalars only, so running the whole document through it drops
-    ``created_at`` (a datetime) and the page loses its timestamps. Scalars are projected
-    by hand here and only ``metadata`` is scrubbed.
-    """
-    entry: Dict[str, Any] = {field: document.get(field) for field in AUDIT_SCALAR_FIELDS}
-    created_at = document.get("created_at")
-    entry["id"] = str(document.get("_id"))
-    entry["created_at"] = created_at.isoformat() if isinstance(created_at, datetime) else None
-    entry["metadata"] = audit.scrub(document.get("metadata"))
-    entry["actor_name"] = names.get(str(entry.get("actor_user_id") or ""), "")
-    return entry
-
-
-class AuditLogView(AdminSystemView):
-    """``GET /api/v1/system/audit`` - admin-only, redacted on read too."""
-
-    def get(self, request):
-        page = int_param(request, "page", 1, minimum=1, maximum=100000)
-        page_size = int_param(request, "page_size", 50, minimum=1, maximum=200)
-        action = str_param(request, "action", max_length=80)
-        outcome = str_param(request, "outcome", choices=("success", "failure", "denied"))
-        actor_role = str_param(request, "actor_role", max_length=40)
-        query: Dict[str, Any] = {}
-        if action:
-            query["action"] = action
-        if outcome:
-            query["outcome"] = outcome
-        if actor_role:
-            query["actor_role"] = actor_role
-        page_data = audit_logs.paginate(query, page=page, page_size=page_size,
-                                         sort=[("created_at", -1)])
-        names = _actor_names(page_data["items"])
-        page_data["items"] = [_audit_entry(document, names)
-                              for document in page_data["items"]]
-        return Response(page_data)
-
-
-class SettingsView(SystemView):
-    """``GET/PATCH /api/v1/system/settings``.
-
-    GET is open to any authenticated account. PATCH is administrator only and
-    refuses to touch any security env key (FORCE_ATLAS_CONNECTION, JWT_SIGNING_KEY
-    and friends).
-    """
-
-    def get(self, request):
-        documents = platform_settings.find({}, sort=[("key", 1)], limit=500)
-        settings_list = [
-            {"key": document.get("key"),
-             "value": document.get("value"),
-             "label": document.get("label"),
-             "description": document.get("description"),
-             "updated_at": document.get("updated_at"),
-             "updated_by": document.get("updated_by")}
-            for document in documents
-        ]
-        return Response({
-            "settings": settings_list,
-            "env_derived": _env_derived_snapshot(),
-            "editable_keys": sorted(EDITABLE_SETTINGS),
-            "note": ("Values returned from env are read-only diagnostics. Editing "
-                     "security keys (FORCE_ATLAS_CONNECTION, MONGODB_URI, JWT_SIGNING_KEY, "
-                     "DJANGO_SECRET_KEY, SMTP_PASSWORD, ...) is refused."),
-        })
-
-    def patch(self, request):
-        if request.user.role != ADMINISTRATOR:
-            raise ApiError("permission_denied",
-                           "Only an administrator can edit platform settings.", status=403)
-        body = request.data if isinstance(request.data, dict) else {}
-        incoming = body.get("settings") if isinstance(body.get("settings"), dict) else body
-        rejected: List[str] = []
-        accepted: List[str] = []
-        for key, raw_value in (incoming or {}).items():
-            if key.upper() in PROTECTED_ENV_KEYS:
-                rejected.append(key)
-                continue
-            if key not in EDITABLE_SETTINGS:
-                rejected.append(key)
-                continue
-            try:
-                coerced = _coerce_setting(key, raw_value)
-            except ValueError as exc:
-                raise ApiError("validation_failed",
-                                f"{key}: {exc}", details={"key": key}) from exc
-            moment = utcnow()
-            document = platform_settings.find_one({"key": key})
-            if document is None:
-                platform_settings.insert_one({
-                    "key": key, "value": coerced,
-                    "label": EDITABLE_SETTINGS[key]["label"],
-                    "updated_at": moment, "updated_by": request.user.id,
-                })
-            else:
-                platform_settings.update_one({"_id": document["_id"]},
-                                                      {"value": coerced, "updated_at": moment,
-                                                       "updated_by": request.user.id})
-            accepted.append(key)
-        if rejected:
-            audit.for_request(request, action="system.settings.rejected",
-                              resource_type="platform_settings", outcome="denied",
-                              metadata={"rejected_keys": rejected[:20]})
-        audit.for_request(request, action="system.settings.updated",
-                          resource_type="platform_settings", outcome="success",
-                          metadata={"updated_keys": accepted[:20]})
-        if not accepted:
-            raise ApiError("validation_failed",
-                            "No editable settings were supplied.",
-                            details={"rejected_keys": rejected})
-        documents = platform_settings.find({}, sort=[("key", 1)], limit=500)
-        return Response({
-            "settings": [
-                {"key": document.get("key"), "value": document.get("value"),
-                 "label": document.get("label"), "description": document.get("description"),
-                 "updated_at": document.get("updated_at"),
-                 "updated_by": document.get("updated_by")}
-                for document in documents
-            ],
-            "env_derived": _env_derived_snapshot(),
-            "editable_keys": sorted(EDITABLE_SETTINGS),
-            "updated_keys": accepted,
-            "rejected_keys": rejected,
-            "note": "Rejected keys are either unknown or protected security settings.",
-        })
 
 
 class BackupsView(SystemView):
@@ -476,7 +303,7 @@ class BackupsView(SystemView):
             "policy": {
                 "root": str(BACKUP_ROOT),
                 "retained": len(items),
-                "mode": ("atlas-mongodump available" if shutil.which("mongodump")
+                "mode": ("mongodump available" if shutil.which("mongodump")
                           else "local-json-snapshot (mongodump not installed on this host)"),
                 "database_mode": get_database().mode,
             },
@@ -520,8 +347,6 @@ class DependenciesView(SystemView):
         ("pyspark", "big-data jobs", ">=3.5,<3.6"),
         ("pyarrow", "columnar IO", None),
         ("reportlab", "PDF report generation", None),
-        ("celery", "distributed background tasks", ">=5.4,<5.5"),
-        ("redis", "Celery broker client", None),
         ("hdfs", "WebHDFS client", None),
     ]
 
@@ -571,9 +396,9 @@ def perform_backup(*, created_by: Optional[str], note: Optional[str] = None) -> 
       list, no shell) into the backup directory and hash the resulting dump.
     * Otherwise, flush local snapshots and copy the ``localdb/*.json`` files.
 
-    The function is honest: sha256 + size_bytes + document_count come from real
-    file reads, and ``restore_verified`` is False unless a verification round-trip
-    actually succeeded inside this call.
+    sha256 + size_bytes + document_count come from file reads on the written
+    backup, and ``restore_verified`` is False unless a verification round-trip
+    succeeded inside this call.
     """
     db = get_database()
     try:
@@ -586,8 +411,8 @@ def perform_backup(*, created_by: Optional[str], note: Optional[str] = None) -> 
     mode = "local-json-snapshot"
     counts: Dict[str, int] = {}
     uri = env.get_raw("MONGODB_URI")
-    if db.mode == "atlas" and uri and shutil.which("mongodump"):
-        mode = "atlas-mongodump"
+    if db.mode in ("atlas", "local-mongodb") and uri and shutil.which("mongodump"):
+        mode = "atlas-mongodump" if db.mode == "atlas" else "mongodump"
         command = ["mongodump", "--uri", uri, "--db", db.database_name,
                     "--out", str(backup_dir)]
         try:
@@ -723,32 +548,40 @@ def _components_snapshot() -> List[Dict[str, Any]]:
 
     atlas_configured = bool(env.get_raw("MONGODB_URI"))
     items.append({
-        "name": "atlas-mongodb",
+        "name": "mongodb",
         "configured": atlas_configured,
-        "status": ("available" if db.mode == "atlas" else
+        "status": ("available" if db.mode in ("atlas", "local-mongodb") else
                     ("degraded" if db.mode == "local-development" else "unavailable")),
         "detail": f"mode={db.mode}, database={db.database_name}",
         "critical": db.mode == "uninitialised",
     })
 
     lake = health["data_lake"]
+    lake_free = lake.get("free_bytes")
     items.append({
         "name": "data-lake",
         "configured": True,
         "status": "available" if lake["reachable"] else "degraded",
-        "detail": f"mode={lake['mode']}, root={lake['root']}, free_bytes={lake.get('free_bytes')}",
+        "detail": (f"mode={lake['mode']}, root={lake['root']}, "
+                   f"free={'unknown' if lake_free is None else f'{lake_free / (1024 ** 3):.1f} GiB'}"
+                   + ("" if lake["reachable"] else f" - {lake['detail']}")),
     })
 
     spark = health["spark"]
     spark_status = "unavailable"
     if spark["installed"] and spark.get("session_startable") is not False:
         spark_status = "available" if spark.get("session_startable") is True else "degraded"
+    spark_note = f"version {spark['version']}" if spark["installed"] else "not installed on this host"
+    spark_probe = {True: "a session starts", False: "a session cannot start"}.get(
+        spark.get("session_startable"), "session not probed")
+    spark_error = spark.get("error")
+    if spark_error:
+        spark_probe = f"{spark_probe} ({spark_error})"
     items.append({
         "name": "spark",
         "configured": bool(spark["installed"]),
         "status": spark_status,
-        "detail": (f"installed={spark['installed']}, version={spark['version']}, "
-                    f"session_startable={spark['session_startable']}, error={spark.get('error')}"),
+        "detail": f"pyspark {spark_note}, {spark_probe}",
     })
 
     hadoop = health["hadoop"]
@@ -768,30 +601,12 @@ def _components_snapshot() -> List[Dict[str, Any]]:
         "detail": hdfs["detail"],
     })
 
-    kafka = health["kafka"]
-    items.append({
-        "name": "kafka",
-        "configured": bool(kafka["enabled"]),
-        "status": "available" if kafka["reachable"] else ("degraded" if kafka["enabled"] else "not-configured"),
-        "detail": kafka["detail"],
-    })
-
-    airflow = health["airflow"]
-    items.append({
-        "name": "airflow",
-        "configured": bool(airflow["enabled"]),
-        "status": "not-configured" if not airflow["enabled"] else "degraded",
-        "detail": airflow["detail"],
-    })
-
     executor = background_tasks.backend()
-    redis_configured = bool(env.get_raw("REDIS_URL") or env.get_raw("CELERY_BROKER_URL"))
     items.append({
-        "name": "celery-redis",
-        "configured": redis_configured,
-        "status": "available" if executor == "celery" else
-        ("degraded" if redis_configured else "not-configured"),
-        "detail": f"executor={executor}, broker_configured={redis_configured}",
+        "name": "background-workers",
+        "configured": True,
+        "status": "available",
+        "detail": f"executor={executor}",
     })
 
     smtp_host = env.get_raw("SMTP_HOST")
@@ -813,11 +628,19 @@ def _components_snapshot() -> List[Dict[str, Any]]:
         "detail": smtp_detail,
     })
 
+    scheduler_status = _ingestion_scheduler_status()
+    if "run_count" in scheduler_status:
+        scheduler_detail = (
+            f"runs={scheduler_status['run_count']}, errors={scheduler_status['error_count']}, "
+            f"pass every {scheduler_status['interval_seconds']}s, "
+            + ("enabled" if scheduler_status["enabled"] else "disabled by configuration"))
+    else:
+        scheduler_detail = str(scheduler_status.get("status") or "unknown")[:200]
     items.append({
         "name": "ingestion-scheduler",
         "configured": True,
-        "status": "available" if _ingestion_scheduler_status().get("running") else "degraded",
-        "detail": str(_ingestion_scheduler_status().get("status") or "unknown")[:200],
+        "status": "available" if scheduler_status.get("running") else "degraded",
+        "detail": scheduler_detail,
     })
 
     alert_status = _alert_monitor_status()
@@ -829,11 +652,13 @@ def _components_snapshot() -> List[Dict[str, Any]]:
     })
 
     compat = import_compat.status()
+    compat_restored = compat.get("restored") or []
     items.append({
         "name": "import-compat",
         "configured": True,
         "status": "available" if compat.get("ok", True) else "degraded",
-        "detail": str(compat)[:200],
+        "detail": f"{compat.get('detail', 'unknown')}"
+                  + (f", {len(compat_restored)} alias(es) published" if compat_restored else ""),
     })
     return items
 
@@ -1019,42 +844,15 @@ def _service_probes() -> List[Dict[str, Any]]:
                    "detail": f"mode={db.mode}, name={db.database_name}"})
     try:
         lake = get_data_lake().health()
+        free = lake.get("free_bytes_or_null")
+        free_label = "unknown" if free is None else f"{free / (1024 ** 3):.1f} GiB"
         items.append({"name": "data-lake",
                        "status": "available" if lake.get("reachable") else "degraded",
-                       "detail": str(lake)[:200]})
+                       "detail": f"mode={lake['mode']}, free={free_label}"
+                                 + ("" if lake.get("reachable") else f", {lake.get('error')}")})
     except Exception as exc:  # noqa: BLE001
         items.append({"name": "data-lake", "status": "unavailable",
                        "detail": f"probe failed: {type(exc).__name__}"})
-    redis_raw = env.get_raw("CELERY_BROKER_URL") or env.get_raw("REDIS_URL")
-    if redis_raw:
-        parsed = urlparse(redis_raw)
-        host = parsed.hostname or "localhost"
-        port = parsed.port or 6379
-        reachable = _tcp_probe(host, port, timeout=1.5)
-        items.append({"name": "redis-broker",
-                       "status": "available" if reachable else "unavailable",
-                       "detail": f"{host}:{port} tcp={reachable}"})
-    else:
-        items.append({"name": "redis-broker", "status": "not-configured",
-                       "detail": "REDIS_URL/CELERY_BROKER_URL not set"})
-    kafka_raw = env.get_raw("KAFKA_BROKERS")
-    if env.get_bool("KAFKA_ENABLED") and kafka_raw:
-        host, _, port = kafka_raw.split(",")[0].partition(":")
-        reachable = _tcp_probe(host, int(port or "9092"), timeout=1.5)
-        items.append({"name": "kafka",
-                       "status": "available" if reachable else "unavailable",
-                       "detail": f"{host}:{port} tcp={reachable}"})
-    else:
-        items.append({"name": "kafka", "status": "not-configured",
-                       "detail": "KAFKA_ENABLED is false"})
-    airflow_url = env.get_raw("AIRFLOW_BASE_URL")
-    if env.get_bool("AIRFLOW_ENABLED") and airflow_url:
-        ok, detail = _http_probe(airflow_url)
-        items.append({"name": "airflow", "status": "available" if ok else "unavailable",
-                       "detail": detail})
-    else:
-        items.append({"name": "airflow", "status": "not-configured",
-                       "detail": "AIRFLOW_ENABLED is false"})
     smtp_host = env.get_raw("SMTP_HOST")
     if env.get_bool("ENABLE_EMAIL_NOTIFICATIONS") and smtp_host:
         host = smtp_host.split(":")[0]
@@ -1174,13 +972,6 @@ def _endpoint_groups() -> List[Dict[str, Any]]:
                  "roles": ["authenticated"]},
                 {"method": "GET", "path": "/api/v1/system/endpoints",
                  "description": "API catalogue.", "roles": ["authenticated"]},
-                {"method": "GET", "path": "/api/v1/system/audit",
-                 "description": "Redacted audit log.", "roles": admin},
-                {"method": "GET", "path": "/api/v1/system/settings",
-                 "description": "Editable settings + env-derived facts.",
-                 "roles": ["authenticated"]},
-                {"method": "PATCH", "path": "/api/v1/system/settings",
-                 "description": "Whitelist-only update (never security env).", "roles": admin},
                 {"method": "GET", "path": "/api/v1/system/backups",
                  "description": "Backup catalogue + policy.", "roles": ["authenticated"]},
                 {"method": "POST", "path": "/api/v1/system/backups",
@@ -1258,51 +1049,6 @@ def _endpoint_groups() -> List[Dict[str, Any]]:
                  "description": "JSON directory of the API roots.", "roles": ["anonymous"]},
             ]},
     ]
-
-
-# ------------------------------------------------------------------------ settings
-def _env_derived_snapshot() -> Dict[str, Any]:
-    return {
-        "self_registration_enabled": env.get_bool("ENABLE_SELF_REGISTRATION"),
-        "analyst_self_registration_enabled": env.get_bool("ALLOW_ANALYST_SELF_REGISTRATION"),
-        "password_reset_enabled": env.get_bool("ENABLE_PASSWORD_RESET", True),
-        "email_delivery_ready": env.get_bool("ENABLE_EMAIL_NOTIFICATIONS")
-        and bool(env.get_raw("SMTP_HOST")),
-        "force_atlas_connection": env.get_bool("FORCE_ATLAS_CONNECTION"),
-        "database_mode": get_database().mode,
-        "max_upload_bytes": int(django_settings.MAX_UPLOAD_BYTES),
-        "max_upload_rows": int(django_settings.MAX_UPLOAD_ROWS),
-        "redis_configured": bool(env.get_raw("REDIS_URL") or env.get_raw("CELERY_BROKER_URL")),
-        "hdfs_configured": bool(env.get_raw("HDFS_ENDPOINT")),
-        "spark_master": env.get_raw("SPARK_MASTER"),
-        "kafka_enabled": env.get_bool("KAFKA_ENABLED"),
-        "airflow_enabled": env.get_bool("AIRFLOW_ENABLED"),
-    }
-
-
-def _coerce_setting(key: str, raw: Any) -> Any:
-    definition = EDITABLE_SETTINGS[key]
-    kind = definition.get("type")
-    if kind == "int":
-        try:
-            value = int(raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("must be an integer") from exc
-        if "min" in definition and value < definition["min"]:
-            raise ValueError(f"must be >= {definition['min']}")
-        if "max" in definition and value > definition["max"]:
-            raise ValueError(f"must be <= {definition['max']}")
-        return value
-    if kind == "choice":
-        choices = tuple(definition["choices"])
-        text = str(raw)
-        if text not in choices:
-            raise ValueError(f"must be one of {', '.join(choices)}")
-        return text
-    text = str(raw)
-    if len(text) > int(definition.get("max_length", 200)):
-        raise ValueError("value is too long")
-    return text.strip()
 
 
 # Silence the linters about unused imports we kept for documentation.

@@ -1,13 +1,3 @@
-"""HTTP layer for reports.
-
-Access rules enforced server-side (and re-checked inside ``services``):
-
-* every authenticated account lists and manages **its own** reports;
-* administrators see every report;
-* a report type flagged ``administrator_only`` cannot be requested by anyone else;
-* downloads stream through an authenticated request with an access check, so artefact
-  paths are never published in a response body and no public URL exists for a file.
-"""
 from __future__ import annotations
 
 from typing import Any, Dict
@@ -31,13 +21,13 @@ from apps.reports import generators, services  # noqa: E402
 
 
 class ReportView(AuthenticatedView):
-    """Authenticated base: the JWT authenticator is declared, not inherited empty."""
+    """Base view; the JWT authenticator is declared here, not inherited."""
 
     authentication_classes = [MongoJWTAuthentication]
 
 
 class ReportCollectionView(ReportView):
-    """``GET/POST /api/v1/reports/``."""
+    """GET/POST /api/v1/reports/."""
 
     def get(self, request):
         page = int_param(request, "page", 1, minimum=1, maximum=100000)
@@ -69,7 +59,7 @@ class ReportCollectionView(ReportView):
 
 
 class ReportTypeListView(ReportView):
-    """The catalogue plus an honest 'could this be computed right now?' flag."""
+    """Catalogue plus a computable-now flag."""
 
     def get(self, request):
         return Response({
@@ -108,7 +98,7 @@ class ReportDetailView(ReportView):
 
 
 class ReportCancelView(ReportView):
-    """``POST /api/v1/reports/<id>/cancel`` - withdraw a queued report."""
+    """POST /api/v1/reports/<id>/cancel - withdraw a queued report."""
 
     def post(self, request, report_id: str):
         return Response(services.cancel_report(report_id, request))
@@ -119,7 +109,7 @@ class ReportDownloadView(ReportView):
         path, filename, content_type, document = services.artefact_for_download(report_id, request)
         try:
             handle = path.open("rb")
-        except OSError as exc:  # noqa: BLE001 - lost race with a cleanup sweep, reported plainly
+        except OSError as exc:  # noqa: BLE001 - lost race with the cleanup sweep
             raise ApiError("not_found", "The artefact could not be opened.", status=410) from exc
         response = FileResponse(handle, as_attachment=True, filename=filename,
                                 content_type=content_type)

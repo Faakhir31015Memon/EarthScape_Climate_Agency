@@ -69,7 +69,7 @@ def autostart_enabled() -> bool:
 
 
 def status() -> Dict[str, Any]:
-    """Honest runtime state of the scheduler and the evaluation counters."""
+    """Runtime state of the scheduler and the evaluation counters."""
     with _LOCK:
         snapshot = dict(_STATE)
     alive = bool(_THREAD and _THREAD.is_alive())

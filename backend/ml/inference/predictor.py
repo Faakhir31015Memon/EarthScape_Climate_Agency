@@ -421,14 +421,22 @@ def forecast_summary_for_scope(*, region_code: Optional[str] = None, location_co
         "model_name": latest.get("model_name"),
         "model_version": latest.get("model_version"),
         "target_variable": latest.get("target_variable"),
-        "unit": latest.get("units"),
-        "horizon_days": latest.get("horizon_days"),
-        "forecast_origin_date": latest.get("forecast_origin_date"),
+        "unit": latest.get("units") or latest.get("unit"),
+        "horizon_days": latest.get("horizon_days") or latest.get("horizon_steps") or latest.get("horizon"),
+        "forecast_origin_date": latest.get("forecast_origin_date") or latest.get("origin_date"),
         "generated_at": generated,
         "age_hours": age_hours,
-        "first_value": (latest.get("values") or [{}])[0].get("value") if latest.get("values") else None,
-        "point_count": len(latest.get("values") or []),
-        "uncertainty_available": bool((latest.get("uncertainty") or {}).get("available")),
+        "first_value": (
+            latest.get("values")[0].get("value")
+            if latest.get("values") and isinstance(latest.get("values")[0], dict)
+            else latest.get("series")[0].get("value")
+            if latest.get("series") and isinstance(latest.get("series")[0], dict)
+            else latest.get("values")[0]
+            if latest.get("values") and isinstance(latest.get("values")[0], (int, float))
+            else None
+        ),
+        "point_count": len(latest.get("values") or latest.get("series") or []),
+        "uncertainty_available": bool((latest.get("uncertainty") or {}).get("available") or latest.get("has_uncertainty")),
         "data_freshness_days": latest.get("data_freshness_days"),
         "note": "Latest stored forecast for this scope; forecasts are projections, not guarantees.",
     }

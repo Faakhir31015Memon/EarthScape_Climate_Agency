@@ -1,12 +1,8 @@
-"""Datasets routing (mounted at ``/api/v1/datasets/``).
-
-Literal collection paths (``upload``, ``column-suggestion``, ``formats``) are
-declared before the ``<dataset_id>`` catch-all so they are never mistaken for an id.
-"""
 from django.urls import path
 
 from apps.datasets import views
 
+# literal paths first or <dataset_id> swallows them
 urlpatterns = [
     path("", views.DatasetListView.as_view(), name="datasets-list"),
     path("upload", views.DatasetUploadView.as_view(), name="datasets-upload"),

@@ -1,21 +1,7 @@
-"""Lifecycle helpers for the ``processing_jobs`` collection.
+"""Lifecycle helpers for the processing_jobs collection.
 
-Every state transition a client observes on ``/api/v1/processing/jobs`` flows
-through this module. The rules the module enforces:
-
-* queued → running happens exactly once (an atomic ``update_many`` guard
-  prevents double dispatch);
-* every log line is a structured ``{at, level, message}`` object appended to a
-  bounded ``log_lines`` array (never an unbounded push);
-* finished_at is written only when the job actually reaches a terminal state,
-  and the timestamp comes from ``repositories.utcnow()`` not the client;
-* error messages are sanitised - the request id survives, exception classes
-  and internal tracebacks do not leak into the API response (Hard rule 4);
-* cancellation is only honoured while the job is still ``queued``: running
-  executors (subprocess, Spark session, in-line pandas rollup) are not
-  interrupt-safe so the API refuses to fake a cancel;
-* active-first ordering: jobs whose status is queued/running are listed above
-  completed/failed ones when ``active_first=true``.
+Transitions are claimed atomically; log lines are bounded and sanitised before
+they reach the API.
 """
 from __future__ import annotations
 
@@ -57,7 +43,7 @@ def create_job(*, workflow: str, engine: str, dataset_id: Optional[str],
                processing_mode: Optional[str] = None,
                attempt: int = 1,
                retry_of: Optional[str] = None) -> Dict[str, Any]:
-    """Insert a fresh ``processing_jobs`` document in status ``queued``."""
+    """Insert a fresh processing_jobs document in status queued."""
     moment = utcnow()
     document: Dict[str, Any] = {
         "workflow": workflow,
@@ -104,8 +90,8 @@ def get_job(job_id: str) -> Dict[str, Any]:
 
 # ------------------------------------------------------------------------ transitions
 def mark_running(job_id: str) -> Optional[Dict[str, Any]]:
-    """Atomic queued → running claim. Returns the updated doc or ``None`` on a
-    double-dispatch (the second worker must skip the job)."""
+    """Atomic queued -> running claim. Returns None on a double dispatch so the
+    second worker skips the job."""
     claimed = processing_jobs.update_many(
         {"_id": to_object_id(job_id), "status": "queued"},
         {"status": "running", "started_at": utcnow()},
@@ -127,11 +113,7 @@ def set_status(job_id: str, status: str, **extra: Any) -> Dict[str, Any]:
 
 # ------------------------------------------------------------------------ log lines
 def append_log(job_id: str, level: str, message: str) -> None:
-    """Append a structured log entry, bounded to the most recent ``MAX_LOG_LINES``.
-
-    Log message text is passed through ``sanitize_error`` so raw stack traces and
-    connection strings never reach the API response.
-    """
+    """Bounded to the last MAX_LOG_LINES; message text goes through sanitize_error."""
     line = {"at": utcnow(), "level": str(level or "info").lower()[:16],
             "message": sanitize_error(str(message))}
     processing_jobs.update_by_id(job_id, {
@@ -140,8 +122,8 @@ def append_log(job_id: str, level: str, message: str) -> None:
 
 
 def extend_logs(job_id: str, entries: List[Dict[str, Any]]) -> None:
-    """Bulk log append used after subprocess runs (each entry may be a bare string
-    produced by the streaming orchestrator or a shaped dict)."""
+    """Bulk append; entries may be bare strings from the streaming orchestrator
+    or shaped dicts."""
     shaped: List[Dict[str, Any]] = []
     moment = utcnow()
     for entry in entries or []:
@@ -236,9 +218,8 @@ def cancel_job(job_id: str, actor_id: Optional[str]) -> Dict[str, Any]:
         raise ApiError("conflict",
                        "This processing job is already running; the current executors "
                        "(subprocess, Spark session, in-line rollup) are not interrupt-safe, "
-                       "so cancellation mid-run would be dishonest. Wait for completion or "
-                       "check /api/v1/system/status for progress.", status=409)
-    # Only queued is genuinely cancellable.
+                       "so a run cannot be stopped part-way through. Wait for it to finish, "
+                       "or watch the system status page for progress.", status=409)
     updated = processing_jobs.find_one_and_update(
         {"_id": to_object_id(job_id), "status": "queued"},
         {"status": "cancelled", "finished_at": utcnow(),
@@ -302,7 +283,6 @@ def list_jobs(*, workflow: Optional[str] = None, status: Optional[str] = None,
 
 
 def summarise_jobs() -> Dict[str, int]:
-    """Real counts by status across the collection."""
     out = {status: processing_jobs.count({"status": status})
            for status in ["queued", "running", "completed", "failed", "cancelled"]}
     out["total"] = processing_jobs.count({})
@@ -311,7 +291,7 @@ def summarise_jobs() -> Dict[str, int]:
 
 # --------------------------------------------------------------------- sanitising
 def sanitize_error(raw: Any) -> str:
-    """Never let a raw connection string or traceback leak to the API."""
+    """Strips connection strings and tracebacks before text reaches the API."""
     text = str(raw or "")
     text = _ACTIVE_RE.sub("mongodb://***", text)
     text = re.sub(r"Traceback \(most recent call last\):[\s\S]+", "internal error", text)

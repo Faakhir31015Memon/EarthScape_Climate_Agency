@@ -51,7 +51,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     <select
       ref={ref}
       aria-invalid={invalid || undefined}
-      className={cn(FIELD_BASE, "appearance-none pr-8", stateBorder(invalid), className)}
+      className={cn(FIELD_BASE, "select-field", stateBorder(invalid), className)}
       {...rest}
     >
       {children}

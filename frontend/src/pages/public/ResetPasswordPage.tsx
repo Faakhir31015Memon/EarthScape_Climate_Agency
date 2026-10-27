@@ -21,7 +21,7 @@ function guidanceFor(error: ApiRequestError): string | null {
   switch (error.code) {
     case 'reset_invalid':
     case 'reset_used':
-      return 'This reset link is not usable — links are single-use and are invalidated once consumed. Request a new one.'
+      return 'That link has already been used. Each one works a single time, so request a new one.'
     case 'reset_expired':
       return 'This reset link has expired. Request a new one from the recovery page.'
     case 'password_weak':
@@ -73,7 +73,7 @@ export default function ResetPasswordPage() {
     return (
       <EmptyState
         title="This reset link is incomplete"
-        description="A recovery link arrives with a single-use token attached. Without that token there is nothing to confirm — request a new link and open it in full."
+        description="Recovery links carry a single-use token in the address. This page did not get one, so there is nothing to confirm yet. Request a new link and open the address in full."
         action={
           <Link to="/forgot-password" className="btn btn-primary btn-sm">
             Request a new link
@@ -91,7 +91,7 @@ export default function ResetPasswordPage() {
           <div className="min-w-0">
             <p className="text-sm font-semibold">Password updated</p>
             <p className="mt-1.5 text-sm leading-relaxed muted">
-              The reset token has been consumed and every existing session for the account was revoked. Sign in with your new password.
+              The link is used up, and every other session on the account has been signed out. Sign in with your new password.
             </p>
           </div>
         </div>
@@ -105,7 +105,7 @@ export default function ResetPasswordPage() {
   return (
     <form onSubmit={onSubmit} className="space-y-5" noValidate>
       <p className="text-sm leading-relaxed muted">
-        Choose a new password for the account this link was issued to. The token is single-use: it is invalidated once the password is set.
+        Set a new password for the account this link belongs to. Once it is saved, the link stops working.
       </p>
 
       <div>

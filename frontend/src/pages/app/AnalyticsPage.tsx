@@ -1,12 +1,12 @@
 /**
  * Climate analytics workbench. All filters live in the URL query string so any
- * view is shareable and reloadable; charts render only what `GET /climate/trends`
- * and `GET /climate/correlations` actually computed, including their honest
+ * view is shareable and reloadable; charts render only the values returned by
+ * `GET /climate/trends` and `GET /climate/correlations`, including their
  * `available:false` reason objects.
  */
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { BarChart3, Download, Save } from 'lucide-react'
+import { BarChart3, Download } from 'lucide-react'
 import api from '../../services/api'
 import type { TrendParams } from '../../services/api'
 import { ApiRequestError } from '../../services/http'
@@ -15,7 +15,6 @@ import { useAuth } from '../../features/auth/AuthContext'
 import { useToast } from '../../components/ui/ToastProvider'
 import type { Frequency, GroupBy, Metric, MetricDefinition, Region, SeriesPoint } from '../../types/api'
 import { ALL_METRICS } from '../../lib/format'
-import { cn } from '../../lib/cn'
 import { formatNumber, humanise, metricLabel } from '../../lib/format'
 import {
   Badge,
@@ -26,7 +25,6 @@ import {
   Field,
   FilterBar,
   Hint,
-  Modal,
   MultiSelect,
   PageHeader,
   Panel,
@@ -59,9 +57,6 @@ export default function AnalyticsPage() {
   const [params, setParams] = useSearchParams()
   const { can } = useAuth()
   const toast = useToast()
-  const [saveOpen, setSaveOpen] = useState(false)
-  const [saveName, setSaveName] = useState('')
-  const [saving, setSaving] = useState(false)
   const [exporting, setExporting] = useState(false)
 
   const metric = validMetric(params.get('metric'))
@@ -148,33 +143,6 @@ export default function AnalyticsPage() {
 
   const canExport = can('analytics:export')
 
-  const saveAnalysis = async () => {
-    if (!saveName.trim()) return
-    setSaving(true)
-    try {
-      await api.analytics.save({
-        name: saveName.trim(),
-        filters: {
-          metric,
-          frequency,
-          group_by: groupBy,
-          regions,
-          locations,
-          start,
-          end,
-        },
-        chart_config: { chart: variant, corr: correlationMetrics },
-      })
-      toast.success('Analysis saved', 'Find it under Saved analyses.')
-      setSaveOpen(false)
-      setSaveName('')
-    } catch (error) {
-      toast.danger('Could not save analysis', error instanceof ApiRequestError ? error.message : String(error))
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const exportCsv = async () => {
     setExporting(true)
     try {
@@ -225,26 +193,15 @@ export default function AnalyticsPage() {
         title="Climate analytics workbench"
         description="Trends, regional comparisons and correlation matrices computed from stored observations. The URL carries the full query, so any view is shareable."
         actions={
-          <>
-            <button
-              type="button"
-              className={cn('btn btn-secondary btn-sm', !canExport && 'opacity-60')}
-              onClick={() => setSaveOpen(true)}
-              disabled={!canExport}
-              title={canExport ? 'Save the exact query and chart configuration' : 'Saving analyses requires the climate analyst or administrator role.'}
-            >
-              <Save className="h-3.5 w-3.5" /> Save this analysis
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => void exportCsv()}
-              disabled={!canExport || exporting}
-              title={canExport ? 'Download filtered series as CSV' : 'CSV export requires the climate analyst or administrator role.'}
-            >
-              <Download className="h-3.5 w-3.5" /> {exporting ? 'Exporting…' : 'Export CSV'}
-            </button>
-          </>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => void exportCsv()}
+            disabled={!canExport || exporting}
+            title={canExport ? 'Download filtered series as CSV' : 'CSV export requires the climate analyst or administrator role.'}
+          >
+            <Download className="h-3.5 w-3.5" /> {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
         }
       />
 
@@ -319,9 +276,9 @@ export default function AnalyticsPage() {
               trendOutcomeResult.kind === 'ready'
                 ? `${trendOutcomeResult.series.length} periods · unit ${trendOutcomeResult.unit || '—'}` +
                   (trend.data?.truncated
-                    ? ` · the backend returned the first ${trendOutcomeResult.series.length} of ${trend.data.point_count}`
+                    ? ` · showing the first ${trendOutcomeResult.series.length} of ${trend.data.point_count}`
                     : '')
-                : 'The backend reports this series as not computable.'
+                : 'Not enough stored observations to compute this series yet.'
             }
             actions={
               <div role="group" aria-label="Chart type" className="flex gap-1">
@@ -356,7 +313,7 @@ export default function AnalyticsPage() {
             ) : null}
           </Panel>
 
-          <Panel title="Series data" description="Exactly the points returned by the trend endpoint.">
+          <Panel title="Series data" description="Exactly the periods in this trend series.">
             {trendOutcomeResult.kind === 'ready' ? (
               <DataTable
                 columns={seriesColumns}
@@ -408,7 +365,7 @@ export default function AnalyticsPage() {
                       description={
                         response.reason ??
                         response.note ??
-                        'The backend found too few paired, complete observations to compute coefficients.'
+                        'Too few paired, complete observations were available to compute coefficients.'
                       }
                     />
                   )
@@ -480,7 +437,7 @@ export default function AnalyticsPage() {
               </div>
             ) : coverage.error ? (
               <p className="text-xs subtle">
-                The coverage endpoint returned no data ({coverage.error.code}). The trend response embeds its own coverage report above when available.
+                No coverage report could be loaded for this selection ({coverage.error.code}). The trend above carries its own coverage note when one is available.
               </p>
             ) : (
               <p className="text-xs subtle">No coverage report for the current selection.</p>
@@ -488,41 +445,15 @@ export default function AnalyticsPage() {
           </Panel>
 
           <Panel title="Share this view">
-            <p className="text-xs muted">Filters, grouping and chart type are encoded in the URL — copy it from the browser bar, or save the analysis (analyst role) to record the exact query.</p>
+            <p className="text-xs muted">Filters, grouping and chart type live in the URL. Copy it from the browser bar to share the exact query.</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
               <Link to="/app/history" className="link">Historical explorer</Link>
               <span aria-hidden="true">·</span>
               <Link to="/app/anomalies" className="link">Anomaly detection</Link>
-              <span aria-hidden="true">·</span>
-              <Link to="/app/saved-analyses" className="link">Saved analyses</Link>
             </div>
           </Panel>
         </aside>
       </div>
-
-      <Modal
-        open={saveOpen}
-        title="Save this analysis"
-        description="Stores the exact trend query and chart configuration shown on screen."
-        onClose={() => setSaveOpen(false)}
-        footer={
-          <>
-            <button type="button" className="btn btn-secondary" onClick={() => setSaveOpen(false)} disabled={saving}>
-              Cancel
-            </button>
-            <button type="button" className="btn btn-primary" onClick={() => void saveAnalysis()} disabled={saving || !saveName.trim()}>
-              {saving ? 'Saving…' : 'Save analysis'}
-            </button>
-          </>
-        }
-      >
-        <Field label="Name" htmlFor="save-name" required hint="Saved analyses are listed under Saved analyses for your role.">
-          <input id="save-name" className="input" value={saveName} onChange={(event) => setSaveName(event.target.value)} placeholder="e.g. Region temperature trends 2024" />
-        </Field>
-        <pre className="mono mt-3 max-h-40 overflow-auto rounded-lg border p-2 text-xs" style={{ borderColor: 'var(--border)' }}>
-          {JSON.stringify({ ...trendParams, chart: variant }, null, 2)}
-        </pre>
-      </Modal>
     </>
   )
 }

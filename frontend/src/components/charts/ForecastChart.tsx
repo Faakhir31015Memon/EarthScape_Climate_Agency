@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { ForecastValue, SeriesPoint } from '../../types/api'
-import { AXIS_LINE, AXIS_TICK, ChartFooter, ChartLegend, ChartTooltipContent, GRID_STROKE } from './chartKit'
+import { AXIS_LINE, AXIS_TICK, ChartFooter, ChartLegend, ChartTooltipContent, DRAW_MS, GRID_STROKE, useDrawIn } from './chartKit'
 
 /**
  * Actual observations (solid) continued by the model horizon (dashed) with the
@@ -44,6 +44,7 @@ export function ForecastChart({
     return [...map.values()].sort((left, right) => String(left.period).localeCompare(String(right.period)))
   }, [history, forecast])
 
+  const drawIn = useDrawIn()
   const hasBand = rows.some((row) => Array.isArray(row.band))
   const hasHistory = history.length > 0
 
@@ -65,20 +66,31 @@ export function ForecastChart({
             <YAxis tick={AXIS_TICK} tickLine={false} axisLine={AXIS_LINE} width={58} unit={` ${unit}`} domain={['auto', 'auto']} />
             <Tooltip content={<ChartTooltipContent unit={unit} />} />
             {hasBand ? (
-              <Area dataKey="band" name="Uncertainty range" stroke="none" fill="#3b9af6" fillOpacity={0.16} isAnimationActive={false} connectNulls={false} />
+              <Area dataKey="band" name="Uncertainty range" stroke="none" fill="#4e8aa8" fillOpacity={0.16} isAnimationActive={false} connectNulls={false} />
             ) : null}
             {hasHistory ? (
-              <Line dataKey="actual" name="Observed" stroke="#27633a" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
+              <Line dataKey="actual" name="Observed" stroke="#41663a" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
             ) : null}
-            <Line dataKey="forecast" name={modelLabel ?? 'Forecast'} stroke="#e98513" strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls isAnimationActive={false} />
+            <Line
+              dataKey="forecast"
+              name={modelLabel ?? 'Forecast'}
+              stroke="#c97145"
+              strokeWidth={2}
+              strokeDasharray="5 4"
+              dot={false}
+              connectNulls
+              isAnimationActive={drawIn}
+              animationDuration={DRAW_MS}
+              animationEasing="ease-out"
+            />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
       <ChartLegend
         items={[
-          ...(hasHistory ? [{ label: 'Observed', color: '#27633a' }] : []),
-          { label: modelLabel ?? 'Forecast', color: '#e98513' },
-          ...(hasBand ? [{ label: 'Uncertainty range', color: '#3b9af6' }] : []),
+          ...(hasHistory ? [{ label: 'Observed', color: '#41663a' }] : []),
+          { label: modelLabel ?? 'Forecast', color: '#c97145' },
+          ...(hasBand ? [{ label: 'Uncertainty range', color: '#4e8aa8' }] : []),
         ]}
       />
       <ChartFooter>

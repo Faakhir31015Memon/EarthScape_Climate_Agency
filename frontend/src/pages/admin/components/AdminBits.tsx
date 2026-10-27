@@ -62,7 +62,7 @@ export function CopyButton({ value, label, secret = false }: { value: string; la
 
   if (secret || looksSecret(label ?? '')) {
     return (
-      <span title="Secret values are never copied or displayed">
+      <span title="Secret values are not copied or displayed here">
         <Badge tone="neutral">not copyable</Badge>
       </span>
     )
@@ -228,7 +228,7 @@ export function PasswordPolicyChecklist({ value, configuration }: { value: strin
       </ul>
       <p className="mt-2 text-xs subtle" aria-live="polite">
         {satisfied
-          ? 'Meets the server-side policy. The password is sent once and is never stored or shown by this page.'
+          ? 'Meets the server-side policy. The password is sent once and is not stored or shown by this page.'
           : 'The backend re-checks this policy; a password that fails is rejected with its own message.'}
       </p>
     </div>

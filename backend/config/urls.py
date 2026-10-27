@@ -1,4 +1,3 @@
-"""Versioned API routing. Everything is served under ``/api/v1/``."""
 from __future__ import annotations
 
 from django.urls import include, path

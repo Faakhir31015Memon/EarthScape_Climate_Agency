@@ -1,49 +1,9 @@
 """Streaming readers for uploaded climate files.
 
-Every reader yields ``(row_index, record)`` pairs where ``row_index`` is the
-**1-based ordinal of the data record** (the header row is never counted).  Records
-are plain ``dict`` objects keyed by the source header exactly as it appeared in the
-file.
-
-Memory discipline (what makes each reader a *streaming* reader):
-
-``csv`` / ``txt``
-    ``csv.DictReader`` iterates the underlying text file line by line; the whole
-    file is never materialised.  The delimiter and encoding are sniffed from a
-    bounded 64 KiB probe with :mod:`csv.Sniffer` and :mod:`chardet` (both optional).
-
-``json``
-    *NDJSON* (one object per line) is streamed line by line.  A JSON *array of
-    objects* is streamed with an incremental byte scanner that tracks string /
-    escape state and ``{}`` nesting depth, emitting one object at a time, so an
-    arbitrarily large array is parsed without loading it fully.  ``json.load`` is
-    only used as a guarded fallback when the file is small AND its shape is not a
-    flat array of objects; larger non-streamable JSON raises a clear size error.
-
-``xlsx`` / ``xlsm`` / ``xltx`` / ``xltm``
-    ``openpyxl`` ``read_only=True`` workbook + a generator over rows streams cells;
-    read-only mode does not build the full object tree in memory. Macro-enabled and
-    template variants are read through the same OOXML reader with macros never
-    executed.
-
-``ods``
-    :mod:`odfpy` walks the ``office:spreadsheet`` XML tree, so only one row object is
-    live at a time even for a very large OpenDocument spreadsheet.
-
-``xls``
-    ``xlrd`` must materialise the BIFF record stream, so the classic workbook is
-    capped by :data:`OLE_SAFE_LOAD_BYTES` before it is opened.
-
-``xlsb``
-    ``pyxlsb`` iterates the binary sheet record by record, yielding one row at a time.
-
-``parquet``
-    ``pyarrow.parquet.ParquetFile.iter_batches`` streams row-group batches.
-    ``pandas.read_parquet`` is only the fallback when PyArrow is unavailable and is
-    size-guarded.
-
-Nothing here opens an Excel formula engine, follows external links, or trusts the
-declared extension - callers must sniff content first (see :func:`sniff_format`).
+Each reader yields ``(row_index, record)`` pairs where ``row_index`` is the 1-based
+data-record ordinal (the header row is not counted) and records are dicts keyed by
+the raw source header. Callers must sniff the content first; the declared extension
+is not trusted and no formula engine, external link or macro is ever run.
 """
 from __future__ import annotations
 
@@ -57,12 +17,10 @@ import zipfile
 from contextlib import contextmanager
 from typing import Dict, Iterator, List, Optional, Tuple
 
-# A JSON document larger than this is refused unless it can be streamed.  32 MiB is
-# comfortably above any reasonable eProject file while keeping peak memory bounded.
+# 32 MiB: well above any real upload but keeps peak memory bounded for non-streamable JSON.
 JSON_SAFE_LOAD_BYTES = 32 * 1024 * 1024
-# Parquet fallback via pandas is refused above this many bytes.
 PARQUET_SAFE_LOAD_BYTES = 512 * 1024 * 1024
-# Legacy .xls (xlrd) and decrypted containers are held fully in memory.
+# xlrd and decryption hold the whole file in memory, hence the cap.
 OLE_SAFE_LOAD_BYTES = 256 * 1024 * 1024
 
 _CSV_SAMPLE_BYTES = 64 * 1024
@@ -89,14 +47,10 @@ def read_signature(path: str, nbytes: int = 8) -> bytes:
 
 
 def sniff_format(path: str, declared_extension: Optional[str] = None) -> str:
-    """Return the *content* format of a file.
+    """Return the content format of a file, ignoring its extension.
 
-    Recognised formats are ``csv``, ``txt``, ``json``, ``xlsx``, ``xlsm``, ``xltm``,
-    ``xltx``, ``xlsb``, ``xls``, ``ods``, ``parquet``, ``encrypted`` and ``netcdf``.
-
-    Raises :class:`FileImportError` for executables, active content, or anything that
-    is not a recognised data format.  When ``declared_extension`` is supplied and its
-    implied type conflicts with the sniffed content, the file is rejected.
+    Raises FileImportError for executables, active content, unknown formats, and when
+    a supplied declared_extension conflicts with the sniffed content.
     """
     if not os.path.isfile(path):
         raise FileImportError("The stored file is missing.")
@@ -135,10 +89,9 @@ def sniff_format(path: str, declared_extension: Optional[str] = None) -> str:
 
 
 def _extension_conflict(extension: str, detected: str) -> Optional[str]:
-    # Extensions that are outright forbidden as data uploads.
     if extension in {"exe", "dll", "sh", "bat", "cmd", "ps1", "py", "html", "htm",
                      "svg", "js", "com", "scr", "msi", "jar"}:
-        return f"Refusing to accept a '{extension}' file - that is not a data format."
+        return f"Refusing to accept a '{extension}' file, which is not a data format."
     expected = {
         "csv": {"csv", "txt"},
         "txt": {"csv", "txt"},
@@ -188,8 +141,8 @@ def _sniff_zip_package(path: str) -> str:
 def _classify_ooxml_spreadsheet(names: set, content_types: str) -> str:
     """Split the OOXML spreadsheet subtypes, which share one container layout."""
     if "xl/encryptedPayload.xml" in names or not content_types:
-        # Excel stores a *really* encrypted workbook as an OLE container, so a zip
-        # carrying only an encrypted payload is treated as protected content.
+        # A truly encrypted workbook is an OLE container, so a zip with only an
+        # encrypted payload counts as protected content.
         return "encrypted"
     macro = any(n.endswith("vbaProject.bin") for n in names)
     template = ("template.main+xml" in content_types
@@ -243,7 +196,7 @@ def _sniff_text(path: str) -> str:
 def detect_encoding(path: str) -> str:
     with open(path, "rb") as handle:
         raw = handle.read(_CSV_SAMPLE_BYTES)
-    # A UTF-8 BOM must be consumed, so open with utf-8-sig rather than utf-8.
+    # utf-8-sig so the BOM is consumed, not left in the first field.
     if raw.startswith(b"\xef\xbb\xbf"):
         return "utf-8-sig"
     try:
@@ -365,10 +318,8 @@ def _first_meaningful_byte(handle) -> bytes:
 
 
 def _iter_json_object_array(path: str, encoding: str, *, max_rows: Optional[int]) -> Iterator[Tuple[int, Dict[str, object]]]:
-    """Incremental scanner for a top-level JSON array whose elements are objects.
-
-    Reads in fixed-size blocks; the working buffer only ever holds the object being
-    assembled, so a 5 GB array of records streams in bounded memory.
+    """Scan a top-level JSON array of objects in fixed blocks; the buffer only ever
+    holds the object being assembled, so huge arrays stream in bounded memory.
     """
     index = 0
     buffer = io.StringIO()
@@ -460,7 +411,7 @@ def _records_from_object(document: object, *, max_rows: Optional[int]) -> Iterat
     if isinstance(document, list):
         records = document
     elif isinstance(document, dict):
-        # Find the first list-of-objects value (common ``{"data": [...]}`` shape).
+        # First list value, matching the common {"data": [...]} shape.
         records = []
         for value in document.values():
             if isinstance(value, list) and (not value or isinstance(value[0], dict)):
@@ -520,9 +471,8 @@ def _unlink_quietly(path: str) -> None:
 
 # --------------------------------------------------------------------- xlsx
 def iter_xlsx(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
-    # The workbook is unpacked eagerly (read_only=False) and keep_vba stays off: a
-    # macro-enabled book is read for its cell values only, so openpyxl is never asked
-    # to hold a second copy of the zip in memory.
+    # Eager (read_only=False) but keep_vba off: cell values only, so openpyxl never
+    # holds a second copy of the zip in memory.
     from openpyxl import load_workbook
 
     with _ooxml_source(path) as readable:
@@ -606,10 +556,7 @@ def _classify_decrypted(decrypted_path: str) -> str:
 
 # --------------------------------------------------------------------- xlsm / templates
 def iter_xlsm(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
-    """Read a macro-enabled or template workbook with the OOXML reader.
-
-    Only cell values are read, so the macro stream is never loaded or executed.
-    """
+    """Macro/template workbook through the OOXML reader; the macro stream is never run."""
     return iter_xlsx(path, max_rows=max_rows)
 
 
@@ -810,10 +757,7 @@ _ITERATORS["encrypted"] = _iter_encrypted
 
 
 def open_file(path: str, fmt: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
-    """Return a streaming iterator for a sniffed format.
-
-    Raises :class:`FileImportError` for formats this build cannot stream.
-    """
+    """Return a streaming iterator for a sniffed format, or raise FileImportError."""
     if fmt in UNSUPPORTED:
         raise FileImportError(
             f"Files detected as '{fmt}' are not supported by this build's readers. "

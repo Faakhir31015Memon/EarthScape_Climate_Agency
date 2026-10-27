@@ -1,5 +1,3 @@
-"""BSON-safe conversion of Mongo documents into JSON-friendly API payloads."""
-
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
@@ -51,7 +49,6 @@ def jsonable(value: Any, *, depth: int = 0) -> Any:
 
 
 def document_to_api(doc: dict | None, *, id_field: str = "id") -> dict | None:
-    """Convert `_id` to a stable string id and normalise every date to ISO-8601 UTC."""
     if not doc:
         return None
     payload = jsonable(dict(doc))
@@ -66,7 +63,6 @@ def documents_to_api(docs) -> list[dict]:
 
 
 def api_payload(value: Any, *, depth: int = 0) -> Any:
-    """Serialise anything for the wire and present Mongo ids as a stable string `id`."""
     if depth > 12:
         return None
     if isinstance(value, dict):
@@ -82,7 +78,7 @@ def api_payload(value: Any, *, depth: int = 0) -> Any:
 
 
 def parse_datetime(value: Any) -> datetime | None:
-    """Accept ISO strings, epoch numbers and datetimes; always return aware UTC."""
+    """Accepts ISO strings, epoch numbers and datetimes. Result is always UTC-aware."""
     if value in (None, ""):
         return None
     if isinstance(value, datetime):

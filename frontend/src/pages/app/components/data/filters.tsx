@@ -47,9 +47,9 @@ export function DateRangeFields({
 }
 
 /**
- * Renders the honest availability contract: when the backend says a trend is
- * not computable the reason and the point counts are shown verbatim with a
- * concrete next action — never a flat line or a decorative chart.
+ * Renders the availability contract: when the backend reports a trend as not
+ * computable the reason and the point counts are shown verbatim with a
+ * concrete next action, in place of a chart.
  */
 export function TrendOutcomeView({
   outcome,
@@ -78,7 +78,7 @@ export function TrendOutcomeView({
             <span>{outcome.reason}</span>
             {outcome.available_points !== undefined || outcome.required_points !== undefined ? (
               <span className="mono mt-1 block text-xs">
-                available periods: {outcome.available_points ?? '—'} · required: {outcome.required_points ?? '—'}
+                This trend needs {outcome.required_points ?? '—'} periods and the record currently holds {outcome.available_points ?? '—'}.
               </span>
             ) : null}
           </>

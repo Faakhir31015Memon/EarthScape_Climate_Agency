@@ -6,7 +6,6 @@ import {
   Bell,
   Boxes,
   BrainCircuit,
-  ClipboardList,
   Cpu,
   Database,
   FileBarChart,
@@ -16,8 +15,6 @@ import {
   ListChecks,
   Map as MapIcon,
   MessageSquare,
-  ScrollText,
-  Settings,
   ShieldCheck,
   Sparkles,
   TrendingUp,
@@ -82,7 +79,6 @@ export const APPLICATION_SECTIONS: NavSection[] = [
       { to: '/app/alerts', label: 'Alerts', icon: AlertTriangle, badge: 'alerts' },
       { to: '/app/notifications', label: 'Notification centre', icon: Bell, badge: 'notifications' },
       { to: '/app/reports', label: 'Reports & exports', icon: FileBarChart },
-      { to: '/app/saved-analyses', label: 'Saved analyses', icon: ClipboardList },
     ],
   },
   {
@@ -106,9 +102,7 @@ export const ADMIN_SECTIONS: NavSection[] = [
       { to: '/admin/datasets', label: 'Dataset administration', icon: Database, roles: ['administrator'] },
       { to: '/admin/pipelines', label: 'Pipelines & jobs', icon: Boxes, roles: ['administrator'] },
       { to: '/admin/alert-rules', label: 'Alert-rule administration', icon: AlertTriangle, roles: ['administrator'] },
-      { to: '/admin/audit', label: 'Audit logs', icon: ScrollText, roles: ['administrator'] },
       { to: '/admin/health', label: 'System health', icon: Gauge, roles: ['administrator'] },
-      { to: '/admin/settings', label: 'Configuration', icon: Settings, roles: ['administrator'] },
       { to: '/admin/tickets', label: 'Support tickets', icon: MessageSquare, roles: ['administrator'], badge: 'tickets' },
     ],
   },
@@ -116,8 +110,5 @@ export const ADMIN_SECTIONS: NavSection[] = [
 
 export const PUBLIC_LINKS: { to: string; label: string }[] = [
   { to: '/', label: 'Home' },
-  { to: '/about', label: 'About' },
-  { to: '/capabilities', label: 'Platform' },
-  { to: '/insights', label: 'Climate insights' },
   { to: '/help', label: 'Help' },
 ]

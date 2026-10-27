@@ -101,7 +101,7 @@ export default function DashboardPage() {
       <PageHeader
         eyebrow="Monitor"
         title="Platform overview"
-        description="Live state of datasets, pipelines, current observations and predictions — computed from stored records only."
+        description="Live state of datasets, pipelines, current observations and predictions, computed from stored records."
         meta={
           data ? (
             <>
@@ -131,9 +131,9 @@ export default function DashboardPage() {
         <div className="space-y-6">
           {/* ------------------------------------------------------------ KPIs */}
           <section aria-label="Key totals">
-            <div className="grid-responsive">
+            <div className="grid-responsive reveal">
               <StatCard label="Datasets" value={formatNumber(totals?.datasets ?? 0, 0)} icon={<Database className="h-4 w-4" />} to="/app/datasets" hint="Catalogued sources, uploads and samples" />
-              <StatCard label="Observations" value={formatNumber(totals?.observations ?? 0, 0)} icon={<Activity className="h-4 w-4" />} to="/app/history" hint="Stored in climate_observations" />
+              <StatCard label="Observations" value={formatNumber(totals?.observations ?? 0, 0)} icon={<Activity className="h-4 w-4" />} to="/app/history" hint="Observations held for this deployment" />
               <StatCard
                 label="Locations / regions"
                 value={`${formatNumber(totals?.locations ?? 0, 0)} / ${formatNumber(totals?.regions ?? 0, 0)}`}
@@ -141,7 +141,7 @@ export default function DashboardPage() {
                 to="/app/map"
               />
               <StatCard
-                label="Ingestion — success vs failure"
+                label="Ingestion: success vs failure"
                 value={formatNumber(totals?.ingestion_jobs?.completed ?? 0, 0)}
                 tone={(totals?.ingestion_jobs?.failed ?? 0) > 0 ? 'alert' : 'forest'}
                 hint={`${formatNumber(totals?.ingestion_jobs?.failed ?? 0, 0)} failed · ${formatNumber(
@@ -161,7 +161,7 @@ export default function DashboardPage() {
           <section aria-label="Import your own data">
             <Panel
               title="Import your own data"
-              description="Send a spreadsheet or data file; the backend stores it, detects the format, maps the columns and runs the import against this workspace."
+              description="Send a spreadsheet or data file; the platform stores it, detects the format, maps the columns and runs the import against this workspace."
               actions={<Link to="/app/uploads" className="link text-xs">Import page</Link>}
             >
               <div className="flex flex-wrap items-center gap-3">
@@ -211,7 +211,7 @@ export default function DashboardPage() {
 
             <Panel
               title="Current-data availability"
-              description="Newest stored observation per source — staleness is stated, never hidden."
+              description="Newest stored observation per source, with its staleness."
               actions={<Link to="/app/map" className="link text-xs">View map</Link>}
             >
               {data.current_data?.available ? (
@@ -240,7 +240,7 @@ export default function DashboardPage() {
                   title="No current data stored"
                   description={
                     data.current_data.reason ??
-                    'climate_observations holds no documents yet, so there is no current data.'
+                    'No observations have been stored for this deployment yet, so there is no current data.'
                   }
                   action={
                     <Link to="/app/ingestion" className="btn btn-primary btn-sm">
@@ -275,7 +275,7 @@ export default function DashboardPage() {
                             <span>{outcome.reason}</span>
                             {outcome.available_points !== undefined || outcome.required_points !== undefined ? (
                               <span className="mono mt-1 block text-xs">
-                                available periods: {outcome.available_points ?? '—'} · required: {outcome.required_points ?? '—'}
+                                This trend needs {outcome.required_points ?? '—'} periods and the record currently holds {outcome.available_points ?? '—'}.
                               </span>
                             ) : null}
                           </>
@@ -307,7 +307,7 @@ export default function DashboardPage() {
                 }
                 return (
                   <div className="flex items-center justify-center rounded-lg border border-dashed py-12 text-sm muted" style={{ borderColor: 'var(--border-strong)' }} role="status">
-                    {comparison.reason ?? 'No regional aggregates are available yet — ingest observations to compare regions.'}
+                    {comparison.reason ?? 'No regional aggregates yet. Ingest observations to compare regions.'}
                   </div>
                 )
               })()}
@@ -325,8 +325,8 @@ export default function DashboardPage() {
                     data.recent_anomalies && !Array.isArray(data.recent_anomalies)
                       ? String((data.recent_anomalies as unknown as { reason?: string; note?: string }).reason ??
                           (data.recent_anomalies as unknown as { note?: string }).note ??
-                          'No anomaly scan results are persisted yet.')
-                      : 'No anomalies have been detected in the stored record.'
+                          'No anomaly scan results have been saved yet.')
+                      : 'No anomalies in the stored record.'
                   return <EmptyState title="Nothing anomalous yet" description={reason} action={<Link to="/app/anomalies" className="btn btn-secondary btn-sm">Run detection</Link>} />
                 }
                 return (
@@ -363,7 +363,7 @@ export default function DashboardPage() {
                   return (
                     <EmptyState
                       title="No forecasts yet"
-                      description={forecasts.reason ?? 'The predictions collection is empty — train and run a model first.'}
+                      description={forecasts.reason ?? 'No predictions yet. Train and run a model first.'}
                       action={<Link to="/app/models" className="btn btn-secondary btn-sm">Model registry</Link>}
                     />
                   )
@@ -406,7 +406,7 @@ export default function DashboardPage() {
                   ) : null}
                 </div>
               </div>
-              <Hint>Scores come from real completeness and flag counts; the API returns no score when there is nothing to measure.</Hint>
+              <Hint>Scores come from completeness and flag counts. If there's nothing to measure, no score is shown.</Hint>
             </Panel>
           </section>
 
@@ -420,7 +420,7 @@ export default function DashboardPage() {
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="panel-title">Executed by</span>
                     {Object.entries(data.pipeline_status.processing_mode_breakdown).map(([mode, count]) => (
-                      <Badge key={mode} tone={mode === 'local-development' ? 'info' : 'success'} title="The engine that actually ran the job">
+                      <Badge key={mode} tone={mode === 'local-development' ? 'info' : 'success'} title="The engine that ran the job">
                         {humanise(mode)} × {formatNumber(count, 0)}
                       </Badge>
                     ))}
@@ -438,7 +438,7 @@ export default function DashboardPage() {
                   <StatCard label="Failed" value={formatNumber(data.pipeline_status.failed, 0)} tone={(data.pipeline_status.failed ?? 0) > 0 ? 'alert' : 'default'} />
                 </div>
               ) : (
-                <p className="text-sm muted">The backend did not report pipeline status in this summary.</p>
+                <p className="text-sm muted">This summary did not include pipeline status.</p>
               )}
               {data.pipeline_status ? (
                 <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
@@ -482,7 +482,7 @@ export default function DashboardPage() {
               )}
             </Panel>
 
-            <Panel title="Quick actions" description="Offered by the backend for your role and current data state.">
+            <Panel title="Quick actions" description="Suggested for your role and current data state.">
               {(() => {
                 const actions = normaliseQuickActions(data.quick_actions)
                 if (!actions.length) {
@@ -518,7 +518,7 @@ export default function DashboardPage() {
 
           {summary.error ? (
             <div className="card-tight border-alert-high/40 text-xs text-alert-high" role="status">
-              Last refresh failed: {summary.error.message} — retrying automatically.
+              Last refresh failed: {summary.error.message}. Retrying automatically.
             </div>
           ) : null}
         </div>

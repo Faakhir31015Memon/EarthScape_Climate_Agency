@@ -25,7 +25,7 @@ import type { AnomalyScanResponse, Metric, PredictionCreateBody, PredictionListI
 
 type ScopeType = 'region' | 'location'
 
-/** Renders a forecast's scope honestly from the region_code / location_code fields the list omits values for. */
+/** Derives a forecast's scope from the region_code / location_code fields the list endpoint omits. */
 function scopeLabel(record: { region_code?: string | null; location_code?: string | null }): string {
   if (record.location_code) return `Station ${record.location_code}`
   if (record.region_code) return `Region ${record.region_code}`
@@ -154,8 +154,7 @@ export default function ForecastExplorerPage() {
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold leading-tight sm:text-[28px]">Forecast explorer</h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed muted">
-              Request a model projection for a region or station. A forecast is a statistical projection, never an actual outcome — the solid line is real
-              observed history, the dashed line is what the model projects forward with whatever uncertainty the model actually publishes.
+              Request a projection for a region or station. The solid line is stored observations; the dashed line is the model projecting forward, with whatever uncertainty it reports.
             </p>
           </div>
           <Link to="/app/anomalies" className="btn btn-secondary btn-sm">
@@ -172,7 +171,7 @@ export default function ForecastExplorerPage() {
             className="btn btn-ghost btn-sm"
             onClick={() => void runScan()}
             disabled={!canRun}
-            title={!canRun ? 'Requires climate analyst or administrator role.' : 'Scan stored observations for anomalies (POST /climate/anomalies/scan)'}
+            title={!canRun ? 'Requires climate analyst or administrator role.' : 'Scan stored observations for anomalies'}
           >
             <Radar className="h-4 w-4" /> Anomaly scan
           </button>
@@ -255,7 +254,7 @@ export default function ForecastExplorerPage() {
       {forecastError ? <ErrorState error={forecastError} /> : null}
 
       {scanResult ? (
-        <Panel title="Anomaly scan" description="Live result of POST /climate/anomalies/scan." dense>
+        <Panel title="Anomaly scan" description="Live result of the anomaly scan." dense>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <Badge tone={scanResult.scan.dry_run ? 'info' : 'success'}>{scanResult.scan.dry_run ? 'dry run' : 'alerts persisted'}</Badge>
             <span>Anomalies detected: <span className="mono">{formatNumber(scanResult.scan.anomalies_detected, 0)}</span></span>
@@ -313,14 +312,14 @@ export default function ForecastExplorerPage() {
 
       <Panel
         title="Stored forecasts"
-        description="Previous projections for comparison. The list omits the full value series — open a row to load and plot it."
+        description="Previous projections for comparison. The list omits the full value series. Open a row to load and plot it."
         actions={<span className="text-xs subtle">{historyRows.length} forecast{historyRows.length === 1 ? '' : 's'}</span>}
       >
         {history.loading ? <Skeleton className="h-40 w-full" /> : null}
         {history.error ? <ErrorState error={history.error} onRetry={() => void history.refetch()} /> : null}
         {history.data?.note ? <p className="mb-2 text-xs subtle">{history.data.note}</p> : null}
         {!history.loading && historyRows.length === 0 ? (
-          <EmptyState title="No forecasts stored yet" description="No projection has been generated. Pick an active model above and generate a forecast — it will be persisted here." />
+          <EmptyState title="No forecasts stored yet" description="No projection has been generated. Pick an active model above and generate a forecast. It's saved here." />
         ) : null}
         {historyRows.length ? (
           <DataTable
@@ -437,11 +436,11 @@ function UncertaintyAndCaveats({ record }: { record: PredictionRecord }) {
             </p>
             <p className="text-sm">{record.uncertainty.note ?? 'Prediction intervals are shown where the model published them.'}</p>
             {record.values.some((row) => row.lower_bound == null || row.upper_bound == null) ? (
-              <p className="subtle">Note: some steps have no published bounds, so the band is only drawn where bounds exist.</p>
+              <p className="subtle">Some steps have no published bounds, so the band is only drawn where bounds exist.</p>
             ) : null}
           </div>
         ) : (
-          <p className="muted">{record.uncertainty.note ?? 'This model does not publish prediction intervals — the band is intentionally absent rather than estimated.'}</p>
+          <p className="muted">{record.uncertainty.note ?? 'This model does not publish prediction intervals, so no band is drawn.'}</p>
         )}
       </div>
       <div>

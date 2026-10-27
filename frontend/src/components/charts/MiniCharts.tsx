@@ -42,10 +42,10 @@ export function Sparkline({
 }
 
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: '#c63a3a',
-  high: '#e2743b',
-  medium: '#e9b23c',
-  low: '#3b9af6',
+  critical: '#a93b2c',
+  high: '#c1712f',
+  medium: '#d2a94a',
+  low: '#4e8aa8',
   info: 'var(--border-strong)',
 }
 
@@ -82,7 +82,7 @@ export function ScoreRing({ score, label, size = 92 }: { score: number | null; l
   const radius = (size - 10) / 2
   const circumference = 2 * Math.PI * radius
   const clamped = score === null ? 0 : Math.max(0, Math.min(100, score))
-  const color = clamped >= 85 ? '#27633a' : clamped >= 60 ? '#e98513' : clamped > 0 ? '#e2743b' : 'var(--border-strong)'
+  const color = clamped >= 85 ? '#41663a' : clamped >= 60 ? '#b98b2a' : clamped > 0 ? '#c1712f' : 'var(--border-strong)'
   return (
     <div className="flex items-center gap-3">
       <svg width={size} height={size} role="img" aria-label={`${label}: ${score === null ? 'unavailable' : `${clamped} of 100`}`}>

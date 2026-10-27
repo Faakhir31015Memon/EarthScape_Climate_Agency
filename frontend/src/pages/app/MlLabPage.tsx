@@ -126,17 +126,17 @@ export default function MlLabPage() {
 
       {cat ? (
         <div className="grid-responsive">
-          <StatCard label="Trainable targets" value={cat.targets.filter((item) => item.trainable).length} unit={`/ ${cat.targets.length}`} tone="hydro" hint="Targets with enough real observations to train." />
+          <StatCard label="Trainable targets" value={cat.targets.filter((item) => item.trainable).length} unit={`/ ${cat.targets.length}`} tone="hydro" hint="Targets with enough observations to train." />
           <StatCard label="Available algorithms" value={cat.algorithms.filter((item) => item.available).length} unit={`/ ${cat.algorithms.length}`} tone="solar" hint="Disabled when the engine lacks the library." />
-          <StatCard label="Max forecast horizon" value={cat.horizon.max_forecast_horizon_days} unit="days" tone="forest" hint="Upper bound the backend accepts for a forecast." icon={<BrainCircuit className="h-4 w-4" />} />
-          <StatCard label="Train / test split" value={cat.horizon.split_strategy} tone="default" hint="Honest split strategy reported by the trainer." />
+          <StatCard label="Max forecast horizon" value={cat.horizon.max_forecast_horizon_days} unit="days" tone="forest" hint="The longest forecast horizon this deployment allows." icon={<BrainCircuit className="h-4 w-4" />} />
+          <StatCard label="Train / test split" value={cat.horizon.split_strategy} size="text" tone="default" hint="Split strategy reported by the trainer." />
         </div>
       ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        <Panel title="Training configuration" description="Every field below maps to a documented POST /models/train parameter. Nothing is auto-filled with guesses.">
+        <Panel title="Training configuration" description="These are the options the platform supports. Nothing here is pre-filled for you.">
           <div className="space-y-6">
-            <FieldSet legend="Target variable" description="Only metrics backed by real observations are trainable.">
+            <FieldSet legend="Target variable" description="Only metrics backed by stored observations are trainable.">
               {cat ? (
                 <div className="grid gap-2 sm:grid-cols-2">
                   {cat.targets.map((item) => (
@@ -151,7 +151,7 @@ export default function MlLabPage() {
                     title="This target cannot be trained yet"
                     description={
                       <>
-                        {targetInfo.blocker ?? 'Insufficient real observations.'} Rows with a value:{' '}
+                        {targetInfo.blocker ?? 'Not enough observations stored.'} Rows with a value:{' '}
                         <span className="mono">{formatNumber(targetInfo.rows_with_value, 0)}</span>.
                       </>
                     }
@@ -165,7 +165,7 @@ export default function MlLabPage() {
               ) : null}
             </FieldSet>
 
-            <FieldSet legend="Algorithm" description="Unavailable algorithms are shown disabled with the exact blocker or requirement they report.">
+            <FieldSet legend="Algorithm" description="Unavailable algorithms are shown disabled with the blocker or requirement the engine reports.">
               {cat ? (
                 <div className="grid gap-2 sm:grid-cols-3">
                   {cat.algorithms.map((item) => (
@@ -185,10 +185,10 @@ export default function MlLabPage() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Regions" htmlFor="ml-regions" hint="Optional — leave empty to train across every region for the target.">
+              <Field label="Regions" htmlFor="ml-regions" hint="Optional. Leave empty to train across every region for the target.">
                 <MultiSelect options={regionOptions} value={selectedRegions} onChange={setSelectedRegions} placeholder="All regions" label="Regions" />
               </Field>
-              <Field label="Locations" htmlFor="ml-locations" hint="Optional — narrow training to specific stations.">
+              <Field label="Locations" htmlFor="ml-locations" hint="Optional. Narrow training to specific stations.">
                 <MultiSelect options={locationOptions} value={selectedLocations} onChange={setSelectedLocations} placeholder="All locations" label="Locations" />
               </Field>
             </div>
@@ -204,7 +204,7 @@ export default function MlLabPage() {
 
             {cat ? (
               <Hint>
-                The feature set is fixed by the backend — {cat.default_feature_set.description} Lags{' '}
+                The feature set is fixed by the model. {cat.default_feature_set.description} Lags{' '}
                 <span className="mono">{cat.default_feature_set.lags.join(', ') || 'none'}</span> · rolling windows{' '}
                 <span className="mono">{cat.default_feature_set.rolling_windows_days.join(', ') || 'none'}</span> days.
               </Hint>
@@ -245,7 +245,7 @@ export default function MlLabPage() {
         </Panel>
 
         <div className="space-y-6">
-          <Panel title="Row availability" description="Honest, current observation counts — the trainer needs real rows.">
+          <Panel title="Row availability" description="Current observation counts. The trainer needs rows to train on.">
             {targetInfo ? (
               <div className="space-y-2 text-sm">
                 <p>
@@ -266,12 +266,12 @@ export default function MlLabPage() {
                 </Badge>
               </div>
             ) : (
-              <p className="text-sm muted">Select a target to see how many real observations exist for it.</p>
+              <p className="text-sm muted">Select a target to see how many observations exist for it.</p>
             )}
             {algorithmInfo?.requirements ? <Hint>Requirements: {algorithmInfo.requirements}</Hint> : null}
           </Panel>
 
-          <Panel title="Live training runs" description="Models the backend is training right now (polled every 5s)." dense>
+          <Panel title="Live training runs" description="Models being trained right now (refreshed every 5s)." dense>
             {training.loading && !training.data ? <Skeleton className="h-16 w-full" /> : null}
             {training.error && !training.data ? <ErrorState error={training.error} onRetry={() => void training.refetch()} /> : null}
             {training.data ? (
@@ -303,7 +303,7 @@ export default function MlLabPage() {
 
       <Panel
         title="Evaluation comparison"
-        description="Pick trained models to line up their reported metrics. Values are exactly what the API returned — units shown, no interpolation."
+        description="Pick trained models to line up their reported metrics. Values come straight from the API, with units."
         actions={<span className="text-xs subtle">{compareOptions.length} models have metrics</span>}
       >
         {registry.loading ? <Skeleton className="h-40 w-full" /> : null}
@@ -363,8 +363,8 @@ function PageBlock() {
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold leading-tight sm:text-[28px]">Machine learning lab</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed muted">
-            Configure and launch model training against the live catalogue. Training is accepted with a 202 and runs in the background — metrics and forecast
-            values only ever come from the API. A target that cannot train reports its blocker, never a fabricated score.
+            Configure and launch model training against the live catalogue. Training is accepted with a 202 and runs in the background; metrics and forecast
+            values come from the API. If a target can't train, it reports why.
           </p>
         </div>
         <Link to="/app/models" className="btn btn-secondary btn-sm">
@@ -382,7 +382,7 @@ function TargetCard({ item, selected, onSelect }: { item: ModelCatalogue['target
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      className={`card-tight text-left transition-colors ${selected ? 'ring-2 ring-forest-500/60' : ''}`}
+      className={`card-tight text-left transition-colors ${selected ? 'ring-2 ring-clay-500/60' : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -407,7 +407,7 @@ function AlgorithmCard({ item, selected, onSelect }: { item: ModelCatalogue['alg
       disabled={!item.available}
       aria-pressed={selected}
       title={item.available ? item.name : `Unavailable${item.blocked_by ? ` — ${item.blocked_by}` : ''}`}
-      className={`card-tight text-left transition-colors ${selected ? 'ring-2 ring-forest-500/60' : ''} ${!item.available ? 'opacity-60' : ''}`}
+      className={`card-tight text-left transition-colors ${selected ? 'ring-2 ring-clay-500/60' : ''} ${!item.available ? 'opacity-60' : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -489,7 +489,7 @@ function MetricCell({ model, meta, models }: { model: ModelRecord; meta: (typeof
         {best && models.length > 1 ? <Badge tone="success">best</Badge> : null}
       </div>
       <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full" style={{ backgroundColor: 'var(--surface-muted)' }}>
-        <div className="h-full rounded-full bg-forest-600" style={{ width: `${width}%` }} />
+        <div className="h-full rounded-full bg-clay-600 transition-[width] duration-500" style={{ width: `${width}%` }} />
       </div>
     </div>
   )

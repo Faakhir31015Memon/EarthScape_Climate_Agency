@@ -46,11 +46,6 @@ pyarrow==16.1.0
 # --- Reports ---
 reportlab==4.2.0
 
-# --- Background tasks (application falls back to an in-process worker pool when
-#     REDIS_URL/broker is not reachable; see backend/common/tasks.py) ---
-celery==5.4.0 ; python_version < "3.12"
-redis==5.0.4
-
 # --- HDFS web-HDFS client (used when HDFS_ENDPOINT is configured) ---
 hdfs==2.7.3
 

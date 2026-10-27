@@ -79,7 +79,7 @@ export function freshnessTone(status?: string | null): 'success' | 'warning' | '
   }
 }
 
-/** Honest client-side classification of a last-observation date. */
+/** Client-side classification of a last-observation date. */
 export function dateFreshness(iso: string | null | undefined): 'fresh' | 'lagging' | 'stale' | 'unknown' {
   if (!iso) return 'unknown'
   const parsed = new Date(iso)
@@ -123,7 +123,7 @@ export function trendOutcome(
   fallbackMetric: Metric,
 ): TrendOutcome {
   if (!payload || typeof payload !== 'object') {
-    return { kind: 'unavailable', reason: 'No trend payload was returned for this panel.' }
+    return { kind: 'unavailable', reason: 'No trend data is available for this panel yet.' }
   }
   const record = payload as Record<string, unknown>
   const series = Array.isArray(record.series) ? (record.series as ReadyTrend['series']) : []
@@ -134,7 +134,7 @@ export function trendOutcome(
         ? record.reason
         : typeof record.note === 'string' && record.note
           ? record.note
-          : 'The backend returned no computable periods for this selection.'
+          : 'There are not enough stored observations for this selection yet.'
     return {
       kind: 'unavailable',
       reason,
@@ -273,17 +273,15 @@ const REAL_ROUTES = new Set([
   '/app/alerts',
   '/app/notifications',
   '/app/reports',
-  '/app/saved-analyses',
   '/app/support',
   '/admin',
   '/admin/alert-rules',
-  '/admin/audit',
 ])
 
 /**
  * Backend quick-actions reference API-side route names; these are the only
  * allowed translations into routes that actually exist in `app/router.tsx`.
- * Anything unmappable is dropped rather than invented.
+ * Anything unmappable is dropped.
  */
 const ROUTE_ALIASES: Record<string, string> = {
   '/climate/explorer': '/app/analytics',
@@ -298,7 +296,6 @@ const ROUTE_ALIASES: Record<string, string> = {
   '/processing': '/app/processing',
   '/alerts': '/app/alerts',
   '/models': '/app/models',
-  '/system/audit': '/admin/audit',
 }
 
 const LABEL_ROUTE_HINTS: [RegExp, string][] = [
@@ -306,7 +303,6 @@ const LABEL_ROUTE_HINTS: [RegExp, string][] = [
   [/upload/i, '/app/uploads'],
   [/\bmap\b/i, '/app/map'],
   [/anomal/i, '/app/anomalies'],
-  [/audit/i, '/admin/audit'],
   [/train|model/i, '/app/models'],
   [/ticket|support|question/i, '/app/support'],
   [/export|observation/i, '/app/history'],

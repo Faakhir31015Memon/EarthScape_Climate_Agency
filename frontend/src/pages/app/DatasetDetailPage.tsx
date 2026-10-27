@@ -82,7 +82,7 @@ export default function DatasetDetailPage() {
         <Panel>
           <EmptyState
             title="This dataset does not exist"
-            description={`No dataset with id "${datasetId}" was returned by the backend. It may have been deleted or the link is out of date.`}
+            description={`No dataset was found for "${datasetId}". It may have been deleted, or the link is out of date.`}
             tone="warning"
             action={
               <Link to="/app/datasets" className="btn btn-primary btn-sm">
@@ -229,7 +229,7 @@ export default function DatasetDetailPage() {
 
           <Panel
             title="Ingestion jobs"
-            description={hasActiveJob ? 'A job is running — this table refreshes every 5 seconds.' : 'Jobs recorded for this dataset.'}
+            description={hasActiveJob ? 'A job is running. This table refreshes every 5 seconds.' : 'Jobs recorded for this dataset.'}
             actions={hasActiveJob ? <Badge tone="info">live · 5s</Badge> : undefined}
           >
             <DataTable
@@ -290,7 +290,7 @@ export default function DatasetDetailPage() {
         open={confirmArchive}
         tone="danger"
         title="Archive this dataset?"
-        message="Archiving is the only dataset removal the backend offers: it is administrator-only and soft — the record, its stored file and any observations it produced stay in the store and remain referenced by past jobs."
+        message="Archiving is the only way to remove a dataset here. It's administrator-only and soft: the record, its stored file and any observations it produced stay in storage and remain referenced by past jobs."
         confirmLabel="Archive"
         busy={busy}
         onClose={() => setConfirmArchive(false)}
@@ -317,7 +317,7 @@ export default function DatasetDetailPage() {
  * `dataset.validation_report` is a free-form `Record<string, unknown>`: the backend
  * stores whatever the importer's `build_validation_report` produced. Every field is
  * therefore read defensively, and anything the report does not carry is stated as
- * absent instead of defaulted or invented.
+ * absent rather than defaulted.
  */
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
@@ -369,7 +369,7 @@ function ValidationPanel({ dataset }: { dataset: Dataset }) {
       <Panel title="Validation report">
         <EmptyState
           title="No validation report"
-          description="This source was registered without a stored validation report — typically API or pre-validated datasets. Quality is therefore reported by ingestion rather than a file check."
+          description="This source was registered without a stored validation report, typically an API or pre-validated dataset. Quality is reported by the ingestion job."
         />
       </Panel>
     )
@@ -497,8 +497,7 @@ function ValidationPanel({ dataset }: { dataset: Dataset }) {
         </div>
       ) : (
         <p className="mt-3 text-xs subtle">
-          This stored report carries counts and issue summaries only — no row samples, so nothing is previewed here rather than a
-          fabricated table.
+          This report stores counts and issue summaries, no row samples, so there's nothing to preview.
         </p>
       )}
     </Panel>
@@ -565,7 +564,7 @@ function SyncButton({
   const unavailable = connectorPending
     ? 'Checking the connector catalogue…'
     : !connector
-      ? 'The backend exposes no source connector for this dataset source type, so no sync can be requested.'
+      ? 'This dataset’s source type has no connector configured here, so a sync cannot be requested.'
       : !connector.configured
         ? connector.setup_hint || 'This source is not configured on the server, so a sync would fail.'
         : null

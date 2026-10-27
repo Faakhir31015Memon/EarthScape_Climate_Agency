@@ -1,17 +1,7 @@
-"""Engine availability probes used by processing endpoints and health checks.
+"""Engine availability probes for the processing and health endpoints.
 
-Design rules (enforced in code):
-
-* Never claim an engine is available without actually probing it.
-* Every unavailable result must name the specific missing env key, package or
-  service so an operator knows what to fix.
-* Probes are cheap: ``importlib`` checks, ``shutil.which`` for CLI binaries,
-  one ``subprocess.run`` for ``hadoop version`` and one socket ``connect_ex`` for
-  the Kafka broker, with a short timeout. Starting a real SparkSession is
-  deliberately not performed here - the workflow itself reports the honest
-  session outcome when the job actually runs.
-* The composite return shape mirrors :class:`EngineHealth` in
-  ``frontend/src/types/api.ts``.
+The composite shape mirrors EngineHealth in frontend/src/types/api.ts.
+Probes never start a SparkSession; the job reports its own session outcome.
 """
 from __future__ import annotations
 
@@ -33,7 +23,7 @@ from config import env  # noqa: E402
 
 # --------------------------------------------------------------------------- probes
 def _spark_installed() -> Tuple[bool, Optional[str], Optional[str]]:
-    """Cheap check: ``pyspark`` importable + reported version. Never starts a session."""
+    """Checks pyspark importable + reported version; never starts a session."""
     spec = importlib.util.find_spec("pyspark")
     if spec is None:
         return False, None, "pyspark is not importable in this interpreter"
@@ -47,11 +37,7 @@ def _spark_installed() -> Tuple[bool, Optional[str], Optional[str]]:
 
 
 def _hadoop_bin_probe() -> Tuple[Optional[str], Optional[str]]:
-    """Return ``(resolved_binary_path, detail)``.
-
-    ``shutil.which`` on the configured ``HADOOP_BIN`` (default ``hadoop``) —
-    never a client-supplied path.
-    """
+    """shutil.which on the configured HADOOP_BIN, never a client-supplied path."""
     configured = (env.get_raw("HADOOP_BIN") or "").strip()
     candidate = configured or "hadoop"
     resolved = shutil.which(candidate)
@@ -63,11 +49,7 @@ def _hadoop_bin_probe() -> Tuple[Optional[str], Optional[str]]:
 
 
 def _hadoop_version(resolved: str) -> Optional[str]:
-    """Best-effort version read; returns ``None`` when the probe fails.
-
-    Never trusts a client-supplied path: ``resolved`` comes from
-    :func:`_hadoop_bin_probe` (which uses ``shutil.which`` on the env value).
-    """
+    """Best-effort version read; returns None when the probe fails."""
     try:
         result = subprocess.run([resolved, "version"], capture_output=True, text=True, timeout=15)
     except (OSError, subprocess.TimeoutExpired):
@@ -119,7 +101,7 @@ def _data_lake_entry() -> Dict[str, Any]:
             except OSError:
                 free_bytes = None
         else:
-            # HDFS mode implies the WebHDFS NameNode answered for ``_probe_hdfs``.
+            # mode "hdfs" means the NameNode already answered inside get_data_lake
             reachable = lake.mode == "hdfs"
         detail = getattr(lake, "_mode_error", None)
         if detail:
@@ -144,7 +126,6 @@ def _hdfs_entry() -> Dict[str, Any]:
                 "endpoint": None,
                 "detail": "HDFS_ENDPOINT is empty; the platform uses the local data-lake directory."}
     configured = True
-    # Only attempt a client probe when the ``hdfs`` package is importable.
     if importlib.util.find_spec("hdfs") is None:
         return {"configured": configured, "reachable": False, "mode": "unknown",
                 "endpoint": endpoint,
@@ -154,8 +135,7 @@ def _hdfs_entry() -> Dict[str, Any]:
         from common.data_lake import get_data_lake
 
         lake = get_data_lake()
-        # ``lake.mode`` is what the platform itself will actually use after
-        # probing; never re-implement the probe differently here.
+        # lake.mode is what the platform uses after probing; don't re-implement here
         reachable = lake.mode == "hdfs"
         detail = getattr(lake, "_mode_error", None) or f"mode resolved to {lake.mode_label}"
         return {"configured": configured, "reachable": reachable, "mode": lake.mode_label,
@@ -176,7 +156,6 @@ def _spark_entry() -> Dict[str, Any]:
     if not enabled:
         return {"installed": True, "version": version, "session_startable": False,
                 "error": "SPARK_ENABLED is false in .env; Spark jobs are disabled"}
-    # We have not verified an actual session start; the workflow runner does that.
     return {"installed": True, "version": version, "session_startable": None,
             "error": None,
             "note": "session start is verified when the Spark job actually runs; "
@@ -204,43 +183,10 @@ def _hadoop_entry() -> Dict[str, Any]:
             "cluster_configured": True, "detail": detail}
 
 
-# --------------------------------------------------------------------------- kafka
-def _kafka_entry() -> Dict[str, Any]:
-    enabled = env.get_bool("KAFKA_ENABLED", False)
-    brokers = (env.get_raw("KAFKA_BROKERS") or "").strip() or None
-    if not enabled:
-        return {"enabled": False, "brokers": brokers, "reachable": False,
-                "detail": "KAFKA_ENABLED is false; the streaming workflow uses the "
-                          "local spool directory instead of a live broker"}
-    if not brokers:
-        return {"enabled": True, "brokers": None, "reachable": False,
-                "detail": "KAFKA_BROKERS is empty"}
-    parsed = _parse_broker(brokers)
-    if parsed is None:
-        return {"enabled": True, "brokers": brokers, "reachable": False,
-                "detail": "KAFKA_BROKERS is not in host:port form"}
-    host, port = parsed
-    reachable = _probe_tcp(host, port)
-    detail = "broker TCP reachable" if reachable else f"could not TCP-connect to {host}:{port}"
-    return {"enabled": True, "brokers": brokers, "reachable": reachable, "detail": detail}
-
-
-# -------------------------------------------------------------------------- airflow
-def _airflow_entry() -> Dict[str, Any]:
-    enabled = env.get_bool("AIRFLOW_ENABLED", False)
-    if not enabled:
-        return {"enabled": False,
-                "detail": "AIRFLOW_ENABLED is false; scheduled tasks use the in-process "
-                          "thread pool or Celery beat instead"}
-    base = env.get_raw("AIRFLOW_BASE_URL") or "not configured"
-    return {"enabled": True, "detail": f"Airflow base URL reported as {base}; "
-                                       "DAG reachability is not probed at request time"}
-
-
 # ------------------------------------------------------------------------ composite
 def _current_processing_mode(hdfs_entry: Dict[str, Any], spark_entry: Dict[str, Any],
-                             hadoop_entry: Dict[str, Any], kafka_entry: Dict[str, Any]) -> str:
-    """Pick the mode the platform *will* actually use for the next job."""
+                             hadoop_entry: Dict[str, Any]) -> str:
+    """Pick the mode the platform will use for the next job."""
     if spark_entry.get("installed") and spark_entry.get("session_startable") is not False \
             and env.get_bool("SPARK_ENABLED", True):
         return "pyspark"
@@ -248,20 +194,15 @@ def _current_processing_mode(hdfs_entry: Dict[str, Any], spark_entry: Dict[str, 
         return "hadoop-streaming"
     if hdfs_entry.get("reachable"):
         return "local-streaming-simulated"
-    if kafka_entry.get("reachable"):
-        return "streaming"
     return "mongodb"
 
 
 def engine_health() -> Dict[str, Any]:
-    """Composite EngineHealth shape (see frontend/src/types/api.ts)."""
     hdfs = _hdfs_entry()
     spark = _spark_entry()
     hadoop = _hadoop_entry()
-    kafka = _kafka_entry()
-    airflow = _airflow_entry()
     lake = _data_lake_entry()
-    mode = _current_processing_mode(hdfs, spark, hadoop, kafka)
+    mode = _current_processing_mode(hdfs, spark, hadoop)
     notes: List[str] = []
     if not spark["installed"]:
         notes.append(f"PySpark unavailable: {spark['error']}")
@@ -271,16 +212,10 @@ def engine_health() -> Dict[str, Any]:
         notes.append(f"Hadoop CLI unavailable: {hadoop['detail']}")
     if not hdfs["reachable"]:
         notes.append(f"HDFS not reachable: {hdfs['detail']}")
-    if not kafka["reachable"]:
-        notes.append(f"Kafka broker not reachable: {kafka['detail']}")
-    if not airflow["enabled"]:
-        notes.append("Airflow integration disabled")
     return {
         "hdfs": hdfs,
         "spark": spark,
         "hadoop": hadoop,
-        "kafka": kafka,
-        "airflow": airflow,
         "data_lake": lake,
         "current_processing_mode": mode,
         "note": "; ".join(notes) if notes else "all primary engines reported healthy",
@@ -288,7 +223,6 @@ def engine_health() -> Dict[str, Any]:
 
 
 def workflow_availability(engine: str, workflow: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
-    """Decide ``available`` + ``unavailable_reason`` for one workflow entry."""
     health = engine_health()
     if engine == "pyspark":
         spark = health["spark"]
@@ -305,9 +239,8 @@ def workflow_availability(engine: str, workflow: Dict[str, Any]) -> Tuple[bool, 
             return False, "SPARK_ENABLED is false in configuration"
         return True, None
     if engine == "mapreduce":
-        # The streaming orchestrator has a *documented* local fallback that
-        # runs the same mapper/reducer code as subprocesses of ``sys.executable``,
-        # so this workflow is genuinely available even without hadoop.
+        # the streaming orchestrator falls back to running the mapper/reducer
+        # as subprocesses of sys.executable, so hadoop isn't required
         if shutil.which("python3") is None and shutil.which("python") is None \
                 and not Path(sys.executable).is_file():
             return False, "no python interpreter available to run the mapper/reducer subprocesses"
@@ -327,15 +260,13 @@ def workflow_availability(engine: str, workflow: Dict[str, Any]) -> Tuple[bool, 
 
 # ------------------------------------------------------------------- dependency CLI
 def external_command_probe(binaries: List[str]) -> Dict[str, Optional[str]]:
-    """Return ``{binary: resolved_path or None}`` for ``shutil.which`` on each name."""
     out: Dict[str, Optional[str]] = {}
     for name in binaries:
         out[name] = shutil.which(name)
     return out
 
 
-# Re-export a cheap env snapshot so the monitoring views do not have to
-# import ``config.env`` directly.
+# re-export so the monitoring views don't import config.env directly
 def env_raw(name: str) -> Optional[str]:
     return env.get_raw(name)
 

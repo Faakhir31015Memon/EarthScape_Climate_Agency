@@ -37,8 +37,8 @@ export default function SupportPage() {
         <p className="panel-title mb-1.5">Help &amp; feedback</p>
         <h1 className="text-2xl font-semibold leading-tight sm:text-[28px]">Support</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed muted">
-          Raise tickets, follow their status, and rate the platform. Every status shown here comes straight from the server — a ticket or piece of feedback
-          is only marked resolved when the backend records it that way, never automatically.
+          Raise tickets, follow their status, and rate the platform. Statuses come straight from the record. A ticket or piece of feedback is marked
+          resolved only once it has been recorded that way.
         </p>
       </header>
       <Tabs items={tabs} initial={0} />
@@ -95,11 +95,11 @@ function TicketsTab() {
 
       <NewTicketForm categories={categories.data ?? undefined} onCreated={(ticket) => { setSelectedId(ticket.id); void list.refetch() }} />
 
-      <Panel title="Your tickets" description="Only tickets you opened are listed here. Statuses are exactly as the team's server reports them.">
+      <Panel title="Your tickets" description="Only tickets you opened are listed here. Statuses come from the server.">
         {list.loading && !list.data ? <Skeleton className="h-40 w-full" /> : null}
         {list.error ? <ErrorState error={list.error} onRetry={() => void list.refetch()} /> : null}
         {!list.loading && (list.data?.items.length ?? 0) === 0 ? (
-          <EmptyState title="No tickets yet" description="Use the form above to open a support ticket. It appears here with its real status and full comment thread." />
+          <EmptyState title="No tickets yet" description="Use the form above to open a support ticket. It appears here with its status and full comment thread." />
         ) : null}
         <DataTable columns={columns} rows={list.data?.items ?? []} rowKey={(ticket) => ticket.id} empty="No records" />
         <Pagination meta={list.data ?? undefined} onPage={setPage} label="tickets" />
@@ -152,7 +152,7 @@ function NewTicketForm({ categories, onCreated }: { categories: { categories: st
       onCreated(ticket)
       setSubject('')
       setDescription('')
-      setDone(`Ticket "${ticket.subject}" opened with status ${humanise(ticket.status)}. It is not marked resolved automatically.`)
+      setDone(`Ticket "${ticket.subject}" opened with status ${humanise(ticket.status)}.`)
     } catch (cause) {
       setError(cause instanceof ApiRequestError ? cause : new ApiRequestError(String(cause), 'unexpected_error', 0))
     } finally {
@@ -161,7 +161,7 @@ function NewTicketForm({ categories, onCreated }: { categories: { categories: st
   }
 
   return (
-    <Panel title="Open a support ticket" description="Provide a clear subject and description. File attachments are not offered because the ticket API exposes only text fields.">
+    <Panel title="Open a support ticket" description="Provide a clear subject and description. File attachments aren’t offered here; a ticket carries text only.">
       <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Category" htmlFor="tk-category">
@@ -352,7 +352,7 @@ function Timeline({ ticket }: { ticket: SupportTicket }) {
       <ol className="space-y-2 border-l pl-4 text-xs" style={{ borderColor: 'var(--border)' }}>
         {sorted.map((event, index) => (
           <li key={`${event.at}-${index}`} className="relative">
-            <span className="absolute -left-[1.28rem] top-1 h-2 w-2 rounded-full bg-forest-500" aria-hidden="true" />
+            <span className="absolute -left-[1.28rem] top-1 h-2 w-2 rounded-full bg-clay-500" aria-hidden="true" />
             <p className="font-medium">{event.label}</p>
             <p className="subtle" title={event.at}>{formatDate(event.at, true)} · {relativeTime(event.at)}</p>
           </li>
@@ -404,7 +404,7 @@ function FeedbackTab() {
       setComment('')
       setRating(0)
       void list.refetch()
-      setDone(`Feedback submitted (status ${humanise(record.status)}). It is reviewed by the team; nothing here marks it as actioned automatically.`)
+      setDone(`Feedback submitted (status ${humanise(record.status)}). The team reviews it.`)
     } catch (cause) {
       setError(cause instanceof ApiRequestError ? cause : new ApiRequestError(String(cause), 'unexpected_error', 0))
     } finally {
@@ -431,7 +431,7 @@ function FeedbackTab() {
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Panel title="Rate the platform" description="Share a rating (1–5), a category, and a comment. Your submission keeps its true status until an administrator acts on it.">
+        <Panel title="Rate the platform" description="Share a rating (1–5), a category, and a comment. Your submission keeps its status until an administrator acts on it.">
           <div className="space-y-4">
             <div>
               <span className="label">Rating</span>
@@ -459,7 +459,7 @@ function FeedbackTab() {
           </div>
         </Panel>
 
-        <Panel title="Your feedback" description="Submissions visible to your account. Statuses are the server's; they are never set to actioned by this screen.">
+        <Panel title="Your feedback" description="Submissions visible to your account. Statuses are the server's own.">
           {!canSeeSummary ? <Hint>Aggregate statistics are only shown to permitted roles. You can still see and rate your own feedback below.</Hint> : null}
           {list.loading && !list.data ? <Skeleton className="h-40 w-full" /> : null}
           {list.error ? <ErrorState error={list.error} onRetry={() => void list.refetch()} /> : null}

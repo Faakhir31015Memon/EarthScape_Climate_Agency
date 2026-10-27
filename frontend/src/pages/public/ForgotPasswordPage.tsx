@@ -45,12 +45,12 @@ export default function ForgotPasswordPage() {
       if (response.status === 'configuration_required') {
         setOutcome({
           kind: 'not_delivered',
-          text: 'Password recovery is implemented, but this deployment has no email transport configured, so no reset link was sent. Ask an administrator to reset your password from user management.',
+          text: 'This deployment has no email delivery set up, so no link could be sent. An administrator can set your password from user management.',
         })
       } else if (response.status === 'delivery_failed') {
         setOutcome({
           kind: 'not_delivered',
-          text: 'The recovery request was recorded, but the message could not be delivered. Try again shortly, or contact an administrator.',
+          text: 'Your request is recorded, but the message did not go out. Try again in a moment, or ask an administrator.',
         })
       } else {
         setOutcome({ kind: 'neutral' })
@@ -60,7 +60,7 @@ export default function ForgotPasswordPage() {
       if (error.code === 'feature_disabled') {
         setOutcome({
           kind: 'not_delivered',
-          text: 'Self-service password recovery is disabled on this deployment. An administrator sets reset passwords directly.',
+          text: 'Self-service recovery is switched off here. An administrator sets your password directly.',
         })
       } else {
         setApiError(error)
@@ -72,10 +72,10 @@ export default function ForgotPasswordPage() {
 
   if (resetDisabled) {
     return (
-      <Panel title="Recovery is issued by an administrator">
+      <Panel title="An administrator sets passwords here">
         <p className="text-sm leading-relaxed muted">
-          Self-service password reset is switched off on this deployment, so this form cannot issue a link. An administrator resets passwords from the
-          user-management area; sign in when they have done so.
+          Self-service reset is switched off on this deployment, so this form cannot send a link. An administrator sets your password from
+          user management, and you can sign in after that.
         </p>
         <Link to="/login" className="link mt-4 inline-flex items-center gap-1.5 text-sm">
           <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to sign in
@@ -104,7 +104,7 @@ export default function ForgotPasswordPage() {
             </p>
             <p className="mt-1.5 text-sm leading-relaxed muted">
               {outcome.kind === 'neutral'
-                ? 'If that address has an account, a single-use reset link has been sent. It expires after a short window; check your spam folder, then ask an administrator if nothing arrives.'
+                ? 'If that address has an account, a reset link is on its way. The link works once and expires after a short window. Check your spam folder, then ask an administrator if nothing arrives.'
                 : outcome.text}
             </p>
           </div>
@@ -126,7 +126,7 @@ export default function ForgotPasswordPage() {
   return (
     <form onSubmit={onSubmit} className="space-y-5" noValidate>
       <p className="text-sm leading-relaxed muted">
-        Enter the email address on your account. To avoid confirming which addresses exist, the response is the same whether or not an account is found.
+        Enter the email address on your account. The reply looks the same either way, because the form does not confirm which addresses exist.
       </p>
 
       <Field label="Email address" htmlFor="email" error={errors.email?.message} required>

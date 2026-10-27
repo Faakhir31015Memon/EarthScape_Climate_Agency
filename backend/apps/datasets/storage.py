@@ -1,7 +1,6 @@
-"""Upload handling: safe temp storage, format sniffing, bounded streaming readers.
+"""Upload handling: temp storage, format sniffing, streaming row readers.
 
-Large files are never loaded whole into memory: CSV and JSONL are read row by row, and
-Excel uses read-only streaming. Every row iteration is capped by MAX_UPLOAD_ROWS.
+Files are read row by row, never loaded whole; each iteration caps at MAX_UPLOAD_ROWS.
 """
 
 from __future__ import annotations
@@ -99,7 +98,7 @@ def store_upload(django_file) -> StoredFile:
     if size == 0:
         raise ValidationError("The uploaded file is empty.", code="empty_file")
 
-    # Refuse obviously unsafe payloads masquerading as data files.
+    # reject non-data payloads by magic bytes
     head = django_file.read(512)
     try:
         django_file.seek(0)
@@ -295,7 +294,7 @@ def _iter_spreadsheet(path: Path, fmt: str, limit: int) -> Iterator[dict]:
 
 
 def _column_type(values: list) -> str:
-    from common.canonical import is_missing, to_float
+    from common.validators import is_missing, to_float
 
     numeric = 0
     textual = 0

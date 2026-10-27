@@ -8,14 +8,14 @@ import { numberOrNull } from '../data/normalise'
 
 /**
  * Polls a ProcessingJob every 5s while it is queued/running and renders only what the
- * API returns — real engine, processing_mode, stage (last log line), durations and row
- * counts. No progress percentage is invented: a job that does not publish one is shown
- * with its actual stage text and counters.
+ * API returns — engine, processing_mode, stage (last log line), durations and row
+ * counts. A job that does not publish a progress percentage is shown with its stage
+ * text and counters instead.
  */
 
 const ACTIVE: ProcessingJob['status'][] = ['queued', 'running']
 
-/** `ProcessingJob.output` is `Record<string, unknown>`; only real string arrays are rendered. */
+/** `ProcessingJob.output` is `Record<string, unknown>`; only string arrays are rendered. */
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
 }

@@ -1,8 +1,5 @@
-"""Analytics endpoints (``/api/v1/analytics/``).
-
-Exposes the aggregates stored in ``analytics_summaries`` - whether they were
-produced by the MapReduce/PySpark workflows or recomputed here from MongoDB - plus
-the trend-slope and one-call matrix helpers the analytics page needs.
+"""Analytics endpoints for /api/v1/analytics/. The aggregates served here are either
+the ones stored by the Spark/MapReduce workflows or recomputed in-process.
 """
 from __future__ import annotations
 
@@ -45,14 +42,12 @@ class SummaryListView(PublicView):
 
 
 class SummaryDetailView(PublicView):
-    """One aggregate by its ``summary_key``."""
-
     def get(self, request, key: str):
         return Response(services.summary_by_key(key))
 
 
 class RecomputeView(AuthenticatedView):
-    """Recompute the core aggregates from MongoDB and store them (analyst/admin)."""
+    """Analyst/admin only."""
 
     authentication_classes = [MongoJWTAuthentication]
     permission_classes = [AdministratorOrAnalyst]
@@ -81,7 +76,7 @@ class RecomputeView(AuthenticatedView):
 
 
 class TrendSlopeView(PublicView):
-    """``analytics.trend_slope`` per region/location with base-period deltas."""
+    """analytics.trend_slope per region/location with base-period deltas."""
 
     def get(self, request):
         metric = metric_or_400(str_param(request, "metric", "temperature_c"))
@@ -104,8 +99,6 @@ class TrendSlopeView(PublicView):
 
 
 class AnalyticsMatrixView(PublicView):
-    """Correlation + regional comparison + trend in one call for the analytics page."""
-
     def get(self, request):
         metric = metric_or_400(str_param(request, "metric", "temperature_c"))
         comparison = str_param(request, "comparison_metric")

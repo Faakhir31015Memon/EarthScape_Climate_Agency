@@ -63,7 +63,7 @@ class NasaPowerConnector(SourceConnector):
     name = "nasa_power"
     source_type = "nasa_power"
     requires_key = False
-    setup_hint = "NASA POWER needs no API key - only outbound network access."
+    setup_hint = "NASA POWER needs no API key, just outbound network access."
 
     @property
     def base_url(self) -> str:
@@ -114,7 +114,7 @@ class NasaPowerConnector(SourceConnector):
         payload = record["payload"]
         parameter_block = (payload.get("properties", {}) or {}).get("parameter", {}) or {}
         if not isinstance(parameter_block, dict) or not parameter_block:
-            # A partial/empty response is reported honestly, never turned into fake rows.
+            # A partial/empty response is logged here and normalises to no rows.
             logger.warning("NASA POWER returned no parameter block for %s", location.get("code"))
             return []
 

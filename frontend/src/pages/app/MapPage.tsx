@@ -190,7 +190,7 @@ export default function MapPage() {
 
           {mapState.data ? (
             <div className="space-y-1 border-t px-4 py-3 text-xs muted" style={{ borderColor: 'var(--border)' }}>
-              <p className="italic">{mapState.data.data_note}</p>
+              <p>{mapState.data.data_note}</p>
               {mapState.data.bounds ? (
                 <p className="mono">
                   bounds (S,W,N,E): {mapState.data.bounds.map((n) => formatNumber(n, 3)).join(', ')}
@@ -198,7 +198,7 @@ export default function MapPage() {
               ) : null}
               <p className="mono">generated at: {relativeTime(mapState.data.generated_at)}</p>
               <p className="subtle">
-                Synced from the observations API on each request — this is periodic refresh, not live sensor streaming.
+                Pulled from the observations API on each request. It refreshes periodically; it isn't a live feed.
               </p>
             </div>
           ) : null}

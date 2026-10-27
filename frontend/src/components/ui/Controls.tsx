@@ -56,8 +56,8 @@ export function Toggle({ checked, onChange, label, disabled = false }: { checked
       onClick={() => onChange(!checked)}
       className="inline-flex items-center gap-2 text-sm"
     >
-      <span className={cn('relative h-5 w-9 rounded-full transition-colors', checked ? 'bg-forest-600' : 'bg-[var(--border-strong)]')}>
-        <span className={cn('absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all', checked ? 'left-[1.125rem]' : 'left-0.5')} />
+      <span className={cn('relative h-5 w-9 rounded-full transition-colors duration-200', checked ? 'bg-[var(--brand)]' : 'bg-[var(--border-strong)]')}>
+        <span className={cn('absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all duration-200', checked ? 'left-[1.125rem]' : 'left-0.5')} />
       </span>
       <span className="muted">{label}</span>
     </button>

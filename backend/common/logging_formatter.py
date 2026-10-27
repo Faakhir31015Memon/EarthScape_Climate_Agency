@@ -1,6 +1,6 @@
 """Single-line structured log formatter.
 
-Values that look like credentials are redacted before they can reach a log sink.
+Redacts mongodb URIs, bearer tokens and password-shaped JSON fields.
 """
 from __future__ import annotations
 

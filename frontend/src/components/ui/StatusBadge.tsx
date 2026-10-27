@@ -109,11 +109,15 @@ export function Badge({ tone = 'neutral', children, title }: { tone?: Tone; chil
 }
 
 export function ModeBadge({ mode, detail }: { mode?: string | null; detail?: string }) {
-  const atlas = mode === 'atlas'
+  const realServer = mode === 'atlas' || mode === 'local-mongodb'
   return (
-    <span className={`badge ${atlas ? 'badge-success' : 'badge-info'}`} title={detail}>
+    <span className={`badge ${realServer ? 'badge-success' : 'badge-info'}`} title={detail}>
       <Clock className="h-3 w-3" aria-hidden="true" />
-      {atlas ? 'MongoDB Atlas' : humanise(mode ?? 'unknown')}
+      {mode === 'atlas'
+        ? 'MongoDB Atlas'
+        : mode === 'local-mongodb'
+          ? 'Self-hosted MongoDB'
+          : humanise(mode ?? 'unknown')}
     </span>
   )
 }

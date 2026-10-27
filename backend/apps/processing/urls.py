@@ -1,8 +1,3 @@
-"""``/api/v1/processing/`` routing.
-
-``APPEND_SLASH`` is false, so the collection route is the empty path and every
-other literal segment is registered before the ``<job_id>`` catch-all.
-"""
 from __future__ import annotations
 
 from django.urls import path

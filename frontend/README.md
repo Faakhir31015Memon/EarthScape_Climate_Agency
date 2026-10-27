@@ -15,7 +15,7 @@ npm run build      # type-check + production bundle in dist/
 ```
 
 `VITE_API_BASE_URL` overrides the API origin; the default is the same-origin
-`/api` path used by the nginx setup in `../infrastructure/nginx`.
+`/api` path used by the nginx setup in `../backend/infrastructure/nginx`.
 
 ## Layout
 
@@ -23,9 +23,9 @@ npm run build      # type-check + production bundle in dist/
 | --- | --- |
 | `src/app/` | router and the role-aware navigation catalogue |
 | `src/layouts/` | public site, signed-in app shell, auth shell |
-| `src/pages/public/` | landing, about, capabilities, insights, data sources, help, privacy, terms, sign-in/registration |
-| `src/pages/app/` | analyst workspace: dashboard, analytics, history, map, anomalies, datasets, uploads, ingestion, processing, big data, ML lab, model registry, forecasts, alerts, notifications, reports, saved analyses, profile, support |
-| `src/pages/admin/` | administration: overview, users, roles, datasets, pipelines, alert rules, audit log, health, settings, tickets |
+| `src/pages/public/` | landing, help, sign-in, registration, password recovery |
+| `src/pages/app/` | analyst workspace: dashboard, analytics, history, map, anomalies, datasets, uploads, ingestion, processing, big data, ML lab, model registry, forecasts, alerts, notifications, reports, profile, support |
+| `src/pages/admin/` | administration: overview, users, roles, datasets, pipelines, alert rules, health, tickets |
 | `src/components/` | shared UI primitives (`ui/`), charts (`charts/`), map (`maps/`), brand/banner/loader |
 | `src/features/` | auth context and guards, theme context |
 | `src/services/` | `http.ts` (fetch, tokens, error mapping) and `api.ts` (typed endpoint surface) |

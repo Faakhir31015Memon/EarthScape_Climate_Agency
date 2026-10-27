@@ -212,13 +212,13 @@ export default function RolesPage() {
 
       <Panel
         title="Capability matrix"
-        description="Left column is the authoritative server map (also returned by GET /auth/me); rows tagged “ui guard” are the colon-style names the React controls check with can()."
+        description="The left column is the authoritative server map; rows tagged “ui guard” are the colon-style names the interface checks locally."
         className="mb-6"
         footer={
           <Hint>
-            The two catalogues are kept apart on purpose. A mismatch (for example the backend’s <span className="mono">manage_users</span>{' '}
-            versus the UI’s <span className="mono">users:manage</span>) is reported to the platform owners; the server map is what actually
-            gates an API call.
+            The two catalogues are kept apart on purpose. A mismatch (for example the server’s <span className="mono">manage_users</span>{' '}
+            versus the interface’s <span className="mono">users:manage</span>) is reported to the platform owners; the server map is what
+            controls access.
           </Hint>
         }
       >
@@ -339,7 +339,7 @@ function ChangeRolePanel({ disabled, roleOptions }: { disabled: boolean; roleOpt
     [debounced],
   )
 
-  const options = useMemo<Option[]>(() => (search.data?.items ?? []).map((item) => ({ value: item.id, label: `${item.full_name} — ${item.email}`, hint: roleLabel(item.role) })), [search.data])
+  const options = useMemo<Option[]>(() => (search.data?.items ?? []).map((item) => ({ value: item.id, label: `${item.full_name} (${item.email})`, hint: roleLabel(item.role) })), [search.data])
 
   const chosen = useMemo(() => (search.data?.items ?? []).find((item) => item.id === target?.id) ?? target, [search.data, target])
 

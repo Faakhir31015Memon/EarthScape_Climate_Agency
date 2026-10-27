@@ -123,8 +123,7 @@ class LiveClimateConnector(SourceConnector):
             "state": "configured" if configured else "needs_configuration",
             "requires_key": False,
             "key_summary": env.mask_value(env.get_raw("LIVE_CLIMATE_API_KEY")),
-            "polling_model": "scheduled HTTP polling of the latest daily values "
-                             "(not a continuous sensor stream)",
+            "polling_model": "scheduled HTTP polling of the latest daily values",
             "setup_hint": "" if configured else
                 f"Registered providers: {', '.join(sorted(PROVIDERS))}. Set LIVE_CLIMATE_PROVIDER "
                 "to one of these.",

@@ -94,11 +94,11 @@ export default function ProcessingMonitorPage() {
         }
       />
 
-      <Panel title="Engine health" description="Reported by the backend. An engine is only marked available when it is actually reachable.">
+      <Panel title="Engine health" description="Checked live. An engine is marked available only when it is reachable.">
         {enginesState.loading ? <p className="text-xs subtle">Querying engines…</p> : null}
         {enginesState.error ? <ErrorState error={enginesState.error} onRetry={() => void enginesState.refetch()} /> : null}
         {!enginesState.loading && engines.length === 0 && !enginesState.error ? (
-          <EmptyState title="No engine health reported" description="The engines endpoint returned nothing, so cluster status is unknown rather than assumed." />
+          <EmptyState title="No engine health reported" description="No engine status came back, so cluster status is unknown." />
         ) : null}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {engines.map((engine, index) => (
@@ -114,7 +114,7 @@ export default function ProcessingMonitorPage() {
         </p>
       ) : null}
 
-      <Panel title="Workflows" description="Available batch/stream workflows. Unavailable ones show the backend's own reason.">
+      <Panel title="Workflows" description="Available batch and stream workflows. Unavailable ones explain why.">
         {workflowsState.loading ? <p className="text-xs subtle">Loading workflows…</p> : null}
         {workflowsState.error ? <ErrorState error={workflowsState.error} onRetry={() => void workflowsState.refetch()} /> : null}
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -147,7 +147,7 @@ export default function ProcessingMonitorPage() {
                 )
               ) : (
                 <p className="rounded-lg px-2 py-1.5 text-xs" style={{ backgroundColor: 'var(--surface-muted)' }}>
-                  <span className="muted">Unavailable:</span> {workflow.unavailable_reason ?? 'the backend did not give a reason.'}
+                  <span className="muted">Unavailable:</span> {workflow.unavailable_reason ?? 'no reason was given.'}
                 </p>
               )}
             </li>
@@ -241,8 +241,6 @@ function EngineCard({ engine }: { engine: EngineHealth }) {
         <EngineRow label="HDFS" ok={Boolean(hdfsOk)} detail={engine.hdfs?.detail ?? (engine.hdfs?.configured ? 'reachable' : 'not configured')} configured={Boolean(engine.hdfs?.configured)} />
         <EngineRow label="Spark" ok={Boolean(sparkOk)} detail={engine.spark?.installed ? engine.spark.session_startable ? `Spark ${engine.spark.version ?? ''}`.trim() : (engine.spark.error ?? 'session cannot start') : 'not installed'} configured={Boolean(engine.spark?.installed)} />
         <EngineRow label="Hadoop" ok={Boolean(engine.hadoop?.bin_configured && engine.hadoop?.cluster_configured)} detail={engine.hadoop?.detail ?? (engine.hadoop?.bin_configured ? 'bin available' : 'hadoop bin not configured')} configured={Boolean(engine.hadoop?.bin_configured)} />
-        <EngineRow label="Kafka" ok={Boolean(engine.kafka?.enabled && engine.kafka?.reachable)} detail={engine.kafka?.enabled ? (engine.kafka?.detail ?? (engine.kafka?.reachable ? 'brokers reachable' : 'broker unreachable')) : 'streaming disabled'} configured={Boolean(engine.kafka?.enabled)} />
-        <EngineRow label="Airflow" ok={Boolean(engine.airflow?.enabled)} detail={engine.airflow?.detail ?? (engine.airflow?.enabled ? 'scheduling enabled' : 'not configured')} configured={Boolean(engine.airflow?.enabled)} />
         <EngineRow
           label="Data lake"
           ok={Boolean(engine.data_lake?.reachable)}

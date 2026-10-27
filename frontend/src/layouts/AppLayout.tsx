@@ -9,6 +9,8 @@ import { ADMIN_SECTIONS, APPLICATION_SECTIONS, type NavSection } from '../app/na
 import { Brand } from '../components/Brand'
 import { EnvironmentBanner } from '../components/EnvironmentBanner'
 import { cn } from '../lib/cn'
+import { formatUptime } from '../lib/format'
+import { prefersReducedMotion } from '../lib/motion'
 import type { Role } from '../types/api'
 
 function useVisibleSections(sections: NavSection[], role: Role | undefined): NavSection[] {
@@ -147,6 +149,26 @@ function useBadgeCounts(scope: 'app' | 'admin'): { alerts: number; notifications
   return counts
 }
 
+/**
+ * The one number an operator wants before they trust anything on screen: whether the API
+ * answering is healthy, and for how long it has been. Both come from the health read.
+ */
+function SystemPulse() {
+  const { data } = useAsync(() => api.system.health(), [], { interval: 120_000 })
+  if (!data) return null
+  const degraded = data.status !== 'ok'
+  return (
+    <span
+      className="rail-item mr-1 hidden md:inline-flex"
+      title={degraded ? 'A component the platform depends on is not answering. Administration shows which.' : 'The API answered this check.'}
+    >
+      <span className={cn('signal-dot', degraded && '!bg-[rgb(var(--warning-rgb))]', !prefersReducedMotion() && 'signal-dot--beat')} aria-hidden="true" />
+      <b className={degraded ? 'text-solar-700 dark:text-solar-300' : undefined}>{degraded ? 'degraded' : 'operational'}</b>
+      <span>up {formatUptime(data.uptime_seconds)}</span>
+    </span>
+  )
+}
+
 function Topbar({ onOpenMobile }: { onOpenMobile: () => void }) {
   const { theme, toggle } = useTheme()
   const { account } = useAuth()
@@ -171,6 +193,7 @@ function Topbar({ onOpenMobile }: { onOpenMobile: () => void }) {
       </button>
       <h1 className="truncate font-display text-[15px] font-semibold">{title}</h1>
       <div className="ml-auto flex items-center gap-1.5">
+        <SystemPulse />
         <div className="relative">
           <button
             type="button"
@@ -266,7 +289,7 @@ export function AppLayout() {
           <Topbar onOpenMobile={() => setMobile(true)} />
         </div>
         <main id="main" className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <div className="mx-auto w-full max-w-[1500px]">
+          <div key={location.pathname} className="page-enter mx-auto w-full max-w-[1500px]">
             <Outlet />
           </div>
         </main>
@@ -274,8 +297,6 @@ export function AppLayout() {
           <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-2">
             <span>EarthScape Climate Agency — Big Data Climate Intelligence Platform</span>
             <span className="flex items-center gap-3">
-              <Link to="/privacy" className="link">Privacy</Link>
-              <Link to="/terms" className="link">Terms</Link>
               <Link to="/app/support" className="link">Support</Link>
             </span>
           </div>

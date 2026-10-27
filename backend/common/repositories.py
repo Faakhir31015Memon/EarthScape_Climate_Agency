@@ -340,7 +340,6 @@ predictions = Repository("predictions")
 alerts = Repository("alerts")
 notifications = Repository("notifications")
 reports = Repository("reports")
-saved_analyses = Repository("saved_analyses")
 audit_logs = Repository("audit_logs")
 support_tickets = Repository("support_tickets")
 feedback = Repository("feedback")
@@ -360,7 +359,6 @@ ALL = {
     "alerts": alerts,
     "notifications": notifications,
     "reports": reports,
-    "saved_analyses": saved_analyses,
     "audit_logs": audit_logs,
     "support_tickets": support_tickets,
     "feedback": feedback,

@@ -1,9 +1,3 @@
-"""Environment configuration loading and validation.
-
-Reads a plain ``.env`` file (no external dependency) from the repository root or
-the backend directory, exposes typed accessors and validates required settings at
-startup without ever echoing secret values.
-"""
 from __future__ import annotations
 
 import os
@@ -159,8 +153,6 @@ def summary() -> Dict[str, Any]:
         "atlas_required": get_bool("FORCE_ATLAS_CONNECTION"),
         "hdfs_endpoint": get_raw("HDFS_ENDPOINT") or "not configured",
         "spark_master": get_raw("SPARK_MASTER") or "not configured",
-        "kafka_brokers": get_raw("KAFKA_BROKERS") or "not configured",
-        "redis_url": mask_value(get_raw("REDIS_URL")) if get_raw("REDIS_URL") else "not configured",
         "nasa_power": "configured" if get_raw("NASA_POWER_BASE_URL") else "default endpoint",
         "noaa_api_key": mask_value(get_raw("NOAA_API_KEY")),
         "email_notifications": get_bool("ENABLE_EMAIL_NOTIFICATIONS"),
