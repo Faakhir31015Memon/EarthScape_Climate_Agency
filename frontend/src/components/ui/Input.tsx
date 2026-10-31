@@ -64,7 +64,6 @@ export interface CheckboxProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
 }
 
-/** Standalone labelled checkbox (use FormField when wiring to RHF). */
 export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
   ({ label, className, id, ...rest }, ref) => {
     const autoId = useId();

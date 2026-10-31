@@ -1,5 +1,5 @@
-"""Forecast endpoints. Viewers read-only; horizon over FORECAST_MAX_HORIZON_DAYS is
-rejected and unknown models return 404."""
+"""Forecast endpoints. A horizon over FORECAST_MAX_HORIZON_DAYS is rejected and an unknown
+model returns 404."""
 from __future__ import annotations
 
 from rest_framework import status
@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from apps.machine_learning import services
 from apps.machine_learning.views import MLView
 from common import audit
-from common.api import AdministratorOrAnalyst, ApiError
+from common.api import ApiError
 from common.views import int_param, str_param
 
 
@@ -27,9 +27,6 @@ class PredictionCollectionView(MLView):
         })
 
     def post(self, request):
-        if getattr(request.user, "role", None) == "viewer":
-            raise ApiError("permission_denied",
-                           "Viewers may read forecasts but not generate them.", status=403)
         body = request.data if isinstance(request.data, dict) else {}
         outcome = services.create_prediction(str(getattr(request.user, "id", "anonymous")), body)
         audit.for_request(request, action="prediction.generated", resource_type="predictions",

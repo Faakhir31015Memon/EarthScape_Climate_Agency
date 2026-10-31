@@ -21,7 +21,6 @@ import_compat.ensure_common_api_importable()
 from config import env  # noqa: E402
 
 
-# --------------------------------------------------------------------------- probes
 def _spark_installed() -> Tuple[bool, Optional[str], Optional[str]]:
     """Checks pyspark importable + reported version; never starts a session."""
     spec = importlib.util.find_spec("pyspark")
@@ -84,7 +83,6 @@ def _parse_broker(raw: Optional[str]) -> Optional[Tuple[str, int]]:
     return host, port
 
 
-# ---------------------------------------------------------------------- data lake
 def _data_lake_entry() -> Dict[str, Any]:
     try:
         from common.data_lake import get_data_lake
@@ -118,7 +116,6 @@ def _data_lake_entry() -> Dict[str, Any]:
                 "free_bytes": None, "detail": f"data lake probe failed: {type(exc).__name__}"}
 
 
-# --------------------------------------------------------------------------- hdfs
 def _hdfs_entry() -> Dict[str, Any]:
     endpoint = (env.get_raw("HDFS_ENDPOINT") or "").strip()
     if not endpoint:
@@ -146,7 +143,6 @@ def _hdfs_entry() -> Dict[str, Any]:
                 "detail": f"HDFS probe failed: {type(exc).__name__}"}
 
 
-# --------------------------------------------------------------------------- spark
 def _spark_entry() -> Dict[str, Any]:
     installed, version, error = _spark_installed()
     enabled = env.get_bool("SPARK_ENABLED", True)
@@ -162,7 +158,6 @@ def _spark_entry() -> Dict[str, Any]:
                     "this probe only confirms the PySpark install and SPARK_ENABLED flag"}
 
 
-# -------------------------------------------------------------------------- hadoop
 def _hadoop_entry() -> Dict[str, Any]:
     resolved, missing_detail = _hadoop_bin_probe()
     cluster_configured = bool(env.get_raw("HADOOP_HOME") or env.get_raw("HDFS_ENDPOINT"))
@@ -183,7 +178,6 @@ def _hadoop_entry() -> Dict[str, Any]:
             "cluster_configured": True, "detail": detail}
 
 
-# ------------------------------------------------------------------------ composite
 def _current_processing_mode(hdfs_entry: Dict[str, Any], spark_entry: Dict[str, Any],
                              hadoop_entry: Dict[str, Any]) -> str:
     """Pick the mode the platform will use for the next job."""
@@ -258,7 +252,6 @@ def workflow_availability(engine: str, workflow: Dict[str, Any]) -> Tuple[bool, 
     return False, f"unknown engine '{engine}'"
 
 
-# ------------------------------------------------------------------- dependency CLI
 def external_command_probe(binaries: List[str]) -> Dict[str, Optional[str]]:
     out: Dict[str, Optional[str]] = {}
     for name in binaries:

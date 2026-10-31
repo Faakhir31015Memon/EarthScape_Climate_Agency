@@ -280,15 +280,18 @@ def startup_status() -> list[ServiceStatus]:
         )
     )
 
-    smtp_host = ENV.raw("EMAIL_HOST")
+    smtp_host = ENV.raw("SMTP_HOST")
+    email_enabled = ENV.flag("ENABLE_EMAIL_NOTIFICATIONS", False)
     statuses.append(
         ServiceStatus(
             name="email",
-            configured=bool(smtp_host),
+            configured=bool(smtp_host) and email_enabled,
             required=False,
-            detail=f"{smtp_host}:{ENV.raw('EMAIL_PORT', '587')}" if smtp_host else "no SMTP provider configured",
-            hint="Email notifications stay disabled (in-app only) until SMTP settings are valid.",
-            mode="smtp" if smtp_host else "in-app-only",
+            detail=(f"{smtp_host}:{ENV.raw('SMTP_PORT', '587')}" if smtp_host and email_enabled
+                    else ("SMTP host is set but notifications are off" if smtp_host
+                          else "no SMTP provider configured")),
+            hint="Set SMTP_HOST plus ENABLE_EMAIL_NOTIFICATIONS=true so alert email and password-reset links are delivered.",
+            mode="smtp" if smtp_host and email_enabled else "in-app-only",
         )
     )
 

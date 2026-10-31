@@ -108,8 +108,8 @@ def per_step_residual_quantiles(step_pairs: Sequence[Tuple[int, float, float]],
     """Empirical residual quantiles per lead-time step; NaN-free bands for the artifact.
 
     ``step_pairs`` items are ``(lead_step, actual, predicted)``. Steps with too few
-    samples fall back to a global-std normal approximation, which is recorded in the
-    model's uncertainty note.
+    samples fall back to a global-std normal approximation, recorded in the
+    uncertainty note.
     """
     buckets: Dict[int, List[Tuple[float, float]]] = {}
     all_pairs: List[Tuple[float, float]] = []

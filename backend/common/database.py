@@ -91,7 +91,6 @@ class Database:
         self.error: Optional[str] = None
         self._connect(uri)
 
-    # ------------------------------------------------------------------ connect
     def _connect(self, uri: Optional[str]) -> None:
         if uri:
             try:
@@ -99,9 +98,9 @@ class Database:
                     uri,
                     maxPoolSize=env.get_int("MONGODB_MAX_POOL_SIZE", 50),
                     minPoolSize=env.get_int("MONGODB_MIN_POOL_SIZE", 0),
-                    # The shared Atlas tier needs longer than five seconds to elect a new
-                    # primary and to finish a TLS handshake to a shard; timing out inside
-                    # those windows is what turned ordinary failovers into HTTP 500s.
+                    # The shared Atlas tier needs longer than five seconds to elect a
+                    # primary and handshake to a shard; timing out there turned ordinary
+                    # failovers into HTTP 500s.
                     serverSelectionTimeoutMS=env.get_int("MONGODB_SERVER_TIMEOUT_MS", 15000),
                     connectTimeoutMS=env.get_int("MONGODB_CONNECT_TIMEOUT_MS", 20000),
                     socketTimeoutMS=env.get_int("MONGODB_SOCKET_TIMEOUT_MS", 30000),
@@ -147,7 +146,6 @@ class Database:
         self._store = _LocalDocumentStore(self.database_name, LOCALDB_DIR)
         self.mode = "local-development"
 
-    # --------------------------------------------------------------- collections
     def collection(self, name: str):
         with self._lock:
             if self._store is not None:
@@ -175,7 +173,6 @@ class Database:
             with self._lock:
                 self._dirty.add(name)
 
-    # ------------------------------------------------------------------- status
     def ping(self) -> Dict[str, Any]:
         try:
             result = self._store.ping() if self._store else self._client.admin.command("ping")

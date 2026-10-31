@@ -70,7 +70,6 @@ class NcdcCdoConnector(SourceConnector):
     def timeout(self) -> float:
         return float(env.get_int("NOAA_TIMEOUT_SECONDS", 45))
 
-    # ------------------------------------------------------------------ config
     def _token(self) -> str:
         token = env.get_raw("NOAA_API_KEY")
         if not token:
@@ -80,7 +79,6 @@ class NcdcCdoConnector(SourceConnector):
     def _headers(self) -> Dict[str, str]:
         return {"token": self._token()}
 
-    # --------------------------------------------------------------- rate limit
     _last_request_at: float = 0.0
 
     def _pace(self) -> None:
@@ -90,7 +88,6 @@ class NcdcCdoConnector(SourceConnector):
             time.sleep(minimum_gap - elapsed)
         self._last_request_at = time.monotonic()
 
-    # ------------------------------------------------------------------ request
     def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         self._pace()
         response = self.http_get(f"{self.base_url}{path}", params=params, headers=self._headers(),
@@ -100,7 +97,6 @@ class NcdcCdoConnector(SourceConnector):
         except ValueError:
             raise RateLimited("NOAA returned a non-JSON response.") from None
 
-    # --------------------------------------------------------- discovery helpers
     def list_datasets(self, *, limit: int = PAGE_SIZE, offset: int = 0,
                       start_date: Optional[str] = None, data_type_id: Optional[str] = None) -> Dict[str, Any]:
         self._token()  # raises NotConfigured when unconfigured
@@ -134,7 +130,6 @@ class NcdcCdoConnector(SourceConnector):
             params["locations"] = _validate_location_id(location_id)
         return self._get("/stations", params)
 
-    # -------------------------------------------------------------- data search
     def search_data(self, request: IngestionRequest) -> Iterator[Dict[str, Any]]:
         """Yield raw ``datapayload`` records, following pagination to the end."""
         params = self._data_params(request)
@@ -181,11 +176,9 @@ class NcdcCdoConnector(SourceConnector):
                 params[key] = joined[:300]
         return params
 
-    # ------------------------------------------------------------------- fetch
     def fetch(self, request: IngestionRequest) -> Iterator[Dict[str, Any]]:
         yield from self.search_data(request)
 
-    # ---------------------------------------------------------------- normalize
     def normalize(self, record: Dict[str, Any], request: IngestionRequest) -> List[Dict[str, Any]]:
         moment = _record_datetime(record)
         if moment is None:
@@ -231,7 +224,6 @@ class NcdcCdoConnector(SourceConnector):
             request_parameters=self._data_params(request), connector_name=self.name,
             provider_record_id=str(record.get("station")), quality_flags=quality)]
 
-    # ----------------------------------------------------------------- preflight
     def preflight(self, request: Optional[IngestionRequest] = None) -> Dict[str, Any]:
         base = {"connector": self.name, "requires_key": True}
         if not self.is_configured():
@@ -247,7 +239,6 @@ class NcdcCdoConnector(SourceConnector):
                     "state": "unreachable", "detail": exc.message}
 
 
-# --------------------------------------------------------------------- helpers
 def _validate_date(value: str) -> str:
     try:
         datetime.strptime(value, "%Y-%m-%d")

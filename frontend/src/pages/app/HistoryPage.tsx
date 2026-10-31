@@ -181,7 +181,7 @@ export default function HistoryPage() {
   )
 }
 
-/* ------------------------------------------------------------------ sections */
+// sections
 
 type ObservationsState = AsyncState<ObservationsListResponse>
 
@@ -374,7 +374,7 @@ function ObservationDetail({ row }: { row: Observation }) {
   )
 }
 
-/* --------------------------------------------------------------- daily tab */
+// daily tab
 
 function DailySeries({
   metric,
@@ -415,7 +415,7 @@ function DailySeries({
   )
 }
 
-/* ---------------------------------------------------------- location compare */
+// location compare
 
 function LocationComparison({
   metric,
@@ -495,7 +495,7 @@ function LocationComparison({
   )
 }
 
-/* ---------------------------------------------------------- deviations tab */
+// deviations tab
 
 function Deviations({
   metric,

@@ -240,7 +240,7 @@ export default function IngestionJobsPage() {
   )
 }
 
-/* --------------------------------------------------------------- columns */
+// columns
 
 function jobColumns({
   canRun,
@@ -323,7 +323,7 @@ function jobColumns({
   ]
 }
 
-/* -------------------------------------------------------------- detail modal */
+// detail modal
 
 function JobDetailModal({
   job,
@@ -454,7 +454,7 @@ function RecordStat({ label, value, tone }: { label: string; value: number; tone
   )
 }
 
-/* ----------------------------------------------------------- start dialog */
+// start dialog
 
 /**
  * `POST /ingestion/jobs` takes `source` = a connector name from
@@ -571,7 +571,7 @@ function StartJobDialog({ onClose, onStarted }: { onClose: () => void; onStarted
   )
 }
 
-/* --------------------------------------------------------- lookback dialog */
+// lookback dialog
 
 /**
  * There is no scheduler route to trigger. The equivalent is the same

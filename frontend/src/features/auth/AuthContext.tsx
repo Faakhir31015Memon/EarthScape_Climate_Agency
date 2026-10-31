@@ -96,6 +96,7 @@ const ROLE_CAPABILITIES: Record<Role, string[]> = {
     'datasets:upload',
     'analytics:read',
     'alerts:read',
+    'predictions:run',
     'reports:read',
     'feedback:create',
     'support:read',

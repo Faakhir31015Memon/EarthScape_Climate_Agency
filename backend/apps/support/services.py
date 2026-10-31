@@ -46,7 +46,6 @@ FEEDBACK_STATUSES = support_serializers.FEEDBACK_STATUSES
 OPEN_STATUSES = ("open", "in_progress")
 MAX_MEDIAN_SAMPLE = 2000
 
-# ----------------------------------------------------------------------- transitions
 # Legal moves for non-admin accounts, keyed by current status:
 _TRANSITIONS: Dict[str, Dict[str, Iterable[str]]] = {
     "open": {"staff": ("in_progress", "resolved", "closed"),
@@ -87,7 +86,6 @@ def validate_transition(document: Dict[str, Any], requested: str, *, actor_role:
     return requested
 
 
-# -------------------------------------------------------------------------- tickets
 def create_ticket(*, subject: str, description: str, category: str, priority: str,
                   page_context: Optional[str], attached_dataset_id: Optional[str],
                   created_by: str, created_by_role: str) -> str:
@@ -199,7 +197,6 @@ def assign_ticket(*, ticket_id: str, assignee_id: Optional[str],
     }, return_document=True) or document
 
 
-# ----------------------------------------------------------------------- summary
 def ticket_summary(request) -> Dict[str, Any]:
     """Ticket counts + median/mean first-response time (``None`` when uncomputable)."""
     user = getattr(request, "user", None)
@@ -244,7 +241,6 @@ def ticket_summary(request) -> Dict[str, Any]:
     }
 
 
-# ----------------------------------------------------------------------- feedback
 def create_feedback(*, rating: int, category: str, message: str,
                      page_context: Optional[str], created_by: str,
                      created_by_name: Optional[str]) -> Dict[str, Any]:
@@ -352,7 +348,6 @@ def present_feedback(document: Dict[str, Any], request) -> Dict[str, Any]:
     return payload
 
 
-# ------------------------------------------------------------------------ utility
 def _as_datetime(value: Any) -> Optional[datetime]:
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)

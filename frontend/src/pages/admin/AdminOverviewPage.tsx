@@ -223,9 +223,7 @@ export default function AdminOverviewPage() {
               </Row>
               <Row label="Active model">
                 {data.ml.active_model ? (
-                  <span className="mono text-[12px]" title="Active model identifier">
-                    {data.ml.active_model}
-                  </span>
+                  <span className="text-xs font-semibold">{data.ml.active_model}</span>
                 ) : (
                   <Badge tone="neutral">no active model</Badge>
                 )}

@@ -323,7 +323,7 @@ function PolicyRow({ label, value, hint }: { label: string; value: string; hint:
   )
 }
 
-/* ------------------------------------------------------- change-role action */
+// change-role action
 
 function ChangeRolePanel({ disabled, roleOptions }: { disabled: boolean; roleOptions: Option[] }) {
   const [term, setTerm] = useState('')

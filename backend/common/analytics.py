@@ -137,7 +137,6 @@ def to_frame(observations: List[Dict[str, Any]]) -> pd.DataFrame:
     return frame
 
 
-# --------------------------------------------------------------------- series
 def period_label(row: pd.Series, frequency: str, index: pd.Timestamp) -> str:
     if frequency == "daily":
         return index.strftime("%Y-%m-%d")
@@ -312,7 +311,6 @@ def _strength(coefficient: float) -> str:
     return "negligible"
 
 
-# ------------------------------------------------------------------- anomalies
 def seasonal_baselines(observations: List[Dict[str, Any]], metric: str) -> Dict[str, Dict[str, Any]]:
     """Per (region, month) climatology computed from the stored record itself."""
     frame = to_frame(observations)
@@ -554,7 +552,6 @@ def _anomaly_payload(anomalies: List[Dict[str, Any]], metric: str, method: str,
     }
 
 
-# -------------------------------------------------------------------- quality
 def coverage_report(observations: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not observations:
         return {"observation_count": 0, "completeness": {}, "flagged": {}, "date_range": None,

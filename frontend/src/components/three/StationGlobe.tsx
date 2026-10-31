@@ -3,35 +3,27 @@ import * as THREE from 'three'
 import { spherePoint, type LatLon } from '../../lib/geo'
 import { prefersReducedMotion } from '../../lib/motion'
 
-/**
- * The palettes in this app are plain CSS hex values. Turning colour management off makes
- * every path (built-in materials and the custom shaders alike) write those hex values
- * straight to the canvas, so the globe is the same clay as the button next to it.
- */
+// Colours here are raw CSS hex; with management off, shaders and built-in materials
+// write the same values the rest of the page uses.
 THREE.ColorManagement.enabled = false
 
 export interface GlobeStation {
   name: string
   latitude: number
   longitude: number
-  /** Region code, shown in the hover readout so a dot can be traced back to a record. */
   region: string
 }
 
 interface StationGlobeProps {
   stations: GlobeStation[]
   focus: LatLon
-  /** Re-reads the palette when it changes; the theme flip is what this is listening for. */
   themeKey?: string
   className?: string
 }
 
 const FIELD_DOTS = 1650
 const GOLDEN_ANGLE = 2.399963229728653
-/**
- * The globe breathes around the network instead of turning away from it: a continuous
- * revolution would spend most of its time showing ocean where the stations are not.
- */
+// Swinging the whole sphere would show ocean most of the time, so it drifts instead.
 const DRIFT_AMPLITUDE = 0.3
 const DRIFT_RATE = 0.13
 
@@ -102,14 +94,12 @@ const HALO_FRAGMENT = /* glsl */ `
   varying vec3 vNormal;
   varying vec3 vView;
   void main() {
-    // A steep exponent leaves a dead gap between the planet limb and its own glow; a shallow
-    // one lets the rim fade all the way back across the shell, which is what reads as air.
+    // Exponent tuned by eye: higher leaves a gap at the limb, lower washes over the shell.
     float rim = pow(clamp(1.0 - abs(dot(normalize(vNormal), normalize(-vView))), 0.0, 1.0), 1.55);
     gl_FragColor = vec4(uColor, rim * uStrength);
   }
 `
 
-/** Shaded body: a lit top, a shaded underside and a darkened limb, so the sphere has volume. */
 const BODY_VERTEX = /* glsl */ `
   varying vec3 vNormal;
   varying vec3 vView;
@@ -203,7 +193,7 @@ export default function StationGlobe({ stations, focus, themeKey, className }: S
       uEntrance: { value: reduced ? 1 : 0 },
     }
 
-    // Occluder and body: without it the far half of the point cloud shows through and the sphere reads as flat.
+    // Occluder sphere; without it the far half of the point cloud shows through.
     const bodyUniforms = {
       uTop: { value: new THREE.Color('#fffaf1') },
       uBottom: { value: new THREE.Color('#ded0b6') },
@@ -216,7 +206,7 @@ export default function StationGlobe({ stations, focus, themeKey, className }: S
     }))
     spin.add(core)
 
-    // Sampled point cloud over the whole sphere (Fibonacci spacing, so no clumping at the poles).
+    // Fibonacci-sampled point cloud; even spacing, no pile-up at the poles.
     const fieldPosition = new Float32Array(FIELD_DOTS * 3)
     const fieldSize = new Float32Array(FIELD_DOTS)
     const fieldPhase = new Float32Array(FIELD_DOTS)
@@ -249,7 +239,7 @@ export default function StationGlobe({ stations, focus, themeKey, className }: S
     const field = new THREE.Points(fieldGeometry, fieldMaterial)
     spin.add(field)
 
-    // Graticule: eight meridians and five parallels, the way a chart sheet is ruled.
+    // Graticule: meridians every 30 degrees, parallels every 30 from -60 to 60.
     const graticule: number[] = []
     const rule = (points: Array<{ x: number; y: number; z: number }>) => {
       for (let i = 0; i < points.length - 1; i += 1) {
@@ -274,7 +264,7 @@ export default function StationGlobe({ stations, focus, themeKey, className }: S
     const graticuleMaterial = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.13, depthWrite: false })
     spin.add(new THREE.LineSegments(graticuleGeometry, graticuleMaterial))
 
-    // Station beacons: every dot is a catalogue location with coordinates on it.
+    // One beacon per catalogue location that carries coordinates.
     const beaconCount = Math.max(stations.length, 1)
     const beaconPosition = new Float32Array(beaconCount * 3)
     const beaconSize = new Float32Array(beaconCount)
@@ -304,8 +294,8 @@ export default function StationGlobe({ stations, focus, themeKey, className }: S
     const beacons = new THREE.Points(beaconGeometry, beaconMaterial)
     if (stations.length) spin.add(beacons)
 
-    // Atmosphere shell, drawn from the inside so only the rim survives. Kept close to the body:
-    // a wider shell leaves a visible gap between the planet edge and its own glow.
+    // Atmosphere shell, rendered back-facing so only the rim survives. It has to sit close to
+    // the body or the gap between the two becomes visible.
     const halo = new THREE.Mesh(
       new THREE.SphereGeometry(1.085, 48, 32),
       new THREE.ShaderMaterial({
@@ -320,7 +310,7 @@ export default function StationGlobe({ stations, focus, themeKey, className }: S
     )
     root.add(halo)
 
-    // A satellite track: the record is satellite-derived, and the ring says so without claiming a pass.
+    // Satellite-track ring for records that came from a satellite source.
     const orbit = new THREE.Group()
     orbit.rotation.set(0.42, 0, 0.62)
     const trackRadius = 1.32
@@ -361,8 +351,8 @@ export default function StationGlobe({ stations, focus, themeKey, className }: S
       palette.top.copy(cssColor(host, '--globe-lit', '#fffaf1'))
       palette.bottom.copy(cssColor(host, '--globe-shade', '#ded0b6'))
       palette.limb.copy(cssColor(host, '--globe-limb', '#a8946f'))
-      // Additive rim light is what makes an atmosphere on a dark canvas; on paper the same
-      // maths blows out into a pink band, so the light theme paints the rim with plain alpha.
+      // Additive blending gives the dark theme its atmosphere but clips to pink on white,
+      // so the light theme uses plain alpha for the same rim.
       haloMaterial.blending = dark ? THREE.AdditiveBlending : THREE.NormalBlending
       haloMaterial.uniforms.uStrength.value = dark ? 0.2 : 0.17
       haloMaterial.needsUpdate = true

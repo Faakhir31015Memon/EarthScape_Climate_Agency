@@ -35,6 +35,7 @@ function scopeLabel(record: { region_code?: string | null; location_code?: strin
 export default function ForecastExplorerPage() {
   const { can } = useAuth()
   const canRun = can('predictions:run')
+  const canScan = can('alerts:manage')
 
   const regions = useAsync(() => api.climate.regions(), [])
   const activeModels = useAsync(() => api.models.list({ status: 'active', page_size: 50 }), [])
@@ -170,21 +171,13 @@ export default function ForecastExplorerPage() {
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => void runScan()}
-            disabled={!canRun}
-            title={!canRun ? 'Requires climate analyst or administrator role.' : 'Scan stored observations for anomalies'}
+            disabled={!canScan}
+            title={!canScan ? 'Requires climate analyst or administrator role.' : 'Scan stored observations for anomalies'}
           >
             <Radar className="h-4 w-4" /> Anomaly scan
           </button>
         }
       >
-        {!canRun ? (
-          <EmptyState
-            title="Read-only access"
-            description="Viewers can browse stored forecasts but cannot generate new ones. The controls below are disabled."
-            tone="warning"
-          />
-        ) : null}
-
         {noActiveModels ? (
           <EmptyState
             title="No active models yet"
@@ -220,9 +213,9 @@ export default function ForecastExplorerPage() {
           </Field>
           <Field label={scopeType === 'region' ? 'Region' : 'Location'} htmlFor="fx-scope" error={scopeInvalid && generating ? 'Required' : null}>
             {scopeType === 'region' ? (
-              <SingleSelectFallback options={regionOptions} value={scopeValue} onChange={setScopeValue} disabled={!canRun} placeholder="Select a region" />
+              <SingleSelectFallback id="fx-scope" options={regionOptions} value={scopeValue} onChange={setScopeValue} disabled={!canRun} placeholder="Select a region" />
             ) : (
-              <SingleSelectFallback options={locationOptions} value={scopeValue} onChange={setScopeValue} disabled={!canRun} placeholder="Select a station" />
+              <SingleSelectFallback id="fx-scope" options={locationOptions} value={scopeValue} onChange={setScopeValue} disabled={!canRun} placeholder="Select a station" />
             )}
           </Field>
         </div>
@@ -300,7 +293,7 @@ export default function ForecastExplorerPage() {
                 <Row label="Forecast origin">{result.forecast_origin_date}</Row>
                 <Row label="Generated">{relativeTime(result.generated_at)}</Row>
                 <Row label="Method">{result.method ?? '—'}</Row>
-                <Row label="Requested by">{result.provenance?.requested_by_name ?? result.provenance?.requested_by ?? '—'}</Row>
+                <Row label="Requested by">{result.provenance?.requested_by_name ?? 'not recorded'}</Row>
                 <Row label="Observations used">{result.provenance?.actual_observations_used != null ? formatNumber(result.provenance.actual_observations_used, 0) : '—'}</Row>
               </dl>
             ) : (
@@ -354,12 +347,14 @@ export default function ForecastExplorerPage() {
 }
 
 function SingleSelectFallback({
+  id,
   options,
   value,
   onChange,
   placeholder,
   disabled,
 }: {
+  id?: string
   options: { value: string; label: string; hint?: string }[]
   value: string
   onChange: (next: string) => void
@@ -378,12 +373,13 @@ function SingleSelectFallback({
     return (
       <div className="space-y-1.5">
         <input className="input mb-1.5" placeholder="Filter options…" value={filter} onChange={(event) => setFilter(event.target.value)} aria-label={placeholder} disabled={disabled} />
-        <Select options={filtered.map((option) => ({ value: option.value, label: option.hint ? `${option.label} (${option.hint})` : option.label }))} value={value} onChange={onChange} placeholder={placeholder} disabled={disabled} />
+        <Select id={id} options={filtered.map((option) => ({ value: option.value, label: option.hint ? `${option.label} (${option.hint})` : option.label }))} value={value} onChange={onChange} placeholder={placeholder} disabled={disabled} />
       </div>
     )
   }
   return (
     <Select
+      id={id}
       options={options.map((option) => ({ value: option.value, label: option.hint ? `${option.label} (${option.hint})` : option.label }))}
       value={value}
       onChange={onChange}

@@ -156,9 +156,8 @@ class RuleDisableView(StaffView):
 class RuleActiveView(AlertView):
     """``POST /api/v1/alerts/rules/<id>/active`` - one switch for both directions.
 
-    Same engine call as ``enable``/``disable``; kept because the web client toggles a
-    single boolean. The role check is performed here because the view accepts either
-    direction, so it cannot rely on the URL to express intent.
+    Same engine call as enable/disable, kept because the client toggles a single
+    boolean. The role check lives here since the URL cannot express the direction.
     """
 
     def post(self, request, rule_id: str):

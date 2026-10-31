@@ -298,7 +298,6 @@ export default function AlertRulesPage() {
     setFieldErrors((current) => ({ ...current, [key as string]: '' }))
   }, [])
 
-  /** Local validation against the metric ranges the API itself publishes. */
   function validate(): boolean {
     const errors: Record<string, string> = {}
     if (form.name.trim().length < 3) errors.name = 'Give the rule a name of at least three characters.'

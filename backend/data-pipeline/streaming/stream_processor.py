@@ -294,14 +294,10 @@ def run(once: bool = False, duration_seconds: int = 0) -> int:
     from spark_session import SparkUnavailable, build_spark_session
 
     if sys.platform == "win32":
-        # Windows without winutils.exe/hadoop.dll (unavailable on this box and
-        # binary downloads are not permitted): Spark's stock RawLocalFileSystem
-        # crashes with UnsatisfiedLinkError NativeIO$Windows.access0 whenever
-        # Hadoop lists a directory - which every Structured Streaming file
-        # discovery does. build_spark_session registers the pure-Java
-        # PureListLocalFileSystem shim (data-pipeline/streaming/java/) for the
-        # local scheme; it changes only directory enumeration, no data or
-        # semantics. Runs stay labelled "streaming-local-spool", never cluster.
+        # winutils.exe/hadoop.dll are absent here and binary downloads are not
+        # permitted, so every Structured Streaming file discovery would crash on
+        # NativeIO$Windows.access0. build_spark_session registers the pure-Java shim
+        # for the local scheme; runs stay labelled "streaming-local-spool", never cluster.
         from pathlib import Path as _P
 
         shim = _P(__file__).resolve().parents[1] / "streaming" / "jars" / "earthscape-localfs.jar"

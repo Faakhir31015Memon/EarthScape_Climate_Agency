@@ -68,7 +68,7 @@ export interface ApiErrorBody {
   }
 }
 
-/* --------------------------------------------------------------------- auth */
+// auth
 
 export interface Account {
   id: string
@@ -150,7 +150,7 @@ export interface LogoutResponse {
   sessions_ended: boolean
 }
 
-/* ------------------------------------------------------------------ climate */
+// climate
 
 /** An entry of `GET /climate/metrics` (services.metric_catalogue). */
 export interface MetricDefinition {
@@ -781,7 +781,7 @@ export interface FilterOptionsResponse {
   generated_at: string
 }
 
-/* ---------------------------------------------------------------- dashboard */
+// dashboard
 
 export interface DashboardRegionalComparison {
   metric: Metric
@@ -968,7 +968,7 @@ export interface DashboardActivityResponse extends Paginated<ActivityEvent> {
   generated_at: string
 }
 
-/* ---------------------------------------------------------------- datasets */
+// datasets
 
 export interface Dataset {
   id: string
@@ -1146,7 +1146,7 @@ export interface ValidationReport {
   sample_rejected?: Record<string, unknown>[]
 }
 
-/* --------------------------------------------------------------- ingestion */
+// ingestion
 
 export interface IngestionJob {
   id: string
@@ -1246,7 +1246,7 @@ export interface IngestionCoverageResponse {
   note: string
 }
 
-/* --------------------------------------------------------------- processing */
+// processing
 
 export interface ProcessingParameterSpec {
   type: 'int' | 'float' | 'str' | 'bool' | 'choice' | 'date'
@@ -1335,7 +1335,7 @@ export interface DataLakeResponse {
   message: string
 }
 
-/* ------------------------------------------------------------ models / ML */
+// models / ML
 
 export interface ModelRecord {
   id: string
@@ -1529,7 +1529,7 @@ export interface ModelCatalogue {
   database_mode: string | null
 }
 
-/* ------------------------------------------------------ alerts / notices */
+// alerts / notices
 
 export interface AlertRule {
   id: string
@@ -1728,7 +1728,7 @@ export interface UnreadCountResponse {
   email_delivery_configured: boolean
 }
 
-/* ---------------------------------------------------------------- reports */
+// reports
 
 export interface ReportRecord {
   id: string
@@ -1797,7 +1797,7 @@ export interface ReportDeleteResponse {
   note: string
 }
 
-/* ---------------------------------------------------------------- support */
+// support
 
 export interface SupportTicket {
   id: string
@@ -1902,7 +1902,7 @@ export interface FeedbackSummary {
   scope: string
 }
 
-/* -------------------------------------------------------------- operations */
+// operations
 
 export interface ComponentStatus {
   name: string
@@ -1999,7 +1999,7 @@ export interface ServicesResponse {
   checked_at: string
 }
 
-/* ------------------------------------------------------------------ users */
+// users
 
 export interface RoleCatalogueEntry {
   role: Role
@@ -2027,7 +2027,7 @@ export interface UserDeleteResponse {
   note: string
 }
 
-/* ---------------------------------------------------------------- analytics */
+// analytics
 
 export interface AnalyticsSummaryRecord {
   id: string
@@ -2061,4 +2061,217 @@ export interface EndpointGroup {
   description: string
   roles: string[]
   endpoints: { method: string; path: string; description: string; roles: string[] }[]
+}
+
+// file analytics
+
+export type FileColumnType = 'number' | 'datetime' | 'boolean' | 'text' | 'empty'
+
+export interface FileCategoryItem {
+  label: string
+  count: number
+  share: number
+}
+
+/** A category row plus one `mean_<column>` figure per numeric column. */
+export interface FileCategoryBreakdownItem extends FileCategoryItem {
+  [measure: string]: string | number | null
+}
+
+export interface FileColumnProfile {
+  column: string
+  type: FileColumnType
+  missing: number
+  missing_rate: number
+  distinct: number
+  /** Present when the reader stopped counting distinct values at its tracking cap. */
+  distinct_capped?: boolean
+  values?: number
+  constant?: boolean
+  /** number columns */
+  min?: number | null
+  max?: number | null
+  sum?: number | null
+  mean?: number | null
+  median?: number | null
+  std?: number | null
+  q1?: number | null
+  q3?: number | null
+  iqr?: number | null
+  outliers?: number
+  histogram?: { label: string; start: number; end: number; count: number }[]
+  /** datetime columns */
+  first?: string | null
+  last?: string | null
+  span_days?: number
+  distinct_days?: number
+  /** boolean columns */
+  items?: FileCategoryItem[]
+  /** text columns */
+  top?: FileCategoryItem[]
+  longest_length?: number
+  high_cardinality?: boolean
+}
+
+export interface FileSeriesPoint {
+  period: string
+  value: number | null
+  sum: number | null
+  count: number
+  min: number | null
+  max: number | null
+}
+
+export interface FileSeries {
+  column: string
+  bucket: 'day' | 'week' | 'month'
+  aggregation: string
+  points: FileSeriesPoint[]
+}
+
+export interface FileCategoryTotals {
+  column: string
+  measures: string[]
+  items: FileCategoryBreakdownItem[]
+}
+
+export interface FileCorrelationCell {
+  row: string
+  column: string
+  value: number | null
+}
+
+export interface FileScatterPair {
+  x: string
+  y: string
+  points: { x: number; y: number }[]
+}
+
+export interface FileGeoPoint {
+  lat: number
+  lng: number
+  count: number
+  label: string | null
+  value: number | null
+}
+
+export interface FileGeo {
+  latitude_column: string
+  longitude_column: string
+  label_column: string | null
+  measure: string | null
+  points: FileGeoPoint[]
+}
+
+export interface FileHeatmapCell {
+  year: number
+  month: number
+  value: number
+  count: number
+  deviation: number
+}
+
+export interface FileHeatmap {
+  column: string
+  years: number[]
+  cells: FileHeatmapCell[]
+  mean: number
+  std: number
+}
+
+export interface FileForecastMonth {
+  period: string
+  value: number | null
+  low: number | null
+  high: number | null
+}
+
+export interface FileForecastMetrics {
+  mae: number | null
+  rmse: number | null
+  r2: number | null
+  baseline_mae: number | null
+  skill_vs_average: number | null
+  years_tested: number
+}
+
+export interface FileForecastColumn {
+  column: string
+  target_year: number
+  basis_years: { first: number; last: number }
+  observed: { year: number; value: number | null }[]
+  fitted: { year: number; value: number | null }[]
+  monthly: FileForecastMonth[]
+  annual: number | null
+  annual_low: number | null
+  annual_high: number | null
+  trend_per_year: number | null
+  uncertainty: number | null
+  metrics: FileForecastMetrics
+  extrapolated: boolean
+}
+
+export interface FileForecast {
+  available: boolean
+  reason?: string
+  target_year?: number
+  basis_last_year?: number
+  columns?: FileForecastColumn[]
+  skipped?: string[]
+}
+
+export interface FileAnalyticsPayload {
+  rows_analyzed: number
+  truncated: boolean
+  column_count: number
+  files?: { name: string; format: string; rows_analyzed: number }[]
+  columns: FileColumnProfile[]
+  measures: string[]
+  dimensions: string[]
+  time_column: string | null
+  quality: {
+    completeness: number
+    duplicate_rows: number
+    constant_columns: string[]
+    high_cardinality_columns: string[]
+    most_missing: { column: string; missing_rate: number }[]
+  }
+  series: FileSeries[]
+  category_totals: FileCategoryTotals[]
+  correlation: { columns: string[]; cells: FileCorrelationCell[] }
+  scatter: FileScatterPair[]
+  geo: FileGeo | null
+  heatmap: FileHeatmap | null
+  forecast: FileForecast
+  preview: { headers: string[]; rows: Record<string, string | number | boolean | null>[] }
+}
+
+export interface FileAnalyticsSummary {
+  measures: string[]
+  dimensions: string[]
+  time_column: string | null
+  target_year?: number | null
+  forecast_columns?: string[]
+  has_geo?: boolean
+  column_types: { column: string; type: FileColumnType }[]
+}
+
+export interface FileAnalytics {
+  id: string
+  file_name: string
+  file_count?: number
+  files?: { name: string; format: string; size_bytes: number; sha256: string }[]
+  format: string
+  size_bytes: number
+  sha256: string
+  uploaded_by: string
+  uploader_role: Role
+  rows_analyzed: number
+  column_count: number
+  truncated: boolean
+  summary: FileAnalyticsSummary
+  created_at: string
+  updated_at?: string
+  /** absent from the history list; present when one analysis is opened */
+  payload?: FileAnalyticsPayload
 }

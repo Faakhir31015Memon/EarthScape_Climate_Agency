@@ -3,10 +3,11 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { CheckCircle2, Eye, EyeOff, KeyRound, Loader2 } from 'lucide-react'
-import { anonymousPost, ApiRequestError } from '../../services/http'
+import { AlertOctagon, CheckCircle2, Eye, EyeOff, KeyRound, Loader2, ShieldAlert } from 'lucide-react'
+import { authApi } from '../../services/api'
+import { ApiRequestError } from '../../services/http'
 import { useAuth } from '../../features/auth/AuthContext'
-import { EmptyState, ErrorState, Field } from '../../components/ui'
+import { EmptyState, Field } from '../../components/ui'
 import { PasswordPolicyChecklist } from './components/PasswordPolicyChecklist'
 
 const resetSchema = z
@@ -20,12 +21,13 @@ type ResetValues = z.infer<typeof resetSchema>
 function guidanceFor(error: ApiRequestError): string | null {
   switch (error.code) {
     case 'reset_invalid':
+      return 'This recovery link is not valid. Request a fresh link from the recovery page.'
     case 'reset_used':
-      return 'That link has already been used. Each one works a single time, so request a new one.'
+      return 'That recovery link has already been used. Each link works only once for your security.'
     case 'reset_expired':
-      return 'This reset link has expired. Request a new one from the recovery page.'
+      return 'This reset link has expired. Request a new link from the recovery page.'
     case 'password_weak':
-      return 'The new password does not meet the policy shown above.'
+      return 'The new password does not meet the requirements shown below.'
     default:
       return null
   }
@@ -56,10 +58,7 @@ export default function ResetPasswordPage() {
     setApiError(null)
     setSubmitting(true)
     try {
-      // The typed client's confirmPasswordReset() posts { token, password }, but the backend
-      // PasswordResetConfirmSerializer requires { token, new_password }. Posting through the
-      // shared anonymous helper avoids that field-name mismatch without editing the read-only client.
-      await anonymousPost<{ status: string }>('/auth/password-reset/confirm', { token, new_password: values.password })
+      await authApi.confirmPasswordReset(token, values.password)
       setSearchParams({}, { replace: true })
       setDone(true)
     } catch (cause) {
@@ -69,7 +68,34 @@ export default function ResetPasswordPage() {
     }
   })
 
-  if (!token) {
+  const isLinkError = Boolean(
+    apiError && (apiError.code === 'reset_used' || apiError.code === 'reset_invalid' || apiError.code === 'reset_expired')
+  )
+
+  if (isLinkError && apiError) {
+    return (
+      <div className="space-y-5">
+        <div role="alert" className="card-tight flex items-start gap-3 border-solar-500/30 bg-solar-500/5">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-solar-600 dark:text-solar-400" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">
+              {apiError.code === 'reset_expired' ? 'This reset link has expired' : 'This reset link has already been used'}
+            </p>
+            <p className="mt-1.5 text-sm leading-relaxed muted">
+              {apiError.code === 'reset_expired'
+                ? 'Password recovery links are valid for 30 minutes and this one has expired. Please request a new link.'
+                : 'This password reset link has already been used and cannot be reused. Each recovery link works only once for your security.'}
+            </p>
+          </div>
+        </div>
+        <Link to="/forgot-password" className="btn btn-primary w-full">
+          Request a new reset link
+        </Link>
+      </div>
+    )
+  }
+
+  if (!token && !done) {
     return (
       <EmptyState
         title="This reset link is incomplete"
@@ -89,9 +115,9 @@ export default function ResetPasswordPage() {
         <div role="status" aria-live="polite" className="card-tight flex items-start gap-3">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-forest-600 dark:text-forest-300" aria-hidden="true" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold">Password updated</p>
+            <p className="text-sm font-semibold">Password updated successfully</p>
             <p className="mt-1.5 text-sm leading-relaxed muted">
-              The link is used up, and every other session on the account has been signed out. Sign in with your new password.
+              Your password has been changed. For security, every previous session on your account has been signed out. You can now sign in with your new password.
             </p>
           </div>
         </div>
@@ -105,7 +131,7 @@ export default function ResetPasswordPage() {
   return (
     <form onSubmit={onSubmit} className="space-y-5" noValidate>
       <p className="text-sm leading-relaxed muted">
-        Set a new password for the account this link belongs to. Once it is saved, the link stops working.
+        Set a new password for your account. Once updated, this reset link stops working.
       </p>
 
       <div>
@@ -163,9 +189,14 @@ export default function ResetPasswordPage() {
       />
 
       {apiError ? (
-        <div aria-live="assertive" className="space-y-2">
-          <ErrorState error={apiError} />
-          {guidanceFor(apiError) ? <p className="text-xs leading-relaxed muted">{guidanceFor(apiError)}</p> : null}
+        <div role="alert" aria-live="assertive" className="card-tight flex items-start gap-3 border-alert-critical/30 bg-alert-critical/5">
+          <AlertOctagon className="mt-0.5 h-5 w-5 shrink-0 text-alert-critical" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">Could not update password</p>
+            <p className="mt-1 text-sm leading-relaxed muted">
+              {guidanceFor(apiError) || apiError.message}
+            </p>
+          </div>
         </div>
       ) : null}
 

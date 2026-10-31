@@ -23,16 +23,23 @@ def is_configured() -> bool:
     return bool(env.get_raw("SMTP_HOST")) and env.get_bool("ENABLE_EMAIL_NOTIFICATIONS")
 
 
+def sender_address() -> str:
+    """Gmail and Outlook relay an authenticated mailbox only, so an unset
+    ``EMAIL_FROM_ADDRESS`` falls back to the login rather than a ``.invalid``
+    address the provider would reject."""
+    return env.get_str("EMAIL_FROM_ADDRESS") or env.get_str("SMTP_USER")
+
+
 def configuration_status() -> dict:
     return {
         "enabled": env.get_bool("ENABLE_EMAIL_NOTIFICATIONS"),
         "host_configured": bool(env.get_raw("SMTP_HOST")),
-        "sender": env.get_str("EMAIL_FROM_ADDRESS") or None,
+        "sender": sender_address() or None,
         "ready": is_configured(),
     }
 
 
-def send_email(*, to: str, subject: str, body: str, user_id: Optional[str] = None) -> bool:
+def send_email(*, to: str, subject: str, body: str, html_body: Optional[str] = None, user_id: Optional[str] = None) -> bool:
     if not _ADDRESS.match(to or ""):
         logger.warning("Refused to send email to an invalid address")
         return False
@@ -41,18 +48,25 @@ def send_email(*, to: str, subject: str, body: str, user_id: Optional[str] = Non
                     _domain(to))
         return False
 
-    message = EmailMessage()
-    message["From"] = env.get_str("EMAIL_FROM_ADDRESS", "no-reply@earthscape.invalid")
-    message["To"] = to
-    message["Subject"] = subject[:200]
-    message.set_content(body[:20000])
-
     host = env.get_str("SMTP_HOST")
     port = env.get_int("SMTP_PORT", 587)
     username = env.get_raw("SMTP_USER")
     password = env.get_raw("SMTP_PASSWORD")
     use_tls = env.get_bool("SMTP_USE_TLS", True)
     timeout = env.get_int("SMTP_TIMEOUT_SECONDS", 15)
+
+    sender = sender_address()
+    if not _ADDRESS.match(sender or ""):
+        logger.warning("Email suppressed - no valid sender address (set EMAIL_FROM_ADDRESS or SMTP_USER)")
+        return False
+
+    message = EmailMessage()
+    message["From"] = sender
+    message["To"] = to
+    message["Subject"] = subject[:200]
+    message.set_content(body[:20000])
+    if html_body:
+        message.add_alternative(html_body[:50000], subtype="html")
 
     try:
         if port == 465:

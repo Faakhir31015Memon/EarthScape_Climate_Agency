@@ -1,24 +1,10 @@
-"""The reproducible 14-step training pipeline.
+"""Training: chronological split, candidate fit, recursive holdout evaluation.
 
-Steps (numbered as in the platform spec, logged via ``progress_cb``):
-
- 1. validate dataset (real ``climate_observations`` only - refuses to invent data)
- 2. define target + horizon
- 3. select & engineer features (ml.features.build)
- 4. sort chronologically per location
- 5. chronological train/test split (never shuffled)
- 6. fit preprocessing on the training window only
- 7. fit baselines (naive persistence, seasonal-naive 365 d)
- 8. fit candidates (Ridge, RandomForest, XGBoost when importable)
- 9. evaluate MAE / RMSE / MAPE (strictly-positive targets only) / R2 + skill vs baselines
-10. empirical uncertainty bands per lead time
-11. persist artifact with joblib into ``settings.MODEL_STORE``
-12. register the model version in ``model_registry`` (status candidate)
-13. write the metrics report (markdown + JSON)
-14. return metrics + artifact path + feature importances
-
-Every metric is computed from a true recursive multi-step simulation on the
-holdout: the model never sees actual intermediate values at evaluation time.
+Steps run in order and report through progress_cb - feature engineering, chronological
+sort per location, a split that is never shuffled, preprocessing fitted on the training
+window only, baselines and candidates, holdout metrics, empirical uncertainty bands,
+then artifact, registry entry and report. Every metric comes from a recursive multi-step
+simulation so the model never sees real intermediate values while being evaluated.
 """
 from __future__ import annotations
 
@@ -154,7 +140,6 @@ def fetch_scope_observations(*, regions: Optional[Sequence[str]],
     return analytics.fetch_observations(criteria)
 
 
-# --------------------------------------------------------------------------- main
 def run_training(*, target_variable: str,
                  regions: Optional[Sequence[str]] = None,
                  location_codes: Optional[Sequence[str]] = None,
@@ -173,8 +158,7 @@ def run_training(*, target_variable: str,
     """Train every requested candidate and register each as ``candidate``.
 
     Returns the per-run summary plus one result dict per algorithm. Raises
-    :class:`common.analytics.InsufficientData` (with real counts) when the
-    stored record cannot support an honest training run - it never proceeds on
+    analytics.InsufficientData with real counts rather than training on
     fabricated data.
     """
     started = time.monotonic()
@@ -188,7 +172,6 @@ def run_training(*, target_variable: str,
             except Exception as exc:  # noqa: BLE001 - progress must never break training
                 logger.warning("progress callback failed: %s", exc)
 
-    # ---------------------------------------------------------- 1. validate data
     if target_variable not in analytics.METRICS:
         raise InsufficientData(
             f"Target '{target_variable}' is not a canonical metric. Options: "
@@ -215,7 +198,6 @@ def run_training(*, target_variable: str,
             available=len(observations), required=1)
     min_rows = int(min_train_rows or DEFAULT_MIN_TRAIN_ROWS)
 
-    # --------------------------------------------------- 2. target + horizon
     ceiling = predictor.max_horizon_days()
     requested_horizon = int(horizon_days or ceiling)
     if requested_horizon < 1:
@@ -235,7 +217,6 @@ def run_training(*, target_variable: str,
         "name": name,
     }
 
-    # --------------------------------------------- 3/4. features + chronological sort
     progress("engineering features", 10)
     cov_names = covariates_for(target_variable)
     all_days = sorted({_as_day(row["observation_date"]) for row in observations})
@@ -245,13 +226,11 @@ def run_training(*, target_variable: str,
             "required before a chronological split is meaningful.",
             available=len(all_days), required=60)
 
-    # --------------------------------------------- 5. chronological train/test split
     split_cut = max(1, int(len(all_days) * (1.0 - DEFAULT_TEST_FRACTION)))
     split_day = all_days[split_cut]
     train_obs = [row for row in observations if _as_day(row["observation_date"]) < split_day]
     test_obs = [row for row in observations if _as_day(row["observation_date"]) >= split_day]
 
-    # ------------------------------------------------- 6. fit preprocessing (train only)
     progress("fitting preprocessing on the training window", 20)
     preprocess = fit_preprocess(train_obs, target_variable, cov_names)
     train_frame, feature_definition, preprocess = build_features(
@@ -292,7 +271,6 @@ def run_training(*, target_variable: str,
     x_train = train_frame[feature_names].astype(float).to_numpy()
     y_train = train_frame["y"].astype(float).to_numpy()
 
-    # ------------------------------------------------------------- 7. baselines
     progress("fitting naive, seasonal-naive and climatology baselines", 30)
     naive_pairs: List[Tuple[float, float]] = []
     seasonal_pairs: List[Tuple[float, float]] = []
@@ -328,7 +306,6 @@ def run_training(*, target_variable: str,
     }
     climatology_bands = ml_metrics.per_step_residual_quantiles(climatology_step_pairs, eval_horizon)
 
-    # ---------------------------------------- 8/9/10. fit, evaluate, uncertainty
     results: List[Dict[str, Any]] = []
     dataset_ids = sorted({str(row.get("dataset_id")) for row in observations if row.get("dataset_id")})
     period = {
@@ -414,7 +391,6 @@ def run_training(*, target_variable: str,
 
     best_mae = min(item["metrics"]["mae"] for item in trained if item["metrics"]["mae"] is not None)
 
-    # ------------------------------------------------------ 11/12/13. persist + register
     progress("persisting artifacts and registering versions", 80)
     precreated_by_algo = {str(item.get("algorithm")): item for item in (precreated or [])}
     store = Path(settings.MODEL_STORE) / ARTIFACT_DIR_NAME

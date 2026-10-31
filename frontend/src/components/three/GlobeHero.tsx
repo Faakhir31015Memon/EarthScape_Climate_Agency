@@ -11,10 +11,8 @@ interface GlobeHeroProps {
   stationsLabel: string
 }
 
-/**
- * Anything thrown by the WebGL path (driver quirks, context limits on a locked-down
- * machine) swaps in the SVG projection rather than taking the hero down with it.
- */
+// If the WebGL path throws (driver limits, locked-down machine) the SVG projection takes
+// over instead of the whole hero going blank.
 class GlobeBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
 
@@ -30,7 +28,7 @@ class GlobeBoundary extends Component<{ fallback: ReactNode; children: ReactNode
 const VIEW = 460
 const RADIUS = 200
 
-/** Same coordinates, drawn as a flat orthographic sheet: no shaders, no context, no risk. */
+// The same coordinates projected onto a flat sheet, so the fallback needs no GL context.
 function FlatGlobe({ stations, focus }: { stations: GlobeStation[]; focus: LatLon }) {
   const size = { cx: VIEW / 2, cy: VIEW / 2, radius: RADIUS }
   const visible = stations

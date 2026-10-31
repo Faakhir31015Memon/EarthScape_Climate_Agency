@@ -56,7 +56,6 @@ class ProcessingStaffView(ProcessingView):
     permission_classes = [AdministratorOrAnalyst]
 
 
-# ------------------------------------------------------------------- catalog views
 class WorkflowListView(ProcessingView):
     """``GET /api/v1/processing/workflows`` - registry + real availability."""
 
@@ -122,7 +121,6 @@ class DataLakeView(ProcessingView):
         })
 
 
-# ------------------------------------------------------------------------ job views
 class JobListView(ProcessingView):
     """``GET/POST /api/v1/processing/jobs``."""
 
@@ -209,9 +207,9 @@ class JobCancelView(ProcessingStaffView):
 class JobLogsView(ProcessingView):
     """``GET /api/v1/processing/jobs/<id>/logs``.
 
-    Response shape matches ``{ lines: {timestamp, level, message}[], job: ProcessingJob }``
-    from ``frontend/src/services/api.ts`` - note the ``timestamp`` key used by the
-    dedicated logs feed, distinct from the ``at`` key on ``ProcessingJob.log_lines``.
+    The shape matches ``frontend/src/services/api.ts``: lines carry timestamp,
+    level and message - the logs feed uses timestamp where the job's own
+    log_lines uses at.
     """
 
     def get(self, request, job_id: str):
@@ -248,7 +246,6 @@ class JobMonitorView(ProcessingView):
         return Response(result)
 
 
-# --------------------------------------------------------------------- utilities
 def _oid(value: str):
     from bson import ObjectId
 

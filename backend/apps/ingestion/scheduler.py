@@ -37,7 +37,6 @@ class IngestionScheduler:
         self.run_count = 0
         self.error_count = 0
 
-    # ---------------------------------------------------------------- lifecycle
     def start(self) -> bool:
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
@@ -60,7 +59,6 @@ class IngestionScheduler:
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    # --------------------------------------------------------------------- loop
     def _loop(self) -> None:
         # A short initial delay lets the process finish booting / DB connect first.
         if self._stop.wait(self.initial_delay):

@@ -28,13 +28,13 @@ COLLECTION_NAMES: List[str] = [
     "support_tickets",
     "feedback",
     "platform_settings",
+    "file_analyses",
 ]
 
 ROLES: List[str] = ["administrator", "climate_analyst", "viewer"]
 
-# Canonical observation measurement fields. Units are encoded in the field name so
-# that a value can never be ambiguous. A measurement that was not supplied by the
-# source is stored as ``None`` - never as zero.
+# Canonical measurement fields; the unit lives in the field name and a reading the source
+# did not supply stays None rather than becoming zero.
 MEASUREMENT_FIELDS: Dict[str, str] = {
     "temperature_c": "celsius (2 m air temperature)",
     "temperature_min_c": "celsius",
@@ -87,8 +87,7 @@ INDEX_SPECS: Dict[str, List[Dict[str, Any]]] = {
         {"keys": [("quality_flags", 1)], "name": "ix_obs_quality", "sparse": True},
     ],
     "analytics_summaries": [
-        # Partial so that run records without an aggregate key are never compared as
-        # duplicate nulls.
+        # Partial, so runs without an aggregate key are not compared as duplicate nulls.
         {"keys": [("summary_key", 1)], "unique": True, "name": "ux_summary_key",
          "partial": {"summary_key": {"$type": "string"}}},
         {"keys": [("metric", 1), ("computed_at", -1)], "name": "ix_summary_metric",
@@ -142,11 +141,15 @@ INDEX_SPECS: Dict[str, List[Dict[str, Any]]] = {
     "platform_settings": [
         {"keys": [("key", 1)], "unique": True, "name": "ux_settings_key"},
     ],
+    "file_analyses": [
+        {"keys": [("uploaded_by", 1), ("created_at", -1)], "name": "ix_file_analyses_owner"},
+        {"keys": [("created_at", -1)], "name": "ix_file_analyses_created"},
+        {"keys": [("sha256", 1), ("created_at", -1)], "name": "ix_file_analyses_digest"},
+    ],
 }
 
-# Server-side document validation. MongoDB Atlas enforces these on insert/update;
-# the local-development store does not implement validators, so the same rules are
-# additionally enforced in application code (backend/common/validators.py).
+# Server-side validation. Atlas enforces these; mongomock ignores them, so
+# common/validators.py applies the same rules in Python.
 VALIDATORS: Dict[str, Dict[str, Any]] = {
     "users": {
         "level": "strict",
@@ -247,6 +250,24 @@ VALIDATORS: Dict[str, Dict[str, Any]] = {
                 "bsonType": "object",
                 "required": ["action", "resource_type", "outcome", "created_at"],
                 "properties": {"outcome": {"enum": ["success", "failure", "denied"]}},
+            }
+        },
+    },
+    "file_analyses": {
+        "level": "moderate",
+        "action": "error",
+        "validator": {
+            "$jsonSchema": {
+                "bsonType": "object",
+                "required": ["file_name", "format", "uploaded_by", "payload", "created_at"],
+                "properties": {
+                    "format": {"bsonType": "string"},
+                    "uploaded_by": {"bsonType": "string"},
+                    "size_bytes": {"bsonType": "int", "minimum": 0},
+                    "rows_analyzed": {"bsonType": "int", "minimum": 0},
+                    "column_count": {"bsonType": "int", "minimum": 0},
+                    "payload": {"bsonType": "object", "description": "bounded aggregates; raw rows are never stored"},
+                },
             }
         },
     },

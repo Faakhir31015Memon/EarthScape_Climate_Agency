@@ -682,7 +682,7 @@ export default function DatasetAdminPage() {
   )
 }
 
-/* ------------------------------------------------------------- detail panel */
+// detail panel
 
 function DatasetDetail({
   dataset,

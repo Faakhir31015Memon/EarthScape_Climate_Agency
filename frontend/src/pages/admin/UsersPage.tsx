@@ -406,7 +406,7 @@ export default function UsersPage() {
   )
 }
 
-/* ------------------------------------------------------------ role catalogue */
+// role catalogue
 
 function RoleCatalogue({ roles, loading, error }: { roles: RoleDefinition[]; loading: boolean; error: ApiRequestError | null }) {
   return (
@@ -442,7 +442,7 @@ function RoleCatalogue({ roles, loading, error }: { roles: RoleDefinition[]; loa
   )
 }
 
-/* ---------------------------------------------------------------- user forms */
+// user forms
 
 interface FormState {
   full_name: string
@@ -650,7 +650,7 @@ function UserFormModal({
   )
 }
 
-/* ---------------------------------------------------------- password reset */
+// password reset
 
 function PasswordResetModal({
   account: target,

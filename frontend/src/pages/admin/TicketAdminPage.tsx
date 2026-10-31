@@ -104,7 +104,7 @@ export default function TicketAdminPage() {
   )
 }
 
-/* ------------------------------------------------------------------- tickets */
+// tickets
 
 function TicketsTab({ canManage, isAdministrator }: { canManage: boolean; isAdministrator: boolean }) {
   const [status, setStatus] = useState('')
@@ -263,7 +263,6 @@ function TicketsTab({ canManage, isAdministrator }: { canManage: boolean; isAdmi
   )
 }
 
-/** Opens, replies to, triages, assigns and closes one ticket. */
 function TicketDetailModal({
   ticket,
   canManage,
@@ -483,7 +482,7 @@ function CommentRow({ comment }: { comment: TicketComment }) {
   )
 }
 
-/* ------------------------------------------------------------------ feedback */
+// feedback
 
 const FEEDBACK_STATUSES = ['new', 'reviewed', 'actioned']
 

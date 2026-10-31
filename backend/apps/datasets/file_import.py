@@ -40,7 +40,6 @@ class FileImportError(Exception):
     """Raised when a file cannot be opened, sniffed or streamed."""
 
 
-# --------------------------------------------------------------------- signature
 def read_signature(path: str, nbytes: int = 8) -> bytes:
     with open(path, "rb") as handle:
         return handle.read(nbytes)
@@ -192,7 +191,6 @@ def _sniff_text(path: str) -> str:
     return "csv"
 
 
-# ----------------------------------------------------------------- encoding/delim
 def detect_encoding(path: str) -> str:
     with open(path, "rb") as handle:
         raw = handle.read(_CSV_SAMPLE_BYTES)
@@ -228,7 +226,6 @@ def detect_delimiter(path: str, encoding: str) -> str:
         return ","
 
 
-# --------------------------------------------------------------------- csv reader
 def iter_csv(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
     encoding = detect_encoding(path)
     delimiter = detect_delimiter(path, encoding)
@@ -263,7 +260,6 @@ def _clean_key(name: object, position: int) -> str:
     return text
 
 
-# --------------------------------------------------------------------- ndjson
 def iter_json(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
     encoding = detect_encoding(path)
     size = os.path.getsize(path)
@@ -469,7 +465,6 @@ def _unlink_quietly(path: str) -> None:
         pass
 
 
-# --------------------------------------------------------------------- xlsx
 def iter_xlsx(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
     # Eager (read_only=False) but keep_vba off: cell values only, so openpyxl never
     # holds a second copy of the zip in memory.
@@ -497,7 +492,6 @@ def iter_xlsx(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[in
         workbook.close()
 
 
-# ------------------------------------------------------------- password-protected
 def _spreadsheet_password() -> Optional[str]:
     """Password used to open workbook-encrypted uploads (``UPLOAD_FILE_PASSWORD``)."""
     try:
@@ -554,13 +548,11 @@ def _classify_decrypted(decrypted_path: str) -> str:
         return "xlsx"
 
 
-# --------------------------------------------------------------------- xlsm / templates
 def iter_xlsm(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
     """Macro/template workbook through the OOXML reader; the macro stream is never run."""
     return iter_xlsx(path, max_rows=max_rows)
 
 
-# --------------------------------------------------------------------- ods
 def _ods_repeat_cap() -> int:
     """odfpy expands ``number-columns-repeated``; LibreOffice pads rows to 16 384."""
     try:
@@ -633,7 +625,6 @@ def iter_ods(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int
                 return
 
 
-# --------------------------------------------------------------------- xls (BIFF)
 def iter_xls(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
     if os.path.getsize(path) > OLE_SAFE_LOAD_BYTES:
         raise FileImportError(
@@ -665,7 +656,6 @@ def iter_xls(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int
             return
 
 
-# --------------------------------------------------------------------- xlsb
 def iter_xlsb(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
     try:
         from pyxlsb import open_workbook
@@ -693,7 +683,6 @@ def iter_xlsb(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[in
                     return
 
 
-# --------------------------------------------------------------------- parquet
 def iter_parquet(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple[int, Dict[str, object]]]:
     index = 0
     try:
@@ -723,7 +712,6 @@ def iter_parquet(path: str, *, max_rows: Optional[int] = None) -> Iterator[Tuple
                 return
 
 
-# ---------------------------------------------------------------- dispatcher
 _ITERATORS = {
     "csv": iter_csv,
     "txt": iter_csv,

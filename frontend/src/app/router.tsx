@@ -23,6 +23,7 @@ const AnomaliesPage = lazy(() => import('../pages/app/AnomaliesPage'))
 const DatasetsPage = lazy(() => import('../pages/app/DatasetsPage'))
 const DatasetDetailPage = lazy(() => import('../pages/app/DatasetDetailPage'))
 const UploadPage = lazy(() => import('../pages/app/UploadPage'))
+const FileAnalyticsPage = lazy(() => import('../pages/app/FileAnalyticsPage'))
 const IngestionJobsPage = lazy(() => import('../pages/app/IngestionJobsPage'))
 const ProcessingMonitorPage = lazy(() => import('../pages/app/ProcessingMonitorPage'))
 const BigDataPage = lazy(() => import('../pages/app/BigDataPage'))
@@ -96,6 +97,7 @@ function RoutedViews() {
               <Route path="datasets" element={<DatasetsPage />} />
               <Route path="datasets/:datasetId" element={<DatasetDetailPage />} />
               <Route path="uploads" element={<UploadPage />} />
+              <Route path="file-analytics" element={<FileAnalyticsPage />} />
               <Route path="ingestion" element={<IngestionJobsPage />} />
               <Route path="processing" element={<ProcessingMonitorPage />} />
               <Route

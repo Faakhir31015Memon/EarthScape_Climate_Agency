@@ -47,7 +47,6 @@ FORBIDDEN_EXTENSIONS = {"", ".exe", ".dll", ".sh", ".bat", ".cmd", ".ps1", ".py"
                         ".htm", ".svg", ".js", ".com", ".scr", ".msi", ".jar"}
 
 
-# ------------------------------------------------------------------------ list
 class DatasetListView(AuthenticatedView):
     def get(self, request):
         user = self.current_user(request)
@@ -84,7 +83,6 @@ class DatasetListView(AuthenticatedView):
         return Response(result)
 
 
-# ----------------------------------------------------------------------- upload
 class DatasetUploadView(AuthenticatedView):
     # Bringing your own data file is the platform's core user action, so every signed-in
     # role may do it; archive/delete and other administrative writes stay role-gated.
@@ -152,7 +150,6 @@ class DatasetUploadView(AuthenticatedView):
         }, status=status.HTTP_202_ACCEPTED)
 
 
-# --------------------------------------------------------------------- detail
 class DatasetDetailView(AuthenticatedView):
     def get(self, request, dataset_id: str):
         user = self.current_user(request)
@@ -191,7 +188,6 @@ class DatasetDetailView(AuthenticatedView):
         return Response({"dataset": _present(serialize(updated), user), "archived": True})
 
 
-# ------------------------------------------------------------------- validate
 class DatasetValidateView(AuthenticatedView):
     permission_classes = [IsAuthenticatedAccount]
 
@@ -213,7 +209,6 @@ class DatasetValidateView(AuthenticatedView):
         return Response(report)
 
 
-# -------------------------------------------------------------------- preview
 class DatasetPreviewView(AuthenticatedView):
     def get(self, request, dataset_id: str):
         user = self.current_user(request)
@@ -239,7 +234,6 @@ class DatasetPreviewView(AuthenticatedView):
         })
 
 
-# --------------------------------------------------------------------- ingest
 class DatasetIngestView(AuthenticatedView):
     permission_classes = [IsAuthenticatedAccount]
 
@@ -276,7 +270,6 @@ class DatasetIngestView(AuthenticatedView):
                         status=status.HTTP_202_ACCEPTED)
 
 
-# -------------------------------------------------------------------- mapping
 class DatasetMappingView(AuthenticatedView):
     def get(self, request, dataset_id: str):
         user = self.current_user(request)
@@ -317,7 +310,6 @@ class DatasetMappingView(AuthenticatedView):
                          "units": updates["units"]})
 
 
-# ------------------------------------------------------------------- download
 class DatasetDownloadView(AuthenticatedView):
     def get(self, request, dataset_id: str):
         user = self.current_user(request)
@@ -334,7 +326,6 @@ class DatasetDownloadView(AuthenticatedView):
         return response
 
 
-# ------------------------------------------------------------- column suggestion
 class ColumnSuggestionView(AuthenticatedView):
     permission_classes = [IsAuthenticatedAccount]
 
@@ -356,7 +347,6 @@ class ColumnSuggestionView(AuthenticatedView):
                          "mappable_fields": dataset_serializers.MAPPABLE_FIELDS})
 
 
-# ----------------------------------------------------------------------- docs
 class DatasetFormatsView(AuthenticatedView):
     def get(self, request):
         from common import regions
@@ -371,7 +361,6 @@ class DatasetFormatsView(AuthenticatedView):
         })
 
 
-# ==================================================================== helpers
 def _visibility_criteria(user) -> Dict[str, Any]:
     """Administrator + analyst see everything; viewer sees public/own only."""
     if user.role in (ADMINISTRATOR, CLIMATE_ANALYST):

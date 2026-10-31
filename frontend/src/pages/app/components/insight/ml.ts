@@ -1,7 +1,7 @@
 import type { ModelRecord } from '../../../../types/api'
 import { formatNumber, metricUnit } from '../../../../lib/format'
 
-/* ------------------------------------------------------- hyperparameters */
+// hyperparameters
 
 export interface HyperparameterRow {
   key: string
@@ -60,12 +60,11 @@ export function parseHyperparameters(rows: HyperparameterRow[]): ParsedHyperpara
   return { ok: errors.length === 0, values, errors }
 }
 
-/* ----------------------------------------------------- evaluation compare */
+// evaluation compare
 
 export interface EvalMetricMeta {
   key: keyof ModelRecord['evaluation_metrics']
   label: string
-  /** how a larger value is interpreted */
   better: 'lower' | 'higher'
   digits: number
   /** returns a display string given the raw numeric value and the model's target unit */

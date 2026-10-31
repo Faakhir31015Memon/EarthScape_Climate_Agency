@@ -70,14 +70,10 @@ def build_spark_session(app_name: Optional[str] = None, *, local_cores: Optional
         .config("spark.sql.parquet.compression.codec", "snappy")
         .config("spark.sql.shuffle.partitions", str(env.get_int("SPARK_MIN_PARALLELISM", 4)))
     )
-    # Windows dev box without winutils.exe/hadoop.dll: Hadoop's directory
-    # listing calls native NativeIO$Windows.access0 and crashes the JVM. When
-    # our pure-Java filesystem shim is present (built by
-    # data-pipeline/streaming/java/build_localfs.ps1, installed into the pyspark
-    # jars directory so it is on the JVM classpath), register it for the local
-    # "file" scheme. It overrides ONLY listStatus(); everything else is stock
-    # RawLocalFileSystem. On a real cluster the scheme is hdfs:// and this does
-    # not apply.
+    # Windows dev box has no winutils.exe/hadoop.dll, so Hadoop's directory listing
+    # crashes the JVM. Where the pure-Java shim (data-pipeline/streaming/java/, built
+    # by build_localfs.ps1 and installed on the JVM classpath) exists, register it for
+    # the local "file" scheme; it overrides only listStatus(). Real clusters use hdfs://.
     if sys.platform == "win32":
         shim = (Path(__file__).resolve().parents[1] / "streaming" / "jars"
                 / "earthscape-localfs.jar")

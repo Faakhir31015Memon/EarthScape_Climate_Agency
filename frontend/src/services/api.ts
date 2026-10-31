@@ -53,6 +53,7 @@ import type {
   FeedbackListResponse,
   FeedbackRecord,
   FeedbackSummary,
+  FileAnalytics,
   FilterOptionsResponse,
   HistoryResponse,
   IngestionActionResult,
@@ -143,7 +144,7 @@ export interface TrainModelsBody {
   end?: string
 }
 
-/* ---------------------------------------------------------------- auth */
+// auth
 
 export const authApi = {
   register(payload: { full_name: string; email: string; password: string; organisation?: string }): Promise<RegisterResponse> {
@@ -169,14 +170,14 @@ export const authApi = {
     return anonymousPost<PasswordResetRequestResponse>('/auth/password-reset', { email })
   },
   confirmPasswordReset(token: string, password: string): Promise<StatusNoteResponse> {
-    return anonymousPost<StatusNoteResponse>('/auth/password-reset/confirm', { token, password })
+    return anonymousPost<StatusNoteResponse>('/auth/password-reset/confirm', { token, new_password: password })
   },
   configuration(): Promise<AuthConfiguration> {
     return apiGet<AuthConfiguration>('/auth/configuration')
   },
 }
 
-/* --------------------------------------------------------------- users */
+// users
 
 export const usersApi = {
   // Backend search param is `search`, not `query`.
@@ -216,7 +217,7 @@ export const usersApi = {
   },
 }
 
-/* ------------------------------------------------------------- datasets */
+// datasets
 
 export const datasetsApi = {
   list(params: PageParams & { status?: string; source_type?: string; search?: string; format?: string; region?: string; sort?: string } = {}): Promise<Paginated<Dataset>> {
@@ -286,7 +287,29 @@ export const datasetsApi = {
   },
 }
 
-/* ------------------------------------------------------------ ingestion */
+// file analytics
+
+export const fileAnalyticsApi = {
+  list(params: PageParams & { search?: string } = {}): Promise<Paginated<FileAnalytics>> {
+    return apiGet<Paginated<FileAnalytics>>('/file-analytics/', params)
+  },
+  get(id: string): Promise<FileAnalytics> {
+    return apiGet<{ analysis: FileAnalytics }>(`/file-analytics/${id}`).then((response) => response.analysis)
+  },
+  upload(files: File[], targetYear?: number, onProgress?: (percent: number) => void): Promise<FileAnalytics> {
+    const form = new FormData()
+    files.forEach((file) => form.append('files', file))
+    if (targetYear) form.append('target_year', String(targetYear))
+    return uploadForm<{ analysis: FileAnalytics }>('/file-analytics/upload', form, onProgress).then(
+      (response) => response.analysis,
+    )
+  },
+  remove(id: string): Promise<{ deleted: true; id: string }> {
+    return apiDelete<{ deleted: true; id: string }>(`/file-analytics/${id}`)
+  },
+}
+
+// ingestion
 
 export const ingestionApi = {
   list(params: PageParams & { status?: string; source_type?: string; dataset_id?: string; job_type?: string } = {}): Promise<Paginated<IngestionJob>> {
@@ -324,7 +347,7 @@ export const ingestionApi = {
   },
 }
 
-/* --------------------------------------------------------------- climate */
+// climate
 
 export const climateApi = {
   metrics(): Promise<MetricCatalogueResponse> {
@@ -427,7 +450,7 @@ export const climateApi = {
   },
 }
 
-/* -------------------------------------------------------------- dashboard */
+// dashboard
 
 export const dashboardApi = {
   summary(params: { region?: string; days?: number } = {}): Promise<DashboardSummary> {
@@ -438,7 +461,7 @@ export const dashboardApi = {
   },
 }
 
-/* --------------------------------------------------------------- analytics */
+// analytics
 
 export const analyticsApi = {
   summaries(params: { metric?: string; workflow?: string; processing_mode?: string; page?: number } = {}): Promise<AnalyticsSummariesResponse> {
@@ -450,7 +473,7 @@ export const analyticsApi = {
   },
 }
 
-/* ------------------------------------------------------------ processing */
+// processing
 
 export const processingApi = {
   workflows(): Promise<ProcessingWorkflow[]> {
@@ -484,7 +507,7 @@ export const processingApi = {
   },
 }
 
-/* ---------------------------------------------------------------- models */
+// models
 
 export const modelsApi = {
   catalogue(): Promise<ModelCatalogue> {
@@ -517,7 +540,7 @@ export const modelsApi = {
   },
 }
 
-/* ------------------------------------------------------------ predictions */
+// predictions
 
 export const predictionsApi = {
   // Real create route is the collection POST /predictions/.
@@ -547,7 +570,7 @@ export const predictionsApi = {
   },
 }
 
-/* ---------------------------------------------------------------- alerts */
+// alerts
 
 export const alertsApi = {
   summary(): Promise<AlertSummaryResponse> {
@@ -589,7 +612,7 @@ export const alertsApi = {
   },
 }
 
-/* ---------------------------------------------------------- notifications */
+// notifications
 
 export const notificationsApi = {
   list(params: PageParams & { unread?: string; severity?: string; type?: string } = {}): Promise<NotificationsListResponse> {
@@ -609,7 +632,7 @@ export const notificationsApi = {
   },
 }
 
-/* ---------------------------------------------------------------- reports */
+// reports
 
 export const reportsApi = {
   types(): Promise<ReportTypesResponse> {
@@ -642,7 +665,7 @@ export const reportsApi = {
   },
 }
 
-/* --------------------------------------------------------------- support */
+// support
 
 export const supportApi = {
   summary(): Promise<SupportSummary> {
@@ -681,7 +704,7 @@ export const supportApi = {
   },
 }
 
-/* --------------------------------------------------------------- feedback */
+// feedback
 
 export const feedbackApi = {
   summary(): Promise<FeedbackSummary> {
@@ -701,7 +724,7 @@ export const feedbackApi = {
   },
 }
 
-/* ---------------------------------------------------------------- system */
+// system
 
 export const systemApi = {
   health(): Promise<import('../types/api').HealthResponse> {
@@ -734,6 +757,7 @@ export const api = {
   auth: authApi,
   users: usersApi,
   datasets: datasetsApi,
+  fileAnalytics: fileAnalyticsApi,
   ingestion: ingestionApi,
   climate: climateApi,
   dashboard: dashboardApi,

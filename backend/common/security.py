@@ -20,7 +20,6 @@ ALGORITHM = "HS256"
 SUPPORTED_ALGORITHMS = ["HS256"]
 
 
-# ------------------------------------------------------------------------ identifiers
 def to_object_id(value: str):
     """Parse a document id string, the way every service in ``apps/`` expects.
 
@@ -32,7 +31,6 @@ def to_object_id(value: str):
     return parse(value)
 
 
-# ------------------------------------------------------------------------ hashing
 def hash_password(password: str) -> str:
     if len(password.encode("utf-8")) > 72:
         # bcrypt truncates silently at 72 bytes; reject instead of weakening.
@@ -80,7 +78,6 @@ def valid_email(email: str) -> bool:
     return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}", normalize_email(email)))
 
 
-# ------------------------------------------------------------------- text guards
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _PADDED_WHITESPACE = re.compile(r"[ \t]{2,}")
 
@@ -122,7 +119,6 @@ def fingerprint(*parts: Any) -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
-# ---------------------------------------------------------------------------- JWT
 def _signing_key() -> bytes:
     key = env.get_raw("JWT_SIGNING_KEY")
     if not key:
@@ -160,7 +156,6 @@ def decode_token(token: str) -> Dict[str, Any]:
     )
 
 
-# ----------------------------------------------------------------- refresh tokens
 def hash_refresh_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 

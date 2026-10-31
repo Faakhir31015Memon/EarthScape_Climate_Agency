@@ -160,8 +160,8 @@ def write_tabular(rows: list, directory: Path, base_name: str,
     """Write analytical output as Parquet when pyarrow exists, else gzipped CSV.
 
     ``rows`` is a list of dicts sharing ``columns`` (order enforced when given).
-    Returns a manifest dict recording the engine that actually ran, so no stage
-    silently pretends to have produced Parquet.
+    The manifest records the engine that actually ran, so no stage pretends at
+    Parquet.
     """
     import csv
     import gzip

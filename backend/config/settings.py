@@ -14,9 +14,7 @@ from config import env
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
-# ``ml/`` and ``data-pipeline/`` are packages inside ``backend/``, so the BASE_DIR entry
-# above already lets management commands, the dev server and any worker resolve
-# ``import ml.*`` the same way.
+# ml/ and data-pipeline/ sit inside backend/, so BASE_DIR above already resolves them.
 env.validate_startup()
 
 SECRET_KEY = env.get_str("DJANGO_SECRET_KEY")
@@ -46,9 +44,8 @@ ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# Only /api/docs renders a template (the OpenAPI reference). Every API response stays
-# pure JSON because DEFAULT_RENDERER_CLASSES is JSONRenderer-only; without a registered
-# engine drf_spectacular's Swagger view raises InvalidTemplateEngineError and 500s.
+# /api/docs is the only view that renders a template. Without a registered engine
+# drf_spectacular's Swagger view raises InvalidTemplateEngineError.
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -89,7 +86,6 @@ SPECTACULAR_SETTINGS = {
     "SORT_OPERATIONS": False,
 }
 
-# ------------------------------------------------------------------ security
 CORS_ALLOWED_ORIGINS = FRONTEND_ORIGINS
 CORS_ALLOW_CREDENTIALS = False
 SESSION_COOKIE_SECURE = not DEBUG
@@ -98,7 +94,6 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 
-# --------------------------------------------------------------------- paths
 MEDIA_ROOT = Path(env.get_str("LOCAL_DATA_ROOT", str(BASE_DIR / ".data")))
 UPLOAD_ROOT = MEDIA_ROOT / "uploads"
 EXPORT_ROOT = MEDIA_ROOT / "exports"
@@ -109,7 +104,6 @@ DATA_LAKE_ROOT = Path(env.get_str("DATA_LAKE_LOCAL_ROOT", str(BASE_DIR / ".data-
 for _directory in (UPLOAD_ROOT, EXPORT_ROOT, REPORT_ROOT, MODEL_STORE, PROCESSING_ROOT, DATA_LAKE_ROOT):
     _directory.mkdir(parents=True, exist_ok=True)
 
-# -------------------------------------------------------------------- logging
 LOG_LEVEL = env.get_str("LOG_LEVEL", "INFO").upper()
 
 LOGGING = {
@@ -134,7 +128,6 @@ LOGGING = {
     },
 }
 
-# ------------------------------------------------------------- upload limits
 MAX_UPLOAD_BYTES = env.get_int("MAX_UPLOAD_BYTES", 52428800)
 MAX_UPLOAD_ROWS = env.get_int("MAX_UPLOAD_ROWS", 500000)
 DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_BYTES
@@ -145,7 +138,6 @@ ALLOWED_UPLOAD_EXTENSIONS = env.get_list(
      ".xls", ".xlsx", ".xlsm", ".xlsb", ".xltx", ".xltm", ".ods"],
 )
 
-# ----------------------------------------------------------- runtime defaults
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 USE_TZ = True
 TIME_ZONE = "UTC"

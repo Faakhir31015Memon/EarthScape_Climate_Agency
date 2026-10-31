@@ -6,7 +6,6 @@ export interface BadgeProps {
   tone?: Tone;
   className?: string;
   children: React.ReactNode;
-  /** Rounded pill vs subtle square. */
   pill?: boolean;
 }
 

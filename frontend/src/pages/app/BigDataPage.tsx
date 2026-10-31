@@ -274,7 +274,7 @@ export default function BigDataPage() {
   )
 }
 
-/* -------------------------------------------------------------- helpers */
+// helpers
 
 function setupInstructions(engines: EngineHealth[]): string | null {
   const engine = engines[0]
@@ -288,7 +288,7 @@ function setupInstructions(engines: EngineHealth[]): string | null {
   return hints.length ? hints.join(' ') : null
 }
 
-/* --------------------------------------------------------- tracked job */
+// tracked job
 
 function TrackedJob({ job, onClear }: { job: ProcessingJob; onClear: () => void }) {
   const running = ACTIVE.has(job.status)
@@ -346,7 +346,7 @@ function Cell({ label, value, tone }: { label: string; value: string; tone?: 'da
   )
 }
 
-/* ------------------------------------------------------ run dialog (params) */
+// run dialog (params)
 
 function RunWorkflowDialog({
   workflow,

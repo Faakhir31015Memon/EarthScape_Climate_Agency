@@ -4,14 +4,13 @@ import { Badge, Mono, StatusBadge } from '../../../components/ui'
 import { formatDuration, isMaskedValue, lockCountdown, looksSecret, redactIfNeeded, statusBreakdown } from './adminUtils'
 import type { AuthConfiguration } from '../../../types/api'
 
-/* ------------------------------------------------------------------ feedback */
+// feedback
 
 export interface Feedback {
   tone: 'success' | 'error' | 'info'
   text: string
 }
 
-/** Announces destructive / privileged action results to assistive tech. */
 export function ActionFeedback({ feedback, onDismiss }: { feedback: Feedback | null; onDismiss?: () => void }) {
   if (!feedback) return null
   const classes =
@@ -33,7 +32,7 @@ export function ActionFeedback({ feedback, onDismiss }: { feedback: Feedback | n
   )
 }
 
-/* --------------------------------------------------------------- secret-safe */
+// secret-safe
 
 /** Renders a backend-masked value; never offers a way to reveal it. */
 export function MaskedValue({ label, value }: { label: string; value: unknown }) {
@@ -50,7 +49,6 @@ export function MaskedValue({ label, value }: { label: string; value: unknown })
   )
 }
 
-/** Copy-to-clipboard that refuses secret-looking content. */
 export function CopyButton({ value, label, secret = false }: { value: string; label?: string; secret?: boolean }) {
   const [state, setState] = useState<Feedback | null>(null)
 
@@ -96,7 +94,7 @@ export function CopyButton({ value, label, secret = false }: { value: string; la
   )
 }
 
-/* -------------------------------------------------------------------- status */
+// status
 
 export function LockState({ isLocked, lockedUntil }: { isLocked?: boolean; lockedUntil?: string | null }) {
   const [now, setNow] = useState(() => Date.now())
@@ -130,7 +128,6 @@ export function Breakdown({ counts, kind = 'generic', empty = 'No records in thi
   )
 }
 
-/** One row of the "what is missing for production" checklists. */
 export function ConfigRequirement({
   label,
   envKey,
@@ -159,9 +156,8 @@ export function ConfigRequirement({
   )
 }
 
-/* ------------------------------------------------------------------- display */
+// display
 
-/** Readable key/value expansion that redacts anything secret-looking. */
 export function MetadataView({ metadata }: { metadata?: Record<string, unknown> | null }) {
   const [open, setOpen] = useState(false)
   const entries = Object.entries(metadata ?? {})
@@ -196,7 +192,7 @@ export function MetadataView({ metadata }: { metadata?: Record<string, unknown> 
   )
 }
 
-/* -------------------------------------------------------------------- policy */
+// policy
 
 type PolicyCheck = { label: string; passed: boolean }
 

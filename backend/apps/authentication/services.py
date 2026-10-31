@@ -258,7 +258,7 @@ def change_password(user_id: str, current_password: str, new_password: str, *, r
 
 
 def begin_password_reset(email: str, *, request=None) -> Dict[str, Any]:
-    """Single-use token; without SMTP configured the reply is configuration_required."""
+    """Single-use token; self-service reset for user accounts with direct reset link."""
     if not env.get_bool("ENABLE_PASSWORD_RESET", True):
         raise AuthError("feature_disabled", "Password recovery is disabled on this deployment.", 503)
 
@@ -268,6 +268,15 @@ def begin_password_reset(email: str, *, request=None) -> Dict[str, Any]:
         # same reply either way, so this cannot be used to probe for accounts
         return {"status": "accepted", "delivered": False,
                 "note": "If an account exists for this address, recovery instructions were sent."}
+
+    user_role = document.get("role", VIEWER)
+    if user_role == ADMINISTRATOR and not env.get_bool("ALLOW_ADMIN_PASSWORD_RESET", False):
+        logger.info("Password reset requested for administrator account (%s) - restricted to user accounts", document.get("email"))
+        return {
+            "status": "admin_restricted",
+            "delivered": False,
+            "note": "Password reset via email is strictly for user accounts. Administrator accounts cannot be reset from this form.",
+        }
 
     raw_token = secrets.token_urlsafe(32)
     ttl_minutes = env.get_int("PASSWORD_RESET_TTL_MINUTES", 30)
@@ -290,20 +299,93 @@ def begin_password_reset(email: str, *, request=None) -> Dict[str, Any]:
             "status": "configuration_required",
             "delivered": False,
             "note": ("Password recovery is implemented but email delivery is not configured on this "
-                     "deployment. Set SMTP_HOST/SMTP_USER and ENABLE_EMAIL_NOTIFICATIONS=true, or ask an "
-                     "administrator to set your password from User management."),
+                     "deployment. Set SMTP_HOST/SMTP_USER and ENABLE_EMAIL_NOTIFICATIONS=true."),
         }
 
     from common.emailer import send_email
 
-    reset_url = f"{env.get_str('FRONTEND_ORIGIN', 'http://localhost:5173').split(',')[0].strip()}" \
-                f"/reset-password?token={raw_token}"
+    frontend_origin = env.get_str('FRONTEND_ORIGIN', 'http://localhost:5173').split(',')[0].strip()
+    reset_url = f"{frontend_origin}/reset-password?token={raw_token}"
+    user_name = document.get("full_name") or "User"
+
+    plain_body = (
+        f"Hello {user_name},\n\n"
+        "We received a request to reset your password for your EarthScape Climate Agency account.\n\n"
+        f"Use the link below to set a new password. It expires in {ttl_minutes} minutes and can be used once:\n\n"
+        f"{reset_url}\n\n"
+        "If you did not request this, no action is needed.\n\n"
+        "— EarthScape Climate Agency"
+    )
+
+    html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Password Recovery</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 580px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="background-color: #064e3b; padding: 28px 32px; text-align: left;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">EarthScape Climate Agency</h1>
+              <p style="margin: 4px 0 0 0; color: #a7f3d0; font-size: 13px;">User Account Password Recovery</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 36px 32px; color: #1e293b;">
+              <h2 style="margin: 0 0 16px 0; font-size: 19px; font-weight: 600; color: #0f172a;">Password Reset Request</h2>
+              <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 24px; color: #334155;">Hello <strong>{user_name}</strong>,</p>
+              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #334155;">
+                We received a request to reset your password. You can set a new password directly by clicking the button below:
+              </p>
+              
+              <table role="presentation" cellspacing="0" cellpadding="0" style="margin: 28px 0;">
+                <tr>
+                  <td align="center" style="border-radius: 8px; background-color: #059669;">
+                    <a href="{reset_url}" target="_blank" style="display: inline-block; padding: 14px 28px; font-size: 15px; font-weight: 600; color: #ffffff; text-decoration: none; border-radius: 8px; background-color: #059669;">
+                      Reset Your Password
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 0 0 12px 0; font-size: 13px; line-height: 20px; color: #64748b;">
+                If the button above does not work, copy and paste this link into your web browser:
+              </p>
+              <p style="margin: 0 0 24px 0; font-size: 13px; line-height: 20px; word-break: break-all;">
+                <a href="{reset_url}" style="color: #0284c7; text-decoration: underline;">{reset_url}</a>
+              </p>
+
+              <div style="background-color: #f8fafc; border-left: 4px solid #059669; padding: 12px 16px; border-radius: 4px; margin: 24px 0 0 0;">
+                <p style="margin: 0; font-size: 13px; line-height: 20px; color: #475569;">
+                  <strong>Note:</strong> This link is single-use and will expire in <strong>{ttl_minutes} minutes</strong>. If you did not request this, you can safely ignore this email &mdash; your password will remain unchanged.
+                </p>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 20px 32px; border-top: 1px solid #e2e8f0; text-align: center;">
+              <p style="margin: 0; font-size: 12px; color: #94a3b8;">
+                &copy; EarthScape Climate Agency &bull; Automated System Notification
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
     delivered = send_email(
         to=document["email"],
-        subject="EarthScape Climate Agency - password recovery",
-        body=("Use the link below to set a new password. It expires in "
-              f"{ttl_minutes} minutes and can be used once.\n\n{reset_url}\n\n"
-              "If you did not request this, no action is needed."),
+        subject="EarthScape Climate Agency - Password Recovery Link",
+        body=plain_body,
+        html_body=html_body,
     )
     return {"status": "sent" if delivered else "delivery_failed", "delivered": delivered,
             "note": "Recovery instructions were sent to the email address on file."}

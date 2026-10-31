@@ -62,12 +62,9 @@ def _normalise(value: Any) -> Any:
 def _utc_moments(value: Any) -> Any:
     """Mark every naive datetime coming out of storage as UTC, at any depth.
 
-    MongoDB keeps datetimes as UTC milliseconds and both the BSON codec and the
-    local-development store decode them without a tzinfo, while this platform stamps
-    every timestamp from ``utcnow()`` (aware). Comparing the two is a ``TypeError``,
-    so the conversion happens once here instead of at each call site that has to
-    discover it at runtime. Already-aware values are left exactly as they are, which
-    is what an Atlas connection with ``tz_aware`` codecs produces.
+    Storage decodes without a tzinfo while this platform stamps every timestamp
+    from utcnow(), and comparing the two raises TypeError. Aware values pass
+    through untouched, so the conversion happens exactly once, here.
     """
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
@@ -97,7 +94,6 @@ class Repository:
     def __init__(self, collection: str):
         self.collection_name = collection
 
-    # ------------------------------------------------------------------ helpers
     @property
     def coll(self):
         return get_database().collection(self.collection_name)
@@ -105,7 +101,6 @@ class Repository:
     def _after_write(self) -> None:
         get_database().mark_dirty(self.collection_name)
 
-    # -------------------------------------------------------------------- read
     def find_one(self, query: Dict[str, Any], projection: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         try:
             return _utc_moments(self.coll.find_one(query, projection))
@@ -182,7 +177,6 @@ class Repository:
             logger.error("aggregate failed on %s: %s", self.collection_name, _clean(exc))
             raise RepositoryError("Database aggregation failed.") from exc
 
-    # ------------------------------------------------------------------- write
     def insert_one(self, document: Dict[str, Any]) -> str:
         try:
             result = self.coll.insert_one(dict(document))
@@ -221,12 +215,11 @@ class Repository:
     def update_by_id(self, document_id: str, updates: Dict[str, Any], *,
                      upsert: bool = False,
                      return_document: bool = True) -> Optional[Dict[str, Any]]:
-        """Update one document by id, returning the stored document by default.
+        """Update one document by id and return the stored document.
 
-        Every service in ``apps/`` writes and then re-reads the same row (acknowledged
-        alerts, delivered notifications, patched tickets), so the refreshed document -
-        not a count - is the useful return value here. ``update_one`` deliberately
-        defaults the other way because its callers test match counts.
+        Services in ``apps/`` write then re-read the same row, so the refreshed
+        document is the useful return; update_one defaults the other way for
+        match counts.
         """
         return self.update_one({"_id": to_object_id(document_id)}, updates,
                                upsert=upsert, return_document=return_document)
@@ -324,7 +317,6 @@ def _clean(exc: Exception) -> str:
     return text[:300]
 
 
-# --------------------------------------------------------------------- registry
 from common.collections import COLLECTION_NAMES  # noqa: E402
 
 users = Repository("users")
@@ -344,6 +336,7 @@ audit_logs = Repository("audit_logs")
 support_tickets = Repository("support_tickets")
 feedback = Repository("feedback")
 platform_settings = Repository("platform_settings")
+file_analyses = Repository("file_analyses")
 
 ALL = {
     "users": users,
@@ -363,6 +356,7 @@ ALL = {
     "support_tickets": support_tickets,
     "feedback": feedback,
     "platform_settings": platform_settings,
+    "file_analyses": file_analyses,
 }
 
 assert set(ALL) == set(COLLECTION_NAMES), "Repository registry and collection list are out of sync"

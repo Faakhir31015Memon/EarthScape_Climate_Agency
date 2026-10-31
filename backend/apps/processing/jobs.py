@@ -34,7 +34,6 @@ MAX_LOG_LINES = int(env.get_int("PROCESSING_MAX_LOG_LINES", 200))
 _ACTIVE_RE = re.compile(r"mongodb(\+srv)?://[^\s\"']+", re.IGNORECASE)
 
 
-# --------------------------------------------------------------------------- create
 def create_job(*, workflow: str, engine: str, dataset_id: Optional[str],
                parameters: Dict[str, Any], submitted_by: Optional[str],
                submitted_by_role: Optional[str],
@@ -88,7 +87,6 @@ def get_job(job_id: str) -> Dict[str, Any]:
     return document
 
 
-# ------------------------------------------------------------------------ transitions
 def mark_running(job_id: str) -> Optional[Dict[str, Any]]:
     """Atomic queued -> running claim. Returns None on a double dispatch so the
     second worker skips the job."""
@@ -111,7 +109,6 @@ def set_status(job_id: str, status: str, **extra: Any) -> Dict[str, Any]:
     return updated
 
 
-# ------------------------------------------------------------------------ log lines
 def append_log(job_id: str, level: str, message: str) -> None:
     """Bounded to the last MAX_LOG_LINES; message text goes through sanitize_error."""
     line = {"at": utcnow(), "level": str(level or "info").lower()[:16],
@@ -144,7 +141,6 @@ def extend_logs(job_id: str, entries: List[Dict[str, Any]]) -> None:
     })
 
 
-# ------------------------------------------------------------------- metrics/output
 def record_metrics(job_id: str, metrics: Dict[str, Any], output: Optional[Dict[str, Any]] = None) -> None:
     updates: Dict[str, Any] = {}
     if metrics:
@@ -207,7 +203,6 @@ def fail_job(job_id: str, message: str,
     return finish_job(job_id, status="failed", error_message=message, metrics=metrics)
 
 
-# ------------------------------------------------------------------------ cancel
 def cancel_job(job_id: str, actor_id: Optional[str]) -> Dict[str, Any]:
     document = get_job(job_id)
     status = document.get("status")
@@ -233,7 +228,6 @@ def cancel_job(job_id: str, actor_id: Optional[str]) -> Dict[str, Any]:
     return updated
 
 
-# ------------------------------------------------------------------------ listing
 def list_jobs(*, workflow: Optional[str] = None, status: Optional[str] = None,
               dataset_id: Optional[str] = None, submitted_by: Optional[str] = None,
               active_first: bool = False, page: int = 1, page_size: int = 50) -> Dict[str, Any]:
@@ -289,7 +283,6 @@ def summarise_jobs() -> Dict[str, int]:
     return out
 
 
-# --------------------------------------------------------------------- sanitising
 def sanitize_error(raw: Any) -> str:
     """Strips connection strings and tracebacks before text reaches the API."""
     text = str(raw or "")
@@ -322,7 +315,6 @@ def _clean_output(output: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-# ------------------------------------------------------------------------ helpers
 Tuple2 = Tuple[Any, Any]  # small alias kept to appease strict linters
 
 

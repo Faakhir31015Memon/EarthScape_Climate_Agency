@@ -421,7 +421,6 @@ def filter_options(*, regions_filter: Optional[Sequence[str]] = None) -> Dict[st
     }
 
 
-# ------------------------------------------------------- aggregation pipelines
 def _match_stage(criteria: Dict[str, Any]) -> Dict[str, Any]:
     return {"$match": strip_limit(criteria)[0]}
 
@@ -688,7 +687,6 @@ def status_breakdown(repository: repositories.Repository,
     return out
 
 
-# ---------------------------------------------------------------- observation list
 def observation_list(*, start: Optional[str], end: Optional[str],
                      regions_filter: Optional[Sequence[str]],
                      location_codes: Optional[Sequence[str]],
@@ -747,7 +745,6 @@ def _iso(value: Any) -> Any:
     return value
 
 
-# --------------------------------------------------------------------- trends
 AGGREGATED_FREQUENCIES = ("daily", "weekly", "monthly", "annual")
 TREND_GROUP_FIELDS = {"region": "region_code", "location": "location_code", "country": "country"}
 TREND_PERIOD_FIELDS = {"daily": ("d",), "weekly": ("wy", "ww"), "monthly": ("y", "m"),
@@ -812,9 +809,8 @@ def coverage_scopes(criteria: Dict[str, Any], *, group_field: Optional[str] = No
                     ) -> List[Tuple[Optional[str], Dict[str, Any]]]:
     """Coverage measured inside MongoDB, optionally split by one field.
 
-    analytics.coverage_report needs every document in the window; on the Atlas shared
-    tier that read is the slowest thing here, so the same numbers are aggregated on the
-    server and only the summary is transferred.
+    Same numbers as analytics.coverage_report, aggregated server-side: that one
+    reads every document in the window, the slowest call on the shared tier.
     """
     flag_id: Any = ({"scope": f"${group_field}", "flag": "$quality_flags"}
                     if group_field else {"flag": "$quality_flags"})
@@ -917,12 +913,10 @@ def _roll_up_to_iso_weeks(buckets: List[Dict[str, Any]], *,
 def trend_series_from_database(criteria: Dict[str, Any], metric: str, *,
                                frequency: str, group_by: Optional[str],
                                require_baseline: bool = True) -> Dict[str, Any]:
-    """analytics.trend_series computed in MongoDB instead of Python.
+    """Trend series computed in MongoDB instead of Python.
 
-    Raises analytics.InsufficientData with the same message the kernel raises, so the
-    caller's availability contract is unchanged. Returns None when the frequency or
-    grouping is outside what this path models and the caller must fall back to the
-    row-based kernel.
+    Raises analytics.InsufficientData with the kernel's own message, and returns
+    None for frequencies this path does not model so the caller falls back.
     """
     if frequency not in AGGREGATED_FREQUENCIES:
         return None  # type: ignore[return-value]
@@ -949,10 +943,9 @@ def trend_series_from_database(criteria: Dict[str, Any], metric: str, *,
         }},
     ]
     buckets = climate_observations.aggregate(pipeline, allow_disk_use=True)
-    # Buckets are ordered in Python: a $sort over tens of thousands of period keys
-    # exceeds the shared Atlas tier's in-memory sort limit. Weekly trends are ordered
-    # before folding, so the accumulated sums always run in the same sequence and a
-    # period cannot flip its last decimal between requests.
+    # Ordered in Python: a $sort over tens of thousands of period keys exceeds the
+    # shared Atlas tier's in-memory limit. Folding in the same order also keeps the
+    # last decimal from drifting between requests.
     buckets.sort(key=lambda row: _trend_sort_key(
         row, group_field=group_field,
         period_fields=TREND_PERIOD_FIELDS["daily" if frequency == "weekly" else frequency]))
@@ -977,9 +970,8 @@ def trend_series_from_database(criteria: Dict[str, Any], metric: str, *,
         value = total if aggregation == "sum" else (total / populated if populated else None)
         std: Optional[float] = None
         if populated > 1:
-            # Sample deviation from the two moments: the fallback document store has no
-            # $stdDevSamp. Variance is clamped at zero so a floating-point tie cannot
-            # turn into a square root of a negative number.
+            # Deviation from the two moments: mongomock has no $stdDevSamp. Clamping
+            # variance at zero keeps a floating-point tie out of the square root.
             variance = max((float(row.get("value_sumsq") or 0.0)
                             - total * total / populated) / (populated - 1), 0.0)
             std = math.sqrt(variance)
@@ -1082,8 +1074,7 @@ def anomaly_result(*, start: Optional[str], end: Optional[str], metric: str, met
     criteria = build_filters(start=start, end=end, regions_filter=[region_code] if region_code
                              else None, location_codes=[location_code] if location_code else None,
                              metric=metric, limit=row_limit)
-    # Only the multivariate detector needs the other columns; reading all ten for a
-    # single-metric baseline doubles the transfer time for nothing.
+    # Only the multivariate detector needs the other columns.
     projection = metric_projection(analytics.METRICS if method == "isolation_forest" else [metric])
     rows = fetch_rows(criteria, projection=projection, limit=row_limit)
     try:
@@ -1213,8 +1204,7 @@ def persist_anomaly_scan(payload: Dict[str, Any], *, start: Optional[str], end: 
         stored_ids.append(alert_id)
         persisted += 1
         if notify and recipients:
-            # An alert that reaches nobody is a silent dashboard entry. The rule engine
-            # already fans out; this path has to match it.
+            # Fan out the way the rule engine does, or the alert is dashboard-only.
             ids = notify["queue"](
                 recipients,
                 type="alert",
@@ -1247,8 +1237,7 @@ def persist_anomaly_scan(payload: Dict[str, Any], *, start: Optional[str], end: 
 ALERT_SCAN_WORKFLOW = "climate.anomaly_scan"
 ALERT_SCAN_RULE_PREFIX = "climate.anomaly"
 
-#: The detector grades deviations low/medium/high while every other alert, and the
-#: alerts API summary, uses info/warning/critical. Mapped once at write time.
+#: The detector grades low/medium/high; everything else uses info/warning/critical.
 ANOMALY_SEVERITY_MAP = {"low": "info", "medium": "warning", "high": "critical",
                         "critical": "critical", "info": "info", "warning": "warning"}
 
@@ -1256,9 +1245,8 @@ ANOMALY_SEVERITY_MAP = {"low": "info", "medium": "warning", "high": "critical",
 def _anomaly_notifiers():
     """Resolve the alert notification helpers, or None if they cannot load.
 
-    apps.alerts reads climate analytics for its own rule evaluation, so importing it at
-    module scope here would close a cycle. The lookup is deferred, and a failure to load
-    leaves the scan intact.
+    Deferred because apps.alerts imports climate analytics; a module-scope
+    import here would close a cycle.
     """
     try:
         from apps.alerts import notifications, rules
@@ -1383,18 +1371,16 @@ def on_the_fly_anomalies(*, window_start: Optional[str], window_end: Optional[st
     }
 
 
-# -------------------------------------------------------------------- map data
 LATEST_POINT_FIELDS = ("observation_date", "location_name", "region_code", "country",
                        "latitude", "longitude", "source_name", "quality_flags")
 
 
 def latest_points_from_database(criteria: Dict[str, Any], metrics: Sequence[str]
                                 ) -> List[Dict[str, Any]]:
-    """The newest stored observation per monitored point, resolved inside MongoDB.
+    """Newest stored observation per monitored point, resolved inside MongoDB.
 
-    $first reads each field in $sort order, so a station's values come from its own most
-    recent document. $project comes before the sort because sorting whole observation
-    documents crosses the server's in-memory sort limit.
+    $project comes before the sort: sorting whole observation documents crosses
+    the server's in-memory sort limit.
     """
     projection: Dict[str, int] = {"_id": 0, "location_code": 1}
     projection.update({name: 1 for name in LATEST_POINT_FIELDS})
@@ -1555,7 +1541,6 @@ def newest_observation_date() -> Optional[str]:
     return rows[0].get("observation_date") if rows else None
 
 
-# -------------------------------------------------------------------- quality
 def source_freshness(*, criteria: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Newest stored observation date per source plus the resulting lag in days."""
     row_criteria, _ = strip_limit(criteria or {})
@@ -1690,9 +1675,8 @@ def scoped_coverage(*, regions_filter: Optional[Sequence[str]],
                     cap: int = 15) -> List[Dict[str, Any]]:
     """Per-region and per-dataset coverage, aggregated in MongoDB.
 
-    Each dimension keeps the scope the row-based version read: regions ignore the dataset
-    filter, datasets ignore region and country filters. cap bounds how many scopes are
-    reported per dimension, highest observation count first.
+    Each dimension keeps the row version's scope: regions ignore the dataset
+    filter, datasets ignore region and country. cap limits scopes per dimension.
     """
     region_criteria = build_filters(start=start, end=end, regions_filter=regions_filter,
                                     countries=countries, limit=analytics.MAX_QUERY_ROWS)
@@ -1725,7 +1709,6 @@ def scoped_coverage(*, regions_filter: Optional[Sequence[str]],
     return out
 
 
-# ------------------------------------------------------------------- stations
 def stations(*, regions_filter: Optional[Sequence[str]] = None,
              countries: Optional[Sequence[str]] = None) -> Dict[str, Any]:
     """Monitored locations from the regions collection plus live observation counts."""
@@ -1871,7 +1854,6 @@ def region_summary(code: str, *, start: Optional[str] = None,
     }
 
 
-# -------------------------------------------------------------------- metrics
 def metric_catalogue(*, with_counts: bool = True) -> List[Dict[str, Any]]:
     """The measurement contract the frontend filter widgets are built from."""
     parameter_by_field = {
@@ -1905,7 +1887,6 @@ def metric_catalogue(*, with_counts: bool = True) -> List[Dict[str, Any]]:
     return catalogue
 
 
-# ---------------------------------------------------------------- CSV export
 EXPORT_COLUMNS = [
     "dedupe_key", "observation_date", "year", "month", "day", "location_code", "location_name",
     "region_code", "country", "latitude", "longitude",
@@ -2080,7 +2061,6 @@ def _compact(value: Any) -> str:
     return compact(value)
 
 
-# ------------------------------------------------------------------- analytics
 def list_summaries(*, metric: Optional[str] = None, workflow: Optional[str] = None,
                    processing_mode: Optional[str] = None, prefix: Optional[str] = None,
                    limit: int = 100) -> Dict[str, Any]:
@@ -2540,7 +2520,6 @@ def history_payload(*, metric: str, regions_filter: Optional[Sequence[str]],
     )
 
 
-# ------------------------------------------------------------------- dashboard
 def dashboard_summary(user_id: str, *, role: str, name: str = "") -> Dict[str, Any]:
     """Platform state tiles for the overview dashboard."""
     totals = platform_totals(user_id=user_id)

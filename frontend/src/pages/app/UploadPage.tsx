@@ -97,7 +97,7 @@ export default function UploadPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  /* --------------------------------------------------------- live config */
+  // live config
 
   const formatsState = useAsync(() => api.datasets.formats(), [])
   const statusState = useAsync(() => api.system.status(), [], { interval: 300_000 })
@@ -106,7 +106,7 @@ export default function UploadPage() {
   const maxUploadRows = asFiniteNumber(statusState.data?.limits?.max_upload_rows)
   const allowedExtensions = useMemo(() => asStringList(statusState.data?.limits?.allowed_upload_extensions), [statusState.data])
 
-  /* -------------------------------------------------------- upload state */
+  // upload state
 
   const [file, setFile] = useState<File | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -128,14 +128,14 @@ export default function UploadPage() {
   const [defaultLatitude, setDefaultLatitude] = useState('')
   const [defaultLongitude, setDefaultLongitude] = useState('')
 
-  /* --------------------------------------------------- created dataset */
+  // created dataset
 
   const [uploadResult, setUploadResult] = useState<DatasetUploadResponse | null>(null)
   const [datasetId, setDatasetId] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [jobFinished, setJobFinished] = useState(false)
 
-  /* ------------------------------------------------------ mapping state */
+  // mapping state
 
   const mappingState = useAsync(() => api.datasets.mapping(datasetId ?? '-'), [datasetId], {
     enabled: datasetId !== null,
@@ -153,7 +153,7 @@ export default function UploadPage() {
     if (doc) setMappingDraft({ ...doc.current_mapping })
   }, [mappingState.data])
 
-  /* -------------------------------------------------------- job polling */
+  // job polling
 
   const jobState = useAsync(() => api.ingestion.get(jobId ?? '-'), [jobId], {
     enabled: jobId !== null,
@@ -171,7 +171,7 @@ export default function UploadPage() {
 
   const job = jobState.data
 
-  /* ------------------------------------------------------- local checks */
+  // local checks
 
   const extension = file ? extensionOf(file.name) : null
   const extensionProblem =
@@ -215,7 +215,7 @@ export default function UploadPage() {
     ? allowedExtensions.join(',')
     : '.csv,.json,.txt,.xls,.xlsx,.xlsm,.xlsb,.xltx,.xltm,.ods,.parquet'
 
-  /* ------------------------------------------------------------ actions */
+  // actions
 
   const chooseFile = (next: File) => {
     setFile(next)
@@ -340,7 +340,7 @@ export default function UploadPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  /* ------------------------------------------------------------ derived */
+  // derived
 
   const headerOptions: Option[] = useMemo(
     () => (mappingState.data?.headers ?? uploadResult?.headers ?? []).map((header) => ({ value: header, label: header })),
@@ -413,7 +413,7 @@ export default function UploadPage() {
     </div>
   )
 
-  /* -------------------------------------------------------------- render */
+  // render
 
   return (
     <div className="space-y-6">
@@ -833,7 +833,7 @@ export default function UploadPage() {
   )
 }
 
-/* ---------------------------------------------------------------- helpers */
+// helpers
 
 function ApiErrorPanel({ error }: { error: ApiRequestError }) {
   const details = describeDetails(error.details)

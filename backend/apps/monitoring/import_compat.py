@@ -1,7 +1,6 @@
-# DRF resolves DEFAULT_AUTHENTICATION_CLASSES while importing rest_framework.views,
-# and common/api.py imports exception_handler from that same module - whichever side
-# loads first dies on a partially initialized module. common/ and settings.py are
-# frozen, so the cycle is untangled here at import time. Idempotent, thread-safe.
+# DRF resolves DEFAULT_AUTHENTICATION_CLASSES while importing rest_framework.views, and
+# common/api.py imports from that same module, so whichever loads first sees a half-built
+# module. common/ and settings.py are frozen; the cycle is untangled here instead.
 from __future__ import annotations
 
 import logging

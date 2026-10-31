@@ -1,17 +1,9 @@
-"""Time-series feature engineering for climate observations.
+"""Feature engineering for climate time series.
 
-Every feature for a row dated ``d`` is computed **only from values strictly
-before ``d``**, so the same routine serves training rows and recursive
-inference without leakage. Statistical fits (climatology baselines, imputation
-medians) are produced from the training window only and frozen into the
-``preprocess`` dict that travels inside the model artifact.
-
-Hard rules enforced here:
-
-* missing measurements stay ``NaN`` with an explicit indicator column - they
-  are never imputed with zero;
-* the target value at ``d`` is never used to build the feature vector at ``d``;
-* rows are emitted per location in ascending date order (chronological).
+A feature for a row dated d uses only values strictly before d, so training rows and
+recursive inference share the code without leakage. Missing measurements stay NaN with
+an indicator column instead of being filled with zero, and every fit (climatology,
+imputation median) comes from the training window and is frozen into the artifact.
 """
 from __future__ import annotations
 
@@ -79,9 +71,8 @@ def _to_float(raw: Any) -> Optional[float]:
 class LocationHistory:
     """Ascending date axis + aligned value arrays for one location.
 
-    ``features_at`` produces the feature vector for a date using only entries
-    strictly before it; ``append`` extends the axis (used to feed recursive
-    predictions back in as if they were observations).
+    features_at builds the vector for a date from entries strictly before it;
+    append extends the axis so recursive predictions feed back as observations.
     """
 
     def __init__(self, location_code: str, region: str, latitude: float, longitude: float,
@@ -100,7 +91,6 @@ class LocationHistory:
         self.cov: Dict[str, List[Optional[float]]] = {name: [] for name in self.cov_names}
         self._pos_by_ord: Dict[int, int] = {}
 
-    # ------------------------------------------------------------------ ingest
     def append(self, day: date, value: Optional[float], cov_values: Optional[Dict[str, Any]] = None,
                overwrite: bool = False) -> None:
         ord_day = day.toordinal()
@@ -118,7 +108,6 @@ class LocationHistory:
             self.cov[name].append(_to_float((cov_values or {}).get(name)))
         self._pos_by_ord[ord_day] = len(self.ords) - 1
 
-    # ---------------------------------------------------------------- baseline
     def baseline_mean(self, month: int) -> Optional[float]:
         value = self.baselines.get(f"{self.region}|{month}")
         if value is None:
@@ -127,7 +116,6 @@ class LocationHistory:
             value = self.baselines.get(f"GLOBAL|{month}")
         return value
 
-    # --------------------------------------------------------------- features
     def _lag(self, ord_day: int, lag: int) -> Optional[float]:
         pos = self._pos_by_ord.get(ord_day - lag)
         if pos is None:
@@ -213,7 +201,6 @@ class LocationHistory:
         return feats
 
 
-# --------------------------------------------------------------------- loading
 def group_observations(observations: Sequence[Dict[str, Any]], target: str,
                        cov_names: Sequence[str]) -> List[Dict[str, Any]]:
     """Split raw observation documents into per-location ascending streams."""
@@ -300,10 +287,9 @@ def build_features(observations: Sequence[Dict[str, Any]], target: str, *,
                    ) -> Tuple[pd.DataFrame, Dict[str, Any], Dict[str, Any]]:
     """Turn observation documents into a chronological feature frame.
 
-    Returns ``(frame, feature_definition, preprocess)``. ``frame`` columns:
-    ``date, location_code, region_code, y`` plus the feature vector. When
-    ``preprocess`` is supplied its frozen baselines are reused (inference /
-    test-window construction) - nothing is re-fitted on unseen data.
+    Returns ``(frame, feature_definition, preprocess)``. frame carries date,
+    location_code, region_code, y plus the feature vector. A supplied preprocess
+    reuses its frozen baselines - nothing is re-fitted on unseen data.
     """
     if target not in analytics.METRICS:
         raise InsufficientData(f"Target '{target}' is not a canonical metric.")

@@ -39,7 +39,6 @@ def configure_django() -> None:
     django.setup()
 
 
-# --------------------------------------------------------------------- dataset
 def ensure_regions() -> None:
     from common import regions as region_reference
     from common.repositories import regions as regions_repository, utcnow
@@ -105,7 +104,6 @@ def _bbox(locations: List[Dict[str, Any]]) -> List[float]:
     return [min(lons), min(lats), max(lons), max(lats)]
 
 
-# --------------------------------------------------------------------- seeding
 def resolve_locations(codes: Optional[str]) -> List[Dict[str, Any]]:
     from common import regions as region_reference
 

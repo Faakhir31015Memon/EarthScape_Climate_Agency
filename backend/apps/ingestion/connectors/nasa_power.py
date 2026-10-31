@@ -32,21 +32,14 @@ DEFAULT_COMMUNITY = "AG"
 # Parameters used by the platform; T2M..PS are all supported by the daily point API.
 SUPPORTED_PARAMETERS = list(regions.NASA_PARAMETERS)
 
-# NASA POWER's daily point API publishes surface pressure in **kPa** (~100 kPa at sea
-# level), whereas the platform's canonical field is ``surface_pressure_hpa`` and the
-# contract's ``NASA_PARAMETERS`` entry labels the unit "hectopascal".  Override only the
-# *source* unit here so :func:`common.validators.convert_measurement` applies its
-# documented kPa->hPa factor (x10).  This keeps the unmodifiable contract intact while
-# storing physically correct pressure.  Real NASA values are ~100.04 kPa -> 1000.4 hPa.
+# The daily point API returns surface pressure in kPa, while the contract labels the
+# field hectopascal. Overriding only the source unit lets convert_measurement apply its
+# kPa->hPa factor, so the stored value is right without touching the contract.
 SOURCE_UNIT_OVERRIDES: Dict[str, str] = {"PS": "kpa"}
 
-# NASA POWER's daily point API serves ``PRECTOTCORR`` at two accumulations for the same
-# station-day: the documented millimetres per day, and a figure exactly 24x larger.  Which
-# one a response carries is decided by the *request window*, not by the data - measured
-# 2026-10-22 at station SVD for 2026-09-17: ``end=2026-09-30`` returned 33.8 mm/day while
-# ``end=2026-10-02`` and every fresher end returned 811.2 mm (24x) for that same day.  The
-# boundary is the source's quality lag: ends at least this many days in the past are final.
-# Temperature is identical in both bands, so only precipitation needs the correction.
+# PRECTOTCORR comes back either in mm/day or 24x larger, and the choice depends on the
+# request window, not the data: measured 2026-10-22 at SVD for 2026-09-17, end=2026-09-30
+# gave 33.8 mm/day and end=2026-10-02 gave 811.2 mm. The cut-off below is that quality lag.
 PRECIP_SETTLED_LAG_DAYS = 22
 PRECIP_HOURLY_ACCUMULATION_FACTOR = 24.0
 
@@ -73,7 +66,6 @@ class NasaPowerConnector(SourceConnector):
     def timeout(self) -> float:
         return float(env.get_int("NASA_POWER_TIMEOUT_SECONDS", 45))
 
-    # ------------------------------------------------------------------ request
     def build_params(self, request: IngestionRequest, location: Dict[str, Any]) -> Dict[str, str]:
         parameters = [param for param in request.metric_parameters() if param in SUPPORTED_PARAMETERS]
         if not parameters:
@@ -108,7 +100,6 @@ class NasaPowerConnector(SourceConnector):
                 raise Unreachable("NASA POWER returned a non-JSON response.", detail=str(exc)) from exc
             yield {"location": location, "payload": payload, "params": params}
 
-    # ---------------------------------------------------------------- normalize
     def normalize(self, record: Dict[str, Any], request: IngestionRequest) -> List[Dict[str, Any]]:
         location = record["location"]
         payload = record["payload"]
@@ -164,7 +155,6 @@ class NasaPowerConnector(SourceConnector):
                 provider_record_id=f"{location.get('code')}|{day}", quality_flags=quality))
         return observations
 
-    # ------------------------------------------------------------------ preflight
     def preflight(self, request: Optional[IngestionRequest] = None) -> Dict[str, Any]:
         base = {"connector": self.name, "configured": True, "requires_key": False}
         probe = IngestionRequest(
@@ -186,7 +176,6 @@ class NasaPowerConnector(SourceConnector):
             return {**base, "reachable": False, "state": "unreachable", "detail": exc.message}
 
 
-# --------------------------------------------------------------------- helpers
 def _compact(value: Optional[str]) -> Optional[str]:
     if not value:
         return None

@@ -46,7 +46,7 @@ export default function SupportPage() {
   )
 }
 
-/* ------------------------------------------------------------------- tickets */
+// tickets
 
 function TicketsTab() {
   const { can, hasRole, account } = useAuth()
@@ -366,7 +366,7 @@ function Timeline({ ticket }: { ticket: SupportTicket }) {
   )
 }
 
-/* ------------------------------------------------------------------ feedback */
+// feedback
 
 function FeedbackTab() {
   const { can, hasRole } = useAuth()

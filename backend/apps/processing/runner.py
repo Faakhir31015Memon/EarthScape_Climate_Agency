@@ -31,7 +31,6 @@ DEFAULT_MR_TIMEOUT = int(env.get_int("PROCESSING_MAPREDUCE_TIMEOUT_SECONDS", 180
 DEFAULT_STREAMING_TIMEOUT = int(env.get_int("PROCESSING_STREAMING_TIMEOUT_SECONDS", 600))
 
 
-# --------------------------------------------------------------------- subprocesses
 def _run_subprocess(command: List[str], *, cwd: Path, timeout: int, env_extra: Optional[Dict[str, str]] = None
                     ) -> Dict[str, Any]:
     """Run a whitelisted command list. Never shell=True; env extras are
@@ -49,7 +48,6 @@ def _run_subprocess(command: List[str], *, cwd: Path, timeout: int, env_extra: O
             "stderr": result.stderr, "duration_seconds": duration, "command": command}
 
 
-# ------------------------------------------------------------------------ dispatch
 def _claim_or_skip(job_id: str) -> Optional[Dict[str, Any]]:
     claim = jobs.mark_running(job_id)
     if claim is not None:
@@ -74,7 +72,6 @@ def _guard_engine(job_id: str, entry: Dict[str, Any]) -> Tuple[bool, Optional[st
     return False, reason
 
 
-# ------------------------------------------------------------------------ mapreduce
 def _execute_mapreduce(job_id: str, entry: Dict[str, Any], parameters: Dict[str, Any]) -> Dict[str, Any]:
     script = BACKEND_DIR / entry["script"]
     if not script.is_file():
@@ -124,7 +121,6 @@ def _execute_mapreduce(job_id: str, entry: Dict[str, Any], parameters: Dict[str,
             "error_message": error_message, "run_id": summary.get("run_id")}
 
 
-# -------------------------------------------------------------------------- spark
 def _execute_spark(job_id: str, entry: Dict[str, Any], parameters: Dict[str, Any]) -> Dict[str, Any]:
     sys.path.insert(0, str(BACKEND_DIR / "data-pipeline"))
     sys.path.insert(0, str(BACKEND_DIR / "data-pipeline" / "spark"))
@@ -192,7 +188,6 @@ def _execute_spark(job_id: str, entry: Dict[str, Any], parameters: Dict[str, Any
             "run_id": summary.get("run_id")}
 
 
-# ----------------------------------------------------------------------- streaming
 def _execute_streaming(job_id: str, entry: Dict[str, Any], parameters: Dict[str, Any]) -> Dict[str, Any]:
     script = BACKEND_DIR / entry["script"]
     if not script.is_file():
@@ -230,7 +225,6 @@ def _execute_streaming(job_id: str, entry: Dict[str, Any], parameters: Dict[str,
             "log_tail": (payload.get("log_lines") or [])[-20:]}
 
 
-# -------------------------------------------------------- mongodb analytics rebuild
 def _execute_mongodb_rebuild(job_id: str, entry: Dict[str, Any], parameters: Dict[str, Any]) -> Dict[str, Any]:
     from common import analytics as _analytics
     from common.database import get_database
@@ -290,7 +284,6 @@ def _execute_mongodb_rebuild(job_id: str, entry: Dict[str, Any], parameters: Dic
                         "summary_keys": [str(k)[:400] for k in stored_keys][:200]}}
 
 
-# ------------------------------------------------------------------------ executor
 def run_workflow(job_id: str, workflow_id: str) -> Dict[str, Any]:
     """Common execution pipeline used by every registered task name."""
     entry = workflows.get_workflow(workflow_id)
@@ -367,7 +360,6 @@ def run_workflow(job_id: str, workflow_id: str) -> Dict[str, Any]:
     return {"status": "failed", "job_id": job_id}
 
 
-# --------------------------------------------------------- registry entry per task
 def _register(name: str, workflow_id: str):
     def body(*, job_id: str, **_: Any) -> Dict[str, Any]:  # matches tasks.submit kwargs contract
         return run_workflow(job_id, workflow_id)

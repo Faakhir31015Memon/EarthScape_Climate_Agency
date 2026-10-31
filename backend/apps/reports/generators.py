@@ -102,7 +102,6 @@ class ReportDataError(ValueError):
     """Raised when a requested report cannot be computed from stored data."""
 
 
-# --------------------------------------------------------------------- filters
 def normalise_filters(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     filters = dict(raw or {})
     metric = str(filters.get("metric") or "temperature_c").strip()
@@ -235,7 +234,6 @@ def _source_label(collections: List[str]) -> str:
     return f"MongoDB ({database.mode}) - {joined}"
 
 
-# ------------------------------------------------------------------- generators
 def generate_climate_trend(filters: Dict[str, Any]) -> Dict[str, Any]:
     metric = filters["metric"]
     observations = _observations(filters, metric)
@@ -699,7 +697,6 @@ def catalogue() -> List[Dict[str, Any]]:
     return entries
 
 
-# --------------------------------------------------------------------- writers
 def write_csv(artifact: Dict[str, Any], path: str) -> Dict[str, Any]:
     from pathlib import Path
 

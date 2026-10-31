@@ -77,16 +77,12 @@ def generate_password(length: int = 20) -> str:
             return candidate
 
 
-# ------------------------------------------------------------------- schema/regions
 def apply_schema_step() -> Dict[str, Any]:
     """Best-effort schema application.
 
-    Delegates to the unmodifiable contract :func:`common.schema.apply_schema`. If that
-    core routine raises (it currently crashes on a local-development ``mongomock`` store
-    because ``index_information()`` returns a name->info dict that the core iterates as
-    keys), we record the failure honestly and continue seeding regions and accounts --
-    index creation is not required for those steps. The real document contract is still
-    enforced by the repository layer.
+    Delegates to schema.apply_schema; if that raises, the failure is recorded and
+    seeding continues. Index creation is not needed for regions or accounts, and
+    the repository layer still enforces the document contract.
     """
     from common import schema
 
@@ -120,7 +116,6 @@ def seed_regions() -> Dict[str, int]:
     return {"created": created, "updated": updated, "total": regions_repository.count()}
 
 
-# ------------------------------------------------------------------------ accounts
 def provision_accounts(*, credentials_path: Optional[Path]) -> List[Dict[str, Any]]:
     from config import env
     from common.repositories import users, utcnow
@@ -203,7 +198,6 @@ def _write_credentials(path: Path, accounts: List[Dict[str, Any]]) -> None:
         pass
 
 
-# ---------------------------------------------------------------------------- main
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Bootstrap the EarthScape platform.")
     parser.add_argument("--skip-credentials-file", action="store_true",

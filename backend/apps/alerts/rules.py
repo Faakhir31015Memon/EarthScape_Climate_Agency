@@ -113,8 +113,6 @@ def templates() -> List[Dict[str, Any]]:
     return output
 
 
-# --------------------------------------------------------------------- rule CRUD
-# --------------------------------------------------------------------- rule CRUD
 def rule_key_for(name: str, existing: Iterable[str]) -> str:
     base = re.sub(r"[^a-z0-9]+", "-", (name or "rule").strip().lower()).strip("-")[:48] or "rule"
     taken = set(existing)
@@ -360,7 +358,6 @@ def _object_id(value: str):
     return to_object_id(value)
 
 
-# ------------------------------------------------------------------- resolution
 def resolve_recipients(rule: Dict[str, Any]) -> List[str]:
     selectors = rule.get("recipients") or []
     if not selectors:
@@ -385,7 +382,6 @@ def _maybe_id(value: str):
     return maybe_object_id(value)
 
 
-# --------------------------------------------------------------------- scanning
 def scan_window(rule: Dict[str, Any]) -> Tuple[str, str]:
     """Bounded observation window for one evaluation (ISO date strings)."""
     end = utcnow().date()
@@ -712,7 +708,6 @@ def _iso_day(value: Any) -> Optional[str]:
     return None
 
 
-# ---------------------------------------------------------------- persistence
 def alert_exists(rule_key: str, observation_date: Optional[str]) -> bool:
     """Dedupe contract: one alert per rule per observation date."""
     if not rule_key:
@@ -902,7 +897,6 @@ def dry_run_rule(rule_id: str) -> Dict[str, Any]:
     return result
 
 
-# ------------------------------------------------------------- alert operations
 def list_alerts(*, status_filter: Optional[str], severity: Optional[str],
                 region: Optional[str], rule_key: Optional[str],
                 start_date: Optional[str], end_date: Optional[str],

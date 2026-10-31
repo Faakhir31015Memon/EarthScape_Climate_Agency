@@ -22,7 +22,6 @@ import_compat.ensure_common_api_importable()
 from common import analytics  # noqa: E402
 
 
-# ------------------------------------------------------------------- parameter spec
 # Every spec entry follows the ``ProcessingWorkflow.parameter_spec`` contract in
 # frontend/src/types/api.ts: {type, required, default?, min?, max?, choices?,
 # label?, help?}. Views validate free-form client parameters against this spec
@@ -51,7 +50,6 @@ def _limit_param(default: int = 200000, maximum: int = 500000) -> Dict[str, Any]
     }
 
 
-# ---------------------------------------------------------------------- registry
 # engine values follow ProcessingWorkflow['engine'] in api.ts:
 #   'mapreduce' | 'pyspark' | 'streaming' | 'mongodb'
 WORKFLOWS: Dict[str, Dict[str, Any]] = {
@@ -267,7 +265,6 @@ WORKFLOWS: Dict[str, Dict[str, Any]] = {
 }
 
 
-# ----------------------------------------------------------------------- accessors
 def workflow_ids() -> List[str]:
     return sorted(WORKFLOWS)
 

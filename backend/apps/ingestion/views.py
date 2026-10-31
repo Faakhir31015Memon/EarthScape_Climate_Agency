@@ -215,7 +215,6 @@ class CoverageView(AuthenticatedView):
                          "note": "Coverage is computed from stored observations, datasets and ingestion jobs."})
 
 
-# --------------------------------------------------------------------- helpers
 def _test_parameters(connector) -> List[str]:
     if connector.name == "nasa_power":
         return ["T2M", "PRECTOTCORR", "RH2M"]

@@ -68,7 +68,6 @@ def max_active_per_user() -> int:
     return max(1, min(parsed, 200))
 
 
-# --------------------------------------------------------------------- creation
 def create_report(request, *, report_type: str, fmt: str = "pdf",
                   filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     user = _account(request)
@@ -170,7 +169,6 @@ def _safe_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
     return summary
 
 
-# ------------------------------------------------------------------ background
 @tasks.register(TASK_NAME)
 def generate_report(*, job_id: str, report_type: str, format: str = "pdf",  # noqa: A002
                     filters: Optional[Dict[str, Any]] = None,
@@ -283,7 +281,6 @@ def download_name(report_type: str, fmt: str, artifact: Dict[str, Any], job_id: 
     return f"earthscape-{report_type}-{stamp}-{job_id[:8]}.{EXTENSIONS[fmt]}"
 
 
-# -------------------------------------------------------------------- reading
 def visible_query(request) -> Dict[str, Any]:
     user = _account(request)
     if user.role == ADMINISTRATOR:
@@ -490,7 +487,6 @@ def catalogue(request) -> List[Dict[str, Any]]:
             if not entry.get("administrator_only")]
 
 
-# ---------------------------------------------------------------------- upkeep
 def prune_expired() -> Dict[str, Any]:
     """Remove expired artefacts and mark the documents expired.
 
@@ -545,7 +541,6 @@ def storage_report() -> Dict[str, Any]:
             "artefact_bytes": total_bytes, "retention_days": retention_days()}
 
 
-# ----------------------------------------------------------------- small helpers
 def _account(request):
     user = getattr(request, "user", None)
     if user is None or not getattr(user, "is_authenticated", False):

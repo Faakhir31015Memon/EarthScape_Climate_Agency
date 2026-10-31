@@ -16,7 +16,7 @@ import type {
 } from '../../../../types/api'
 import { formatNumber, humanise } from '../../../../lib/format'
 
-/* ------------------------------------------------------------------ generic */
+// generic
 
 export function asList<T>(value: unknown, key: string): T[] {
   if (Array.isArray(value)) return value as T[]
@@ -61,7 +61,7 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${Math.floor(total / 3600)}h ${Math.floor((total % 3600) / 60)}m`
 }
 
-/* --------------------------------------------------------------- freshness */
+// freshness
 
 export function freshnessTone(status?: string | null): 'success' | 'warning' | 'danger' | 'neutral' {
   switch ((status ?? '').toLowerCase()) {
@@ -79,7 +79,6 @@ export function freshnessTone(status?: string | null): 'success' | 'warning' | '
   }
 }
 
-/** Client-side classification of a last-observation date. */
 export function dateFreshness(iso: string | null | undefined): 'fresh' | 'lagging' | 'stale' | 'unknown' {
   if (!iso) return 'unknown'
   const parsed = new Date(iso)
@@ -90,7 +89,7 @@ export function dateFreshness(iso: string | null | undefined): 'fresh' | 'laggin
   return 'stale'
 }
 
-/* ------------------------------------------------------------------- trend */
+// trend
 
 export interface ReadyTrend {
   kind: 'ready'
@@ -155,7 +154,7 @@ export function trendOutcome(
   }
 }
 
-/* ------------------------------------------------------ dashboard sections */
+// dashboard sections
 
 export interface ForecastItemView {
   id: string
@@ -247,7 +246,7 @@ export function coverageFrom(value: unknown): CoverageReport | null {
   return null
 }
 
-/* ----------------------------------------------------------- quick actions */
+// quick actions
 
 export interface QuickActionView {
   id: string
@@ -350,7 +349,7 @@ export function normaliseQuickActions(actions: unknown): QuickActionView[] {
   })
 }
 
-/* ------------------------------------------------------------------- stats */
+// stats
 
 export interface CountedStat {
   label: string

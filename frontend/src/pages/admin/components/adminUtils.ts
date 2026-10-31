@@ -12,7 +12,6 @@ import type { Account, Role } from '../../../types/api'
 
 export const PAGE_SIZE = 25
 
-/** Envelope keys the backend uses to wrap a single resource. */
 const WRAPPER_KEYS = [
   'account',
   'dataset',
@@ -61,11 +60,9 @@ export interface AdminError {
   status: number
   requestId?: string
   details?: unknown
-  /** DRF validation details keyed by field name, flattened to text. */
   fields: Record<string, string>
   /** A 404 from a route the platform does not serve (module still being built). */
   missingRoute: boolean
-  /** Configuration/service-unavailable class errors. */
   configuration: boolean
 }
 
@@ -207,7 +204,6 @@ export function initial(name?: string | null): string {
     .join('')
 }
 
-/** Local search for the paginated user list the admin pickers rely on. */
 export function matchesUser(account: Account, term: string): boolean {
   const needle = term.trim().toLowerCase()
   if (!needle) return true

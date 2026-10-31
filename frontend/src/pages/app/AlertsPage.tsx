@@ -61,7 +61,7 @@ export default function AlertsPage() {
   )
 }
 
-/* ------------------------------------------------------------------- alerts */
+// alerts
 
 function AlertsTab() {
   const { can, hasRole } = useAuth()
@@ -393,7 +393,7 @@ function compact(input: Record<string, string | undefined | null>): Record<strin
   return output
 }
 
-/* ----------------------------------------------------------- notifications */
+// notifications
 
 function NotificationsTab() {
   const [channel, setChannel] = useState('')

@@ -1,29 +1,10 @@
-"""Data lake gateway: one logical layout, two physical backends.
+"""Data lake gateway: one layout, two backends.
 
-EarthScape stores batch artefacts (raw uploads, validated observations, processed
-Parquet, analytics aggregates, ML features, exports) in a layered data lake
-partitioned as ``<layer>/dataset=<id>/year=<YYYY>/month=<MM>/region=<code>/``.
-
-Two backends expose that layout:
-
-``hdfs``
-    A genuine WebHDFS client (the ``hdfs`` package) used whenever ``HDFS_ENDPOINT``
-    is configured *and* the NameNode answers. Nothing here ever pretends HDFS ran:
-    every operation reports the mode it actually used.
-
-``local-data-lake``
-    Used when no reachable NameNode is configured. Files live under
-    ``DATA_LAKE_LOCAL_ROOT`` with the *same* directory layout and the *same*
-    Parquet/JSON file formats, so every downstream path (MapReduce, Spark, exports)
-    is backend-agnostic.
-
-Design rules:
-
-* no HDFS/local failure ever raises into a user response - callers receive
-  structured ``{"ok": False, "error": ...}`` results instead;
-* URIs written to MongoDB come from :meth:`DataLake.storage_reference`, so a
-  document always records where the bytes really live;
-* connection strings / credentials are never logged.
+Batch artefacts live under <layer>/dataset=<id>/year=<YYYY>/month=<MM>/region=<code>/,
+either on WebHDFS when HDFS_ENDPOINT answers or under DATA_LAKE_LOCAL_ROOT when it does
+not, with the same Parquet/JSON formats either way. Storage problems come back as
+{"ok": False, ...} instead of raising into a user response, and the URIs written to
+MongoDB always come from storage_reference() so they point at the bytes on disk.
 """
 from __future__ import annotations
 
@@ -129,7 +110,6 @@ class DataLake:
         else:  # auto: use HDFS only when it actually answers a probe.
             self._mode = None
 
-    # ------------------------------------------------------------------- mode
     @property
     def mode(self) -> str:
         if self._mode is None:
@@ -172,7 +152,6 @@ class DataLake:
                     return None
             return self._client
 
-    # ------------------------------------------------------------------ paths
     def logical_path(self, logical_key: str, *, layer: Optional[str] = None,
                      partition: Optional[Dict[str, Any]] = None) -> str:
         """Normalise a logical key to ``<layer>/<partition dirs>/<file>`` under the root."""
@@ -184,11 +163,10 @@ class DataLake:
 
     def storage_reference(self, logical_key: str, *, layer: Optional[str] = None,
                           partition: Optional[Dict[str, Any]] = None) -> str:
-        """The URI that gets recorded - reflects the configured backend, portably.
+        """The URI that gets recorded - portable, so it resolves on another machine.
 
-        ``lake://<layer>/<key>`` resolves against this deployment's lake root, so
-        the same recorded reference works on a second machine or in a container;
-        a ``file:///C:\\Users\\…`` URI would not.
+        ``lake://<layer>/<key>`` points at this deployment's lake root, where an
+        absolute Windows file URI would not survive a move.
         """
         key = self.logical_path(logical_key, layer=layer, partition=partition)
         if self.mode == "hdfs":
@@ -199,10 +177,8 @@ class DataLake:
     def portable_reference(self, path: Any) -> str:
         """Render a file this process read as provenance that survives a move.
 
-        A job summary that records ``C:\\Users\\…\\.data-lake\\validated\\…`` as its
-        input is meaningless on the next machine, so a lake file becomes
-        ``lake://<key>`` and a repository file becomes its repo-relative key.
-        Anything outside both is reduced to its file name.
+        A lake file becomes ``lake://<key>`` and a repository file its repo-relative
+        key; anything outside both is reduced to its file name.
         """
         text = str(path)
         if "://" in text:
@@ -228,7 +204,6 @@ class DataLake:
         return f"/{self.hdfs_root}/{key}" if not key.startswith(f"/{self.hdfs_root}") \
             else "/" + key
 
-    # ---------------------------------------------------------------- layout
     def ensure_layout(self) -> Dict[str, Any]:
         if self.mode == "hdfs":
             client = self._get_client()
@@ -247,7 +222,6 @@ class DataLake:
         return {"ok": True, "mode": self.mode_label, "layers": list(LAYERS),
                 "root": str(self.local_root), "errors": []}
 
-    # ---------------------------------------------------------------- writes
     def upload(self, local_path: str, logical_key: str, *, layer: str,
                partition: Optional[Dict[str, Any]] = None,
                overwrite: bool = True) -> LakeResult:
@@ -305,7 +279,6 @@ class DataLake:
         except OSError as exc:
             return LakeResult(ok=False, mode=self.mode_label, path=key, error=str(exc)[:300])
 
-    # ----------------------------------------------------------------- reads
     def download(self, logical_key: str, local_path: str, *, layer: Optional[str] = None) -> LakeResult:
         key = self.logical_path(logical_key, layer=layer)
         target = Path(local_path)
@@ -409,7 +382,6 @@ class DataLake:
         except OSError as exc:
             return {"ok": False, "mode": self.mode_label, "error": str(exc)[:200]}
 
-    # --------------------------------------------------------------- datasets
     def read_dataset(self, layer: str, partitions: Optional[Dict[str, Any]] = None,
                      format: str = "parquet"):
         """Load a lake layer/partition set into pandas.
@@ -484,7 +456,6 @@ class DataLake:
         scratch.mkdir(parents=True, exist_ok=True)
         return scratch
 
-    # -------------------------------------------------------------- manifests
     def write_manifest(self, dataset_id: str, layer: str, files: Iterable[str],
                        *, schema_version: int, row_counts: Optional[Dict[str, int]] = None,
                        checksums: Optional[Dict[str, str]] = None,
@@ -510,7 +481,6 @@ class DataLake:
             manifest["error"] = result.error
         return manifest
 
-    # ----------------------------------------------------------------- health
     def health(self) -> Dict[str, Any]:
         mode = self.mode
         info: Dict[str, Any] = {"reachable": False, "mode": self.mode_label,

@@ -12,7 +12,6 @@ export interface OverlayProps {
   role?: "dialog" | "alertdialog";
   /** Panel element rendered by the consumer (positioned by the dialog/drawer). */
   children: React.ReactNode;
-  /** Class for the backdrop. */
   backdropClassName?: string;
   panelClassName?: string;
 }

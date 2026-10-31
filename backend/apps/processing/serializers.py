@@ -141,9 +141,8 @@ def _coerce(key: str, raw: Any, definition: Dict[str, Any]) -> Any:
 def _present_log_lines(raw_lines: Any) -> list:
     """Normalise the stored ``log_lines`` array into the API shape.
 
-    Historical documents predate the structured logger and may hold a bare
-    string per line, so both dict and str entries are accepted (a str is
-    surfaced as an unlabelled ``info`` message). Anything else is dropped.
+    Documents predating the structured logger may hold a bare string per line, so
+    str entries surface as an unlabelled info message and anything else is dropped.
     """
     if not isinstance(raw_lines, list):
         return []

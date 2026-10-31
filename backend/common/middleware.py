@@ -141,12 +141,12 @@ _rate_limiter = SlidingWindowRateLimiter()
 POLICIES: Dict[str, Tuple[int, int]] = {
     "/api/v1/auth/login": (env.get_int("RATE_LIMIT_LOGIN", 10), 60),
     "/api/v1/auth/register": (env.get_int("RATE_LIMIT_REGISTER", 5), 300),
-    "/api/v1/auth/password-reset": (env.get_int("RATE_LIMIT_PASSWORD_RESET", 5), 900),
+    "/api/v1/auth/password-reset/confirm": (env.get_int("RATE_LIMIT_PASSWORD_RESET_CONFIRM", 30), 180),
+    "/api/v1/auth/password-reset": (env.get_int("RATE_LIMIT_PASSWORD_RESET", 30), 180),
     "/api/v1/datasets/upload": (env.get_int("RATE_LIMIT_UPLOAD", 20), 300),
     "/api/v1/feedback": (env.get_int("RATE_LIMIT_FEEDBACK", 10), 300),
     "/api/v1/support/tickets": (env.get_int("RATE_LIMIT_TICKETS", 10), 300),
-    # Aggregate reads cost a collection scan, so a client that loops them is stopped
-    # by count as well as by the coalescing and slot limits below.
+    # Aggregate reads cost a collection scan, so looping clients are stopped by count.
     "/api/v1/climate/": (env.get_int("RATE_LIMIT_ANALYTICS", 60), 60),
     "/api/v1/dashboard/": (env.get_int("RATE_LIMIT_ANALYTICS", 60), 60),
 }
@@ -201,9 +201,7 @@ def _client_ip(request) -> str:
     return request.META.get("REMOTE_ADDR", "unknown")
 
 
-# ------------------------------------------------------------------ request coalescing
-#: Reads that scan or aggregate the collection. A duplicate of one of these is served
-#: from the request that is already running instead of reading MongoDB a second time.
+#: Scan/aggregate reads; a duplicate is served from the request already running.
 HEAVY_READS = tuple(env.get_raw(
     "ANALYTICS_HEAVY_PATHS",
     "/api/v1/climate/anomalies,/api/v1/climate/correlations,/api/v1/climate/history,"
@@ -216,16 +214,14 @@ COALESCE_PREFIXES = tuple(env.get_raw(
     "REQUEST_COALESCE_PREFIXES", "/api/v1/climate/,/api/v1/dashboard/"
 ).split(","))
 
-#: How long an identical duplicate is answered from the read that already happened.
-#: Shorter than the 5 s job-monitor poll, so live status never comes from the cache.
+#: Duplicate-answer window. Kept under the 5 s job-monitor poll so live status is never cached.
 COALESCE_WINDOW = env.get_int("REQUEST_COALESCE_WINDOW_SECONDS", 3)
 #: Longest a duplicate will wait for the leader it joined before running on its own.
 COALESCE_MAX_WAIT = env.get_int("REQUEST_COALESCE_MAX_WAIT_SECONDS", 90)
 COALESCE_MAX_ENTRIES = env.get_int("REQUEST_COALESCE_MAX_ENTRIES", 64)
 COALESCE_MAX_BYTES = env.get_int("REQUEST_COALESCE_MAX_BYTES", 8_000_000)
 
-#: Concurrent heavy reads per process. Beyond this a caller is asked to wait rather
-#: than being allowed to queue an unbounded number of aggregation pipelines on Atlas.
+#: Heavy reads in flight per process; more than this and the caller is asked to wait.
 HEAVY_MAX_CONCURRENT = env.get_int("ANALYTICS_MAX_CONCURRENT", 4)
 HEAVY_SLOT_WAIT = env.get_int("ANALYTICS_SLOT_WAIT_SECONDS", 3)
 HEAVY_RETRY_AFTER = env.get_int("ANALYTICS_RETRY_AFTER_SECONDS", 5)
@@ -311,18 +307,11 @@ def _forget_after_write() -> None:
 
 
 class RequestCoalescingMiddleware:
-    """Answer one request per identical read, and cap how many heavy reads run at once.
+    """Answer one request per identical read, and cap heavy reads in flight.
 
-    A client that fires the same aggregate twice - a double-mounted component, an
-    impatient refresh click, a scripted loop - costs the platform one MongoDB read.
-    The first request runs and the others join it, then replay its JSON answer with
-    ``X-Request-Coalesced``; a duplicate that arrives inside the short replay window
-    is answered from memory without touching the database at all. The replayed
-    bytes are the same ones the aggregation produced.
-
-    Sustained pressure on a *different* heavy endpoint is met by the slot limit,
-    which returns ``429 server_busy`` with a ``Retry-After`` instead of queueing
-    unbounded pipelines against Atlas.
+    Identical aggregate reads join the first one and replay its JSON with
+    ``X-Request-Coalesced``; distinct heavy endpoints hit the slot limit and get
+    429 server_busy with Retry-After instead of queueing on Atlas.
     """
 
     def __init__(self, get_response):
@@ -339,7 +328,6 @@ class RequestCoalescingMiddleware:
             return self._window_only(request, path)
         return self._single_flight(request, path)
 
-    # ------------------------------------------------------ duplicate replay window
     def _window_only(self, request, path: str):
         """Cheap reads are still answered from the window, without occupying a slot."""
         key = _coalesce_key(request)
@@ -355,7 +343,6 @@ class RequestCoalescingMiddleware:
             _remember(record)
         return response
 
-    # ----------------------------------------------------------------- heavy reads
     def _single_flight(self, request, path: str):
         key = _coalesce_key(request)
         with _FLIGHT_LOCK:

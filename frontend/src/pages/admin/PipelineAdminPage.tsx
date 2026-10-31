@@ -667,7 +667,7 @@ export default function PipelineAdminPage() {
   )
 }
 
-/* ---------------------------------------------------------- workflow launcher */
+// workflow launcher
 
 interface ParameterField {
   name: string
@@ -859,7 +859,7 @@ function WorkflowLauncher({
   )
 }
 
-/* ------------------------------------------------------------ executor panel */
+// executor panel
 
 function ExecutorPanel({
   health,
@@ -945,7 +945,7 @@ function ExecutorPanel({
   )
 }
 
-/* -------------------------------------------------------------- engine panel */
+// engine panel
 
 interface EngineRow {
   component: string
@@ -1001,7 +1001,7 @@ function EnginePanel({ engines, loading, error, onRetry }: { engines: EngineHeal
   )
 }
 
-/* --------------------------------------------------------------- job detail */
+// job detail
 
 function JobDetailModal({ job, onClose, canRunIngestion, busy, onRetry }: { job: UnifiedJob; onClose: () => void; canRunIngestion: boolean; busy: boolean; onRetry: () => Promise<void> }) {
   const logs = useAsync(

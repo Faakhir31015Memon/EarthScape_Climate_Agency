@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 MAX_LOG_LINES = 200
 MAX_VALIDATION_ERRORS = 200
 
-# --------------------------------------------------------------------- job model
 JOB_TYPES = ("api_sync", "file_import", "live_provider")
 TERMINAL_STATUSES = ("completed", "completed_with_errors", "failed", "cancelled")
 
@@ -79,7 +78,6 @@ def create_job(**kwargs) -> str:
     return job_id
 
 
-# ------------------------------------------------------------- job doc helpers
 def append_log(job_id: str, level: str, message: str) -> None:
     entry = {"at": utcnow(), "level": level, "message": _clean(message)[:300]}
     ingestion_jobs.update_one({"_id": maybe_object_id(job_id)},
@@ -116,7 +114,6 @@ def is_cancel_requested(job_id: str) -> bool:
     return bool(document.get("cancel_requested")) or document.get("status") == "cancelled"
 
 
-# ------------------------------------------------------------------- api sync
 @tasks.register("ingestion.run_api_sync")
 def run_api_sync(job_id: str, **_) -> Dict[str, Any]:
     job = ingestion_jobs.find_one({"_id": maybe_object_id(job_id)})
@@ -186,7 +183,6 @@ def run_api_sync(job_id: str, **_) -> Dict[str, Any]:
     return _finalise(job_id, dataset, result, run_id=run_id, connector_name=connector.name)
 
 
-# ----------------------------------------------------------------- file import
 @tasks.register("ingestion.run_file_import")
 def run_file_import(job_id: str, **_) -> Dict[str, Any]:
     job = ingestion_jobs.find_one({"_id": maybe_object_id(job_id)})
@@ -237,7 +233,6 @@ def run_file_import(job_id: str, **_) -> Dict[str, Any]:
     return _finalise(job_id, dataset, result, run_id=run_id, connector_name="file_import")
 
 
-# ------------------------------------------------------------------- finalise
 def _finalise(job_id: str, dataset: Dict[str, Any], result: importer.ImportResult, *,
               run_id: str, connector_name: str) -> Dict[str, Any]:
     counts = result.summary_counts()
@@ -274,7 +269,6 @@ def get_database_flush() -> None:
         logger.error("flush after job failed: %s", exc)
 
 
-# --------------------------------------------------------------------- dataset
 def _resolve_dataset(job: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     dataset_id = job.get("dataset_id")
     if dataset_id:
@@ -309,7 +303,6 @@ def get_or_create_source_dataset(*, source_name: str, source_type: str,
     return document
 
 
-# -------------------------------------------------------------------- locations
 def _resolve_locations(parameters: Dict[str, Any]) -> List[Dict[str, Any]]:
     locations: List[Dict[str, Any]] = []
     codes = parameters.get("location_codes") or []
@@ -339,7 +332,6 @@ def _reference_location(reference: Dict[str, Any]) -> Dict[str, Any]:
             "latitude": reference["latitude"], "longitude": reference["longitude"]}
 
 
-# ---------------------------------------------------------------------- mapping
 def _ensure_mapping(dataset: Dict[str, Any], path: str) -> Dict[str, str]:
     metadata = dataset.get("source_metadata", {}) if isinstance(dataset.get("source_metadata"), dict) else {}
     mapping = metadata.get("column_mapping") or {}
@@ -355,7 +347,6 @@ def _ensure_mapping(dataset: Dict[str, Any], path: str) -> Dict[str, str]:
     return mapping
 
 
-# ------------------------------------------------------------------ submit helpers
 def submit_api_sync(job_id: str) -> str:
     executor = tasks.submit("ingestion.run_api_sync", job_id=str(job_id),
                             job_type="ingestion", payload={})
@@ -370,7 +361,6 @@ def submit_file_import(job_id: str) -> str:
     return executor
 
 
-# ------------------------------------------------------------------ retry/cancel
 def retry_job(job_id: str, *, requested_by: Optional[str] = None) -> Dict[str, Any]:
     job = ingestion_jobs.find_one({"_id": maybe_object_id(job_id)})
     if job is None:
@@ -411,7 +401,6 @@ def cancel_job(job_id: str, *, requested_by: Optional[str] = None) -> Dict[str, 
     return {"ok": True, "status": "cancel_requested"}
 
 
-# --------------------------------------------------------------------- schedule
 def scheduled_sources() -> List[Dict[str, Any]]:
     """Sources the scheduler polls: NASA POWER + the configured live provider, when enabled."""
     lookback_days = env.get_int("INGESTION_SCHEDULE_LOOKBACK_DAYS", 7)

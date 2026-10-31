@@ -311,7 +311,7 @@ export default function DatasetDetailPage() {
   )
 }
 
-/* -------------------------------------------------- validation report reading */
+// validation report reading
 
 /**
  * `dataset.validation_report` is a free-form `Record<string, unknown>`: the backend
@@ -539,7 +539,7 @@ function PreviewTable({ title, rows, empty }: { title: string; rows: Record<stri
   )
 }
 
-/* --------------------------------------------------------------- sync button */
+// sync button
 
 /**
  * `POST /ingestion/jobs` takes a connector name, not a dataset source type, and
@@ -597,7 +597,7 @@ function SyncButton({
   )
 }
 
-/* ------------------------------------------------------------- table columns */
+// table columns
 
 function jobProgress(job: IngestionJob): number | null {
   if (job.status === 'completed') return 100

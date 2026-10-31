@@ -1,32 +1,9 @@
-"""Turn a file (or normalised row stream) into ``climate_observations`` documents.
+"""Turn a file or a normalised row stream into climate_observations documents.
 
-This module is the single conversion path shared by the synchronous ``/validate``
-endpoint, the upload-wizard ``/preview`` endpoint and the background file-import task,
-so the counts a user sees before importing are exactly the counts produced by the
-import.
-
-Conversion rules (see ``backend/common/validators.py`` - never re-implemented here):
-
-* a value the source did not supply stays ``None`` (never coerced to 0);
-* source ``MISSING_SENTINELS`` (e.g. ``-999``) are treated as "not supplied";
-* every measurement is unit-converted to the canonical unit and range-checked;
-* a row is only *rejected* when it cannot form a valid observation - i.e. it has no
-  parsable observation timestamp or no valid latitude/longitude.  Every other problem
-  becomes a recorded issue and the row is still stored (flagged);
-* ``dedupe_key = dataset_id|location_code|observation_date`` deduplicates within the
-  batch and is written with ``ReplaceOne(..., upsert=True)`` so re-runs are idempotent.
-
-Counting model (documented so the numbers reconcile):
-
-``fetched``            = data records read from the file (blank lines excluded).
-``rejected``           = records that could not be converted into an observation.
-``accepted``           = unique, valid observation documents produced and written.
-``skipped``            = in-batch duplicate records dropped (only the first copy is kept).
-``duplicate_count``    = ``skipped`` (in-batch) + ``updated`` (records that already
-                         existed in the database before this run and were re-upserted).
-``new`` / ``updated``  = split of ``accepted`` into freshly inserted vs overwritten.
-
-Reconciliation: ``fetched == rejected + accepted + skipped``.
+One conversion path serves /validate, /preview and the background import, so the counts
+shown before an import are the counts the import produces. A reading the source did not
+supply stays None, unit conversion and range checks live in common/validators.py, and
+rows are upserted on dataset + location + day so a re-run changes nothing.
 """
 from __future__ import annotations
 
@@ -94,7 +71,6 @@ class ImportResult:
         }
 
 
-# --------------------------------------------------------------------- row -> obs
 def _as_float(value: Any) -> Optional[float]:
     try:
         result = float(value)
@@ -167,7 +143,6 @@ def row_to_observation(row: Dict[str, Any], *, dataset: Dict[str, Any], mapping:
     issues: List[validators.Issue] = []
     dataset_id = str(dataset["_id"])
 
-    # -------------------------------------------------------------- timestamp
     raw_date = _get(row, mapping.get("observation_date"))
     if raw_date is None and mapping.get("observation_date") is None:
         return None, [validators.Issue("observation_date_unmapped", "error", "observation_date",
@@ -179,7 +154,6 @@ def row_to_observation(row: Dict[str, Any], *, dataset: Dict[str, Any], mapping:
     if moment is None:
         return None, issues, True
 
-    # -------------------------------------------------------------- location
     location = resolve_location(row, mapping, dataset)
     latitude, lat_issues = validators.parse_coordinate(location["latitude"], kind="latitude")
     longitude, lon_issues = validators.parse_coordinate(location["longitude"], kind="longitude")
@@ -189,7 +163,6 @@ def row_to_observation(row: Dict[str, Any], *, dataset: Dict[str, Any], mapping:
     if latitude is None or longitude is None:
         return None, issues, True
 
-    # -------------------------------------------------------------- units
     dataset_units = dataset.get("units", {}) if isinstance(dataset.get("units"), dict) else {}
     row_units = source_row_units or {}
 
@@ -254,7 +227,6 @@ def row_to_observation(row: Dict[str, Any], *, dataset: Dict[str, Any], mapping:
     return observation, issues, False
 
 
-# --------------------------------------------------------------------- analysis
 def analyse_rows(records: Iterable[Tuple[int, Dict[str, Any]]], *, dataset: Dict[str, Any],
                  mapping: Dict[str, str], run_id: str, job_id: str,
                  processing_mode: str = "uploaded-file", connector: str = "file_import",
@@ -322,7 +294,6 @@ def analyse_rows(records: Iterable[Tuple[int, Dict[str, Any]]], *, dataset: Dict
     return result
 
 
-# --------------------------------------------------------------------- writes
 def import_file(path: str, dataset: Dict[str, Any], mapping: Dict[str, str], *,
                 job_id: str, run_id: Optional[str] = None,
                 processing_mode: str = "uploaded-file", connector: str = "file_import",
@@ -421,10 +392,8 @@ def update_dataset_after_import(dataset_id: str, result: ImportResult, *, final_
         "updated_at": utcnow(),
     }
     if result.coverage:
-        # ``geographic_coverage`` is seeded from upload metadata before a single row has
-        # been read, so a four-province file would otherwise keep advertising the one
-        # fallback station named in the form. Coverage then grows with each append-only
-        # run instead of being replaced by whichever window happened to run last.
+        # ``geographic_coverage`` is seeded from upload metadata before any row is read, so it
+        # has to grow with each append-only run instead of trusting the form's fallback station.
         previous = datasets_repository.find_one({"_id": maybe_object_id(dataset_id)},
                                                 {"temporal_coverage": 1, "geographic_coverage": 1})
         temporal = _merge_coverage(
@@ -493,7 +462,6 @@ def build_validation_report(result: ImportResult) -> Dict[str, Any]:
     }
 
 
-# --------------------------------------------------------------------- helpers
 def _bulk_write(operations: List[ReplaceOne]) -> int:
     return climate_observations.bulk_write(operations)
 
@@ -608,7 +576,6 @@ def _max_upload_rows() -> int:
     return int(getattr(settings, "MAX_UPLOAD_ROWS", 500000))
 
 
-# --------------------------------------------------------------------- analysis (public)
 def analyse_file(path: str, dataset: Dict[str, Any], mapping: Dict[str, str], *,
                  run_id: Optional[str] = None, job_id: str = "preview",
                  max_rows: Optional[int] = None, collect_samples: bool = True) -> ImportResult:

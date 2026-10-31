@@ -10,11 +10,8 @@ export const QUERY = {
   metric: 'metric',
   start: 'start',
   end: 'end',
-  /** comma-separated region codes */
   regions: 'regions',
-  /** comma-separated location codes */
   locations: 'locations',
-  /** single-scope convenience keys */
   region: 'region',
   location: 'location',
   frequency: 'frequency',

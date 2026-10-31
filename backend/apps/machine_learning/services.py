@@ -21,9 +21,8 @@ if str(_BACKEND_DIR) not in sys.path:
 from common import analytics, storage_paths
 from common.analytics import InsufficientData, METRIC_LABELS, METRIC_UNITS
 
-# The frozen core has an import cycle (common/api.py <-> rest_framework.views via
-# DRF's DEFAULT_AUTHENTICATION_CLASSES); the monitoring app ships the sanctioned
-# untangling shim that every other API module uses, so import it first here too.
+# common/api.py and rest_framework.views import each other through DRF's
+# DEFAULT_AUTHENTICATION_CLASSES; the monitoring shim breaks that cycle and has to load first.
 from apps.monitoring import import_compat
 
 import_compat.ensure_common_api_importable()
@@ -31,7 +30,7 @@ import_compat.ensure_common_api_importable()
 from common.api import ADMINISTRATOR, ApiError  # noqa: E402
 from common.regions import LOCATIONS, REGION_META
 from common.repositories import (RepositoryError, climate_observations, model_registry,
-                                 predictions, serialize, utcnow)
+                                 predictions, serialize, utcnow, users)
 from config import env
 
 logger = logging.getLogger(__name__)
@@ -44,7 +43,6 @@ def _ml():
     return pipeline, predictor
 
 
-# ---------------------------------------------------------------- validation
 def _valid_date(value: Optional[str], field: str) -> Optional[str]:
     if value in (None, ""):
         return None
@@ -118,7 +116,6 @@ def validate_train_options(options: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# ------------------------------------------------------------------- training
 def train_model(requested_by: str, options: Dict[str, Any]) -> Dict[str, Any]:
     """Register ``training`` placeholders, then run the pipeline in a worker thread."""
     pipeline, _ = _ml()
@@ -261,7 +258,6 @@ def _aware(moment: datetime) -> datetime:
     return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
-# --------------------------------------------------------------------- reads
 def list_models(*, status: Optional[str] = None, target_variable: Optional[str] = None,
                 algorithm: Optional[str] = None, page: int = 1, page_size: int = 25) -> Dict[str, Any]:
     query: Dict[str, Any] = {}
@@ -400,7 +396,6 @@ def delete_model(model_id: str) -> Dict[str, Any]:
             "note": "Stored predictions keep their snapshot of the model's metrics."}
 
 
-# ------------------------------------------------------------------ catalogue
 def _observation_stats() -> Dict[str, Dict[str, Any]]:
     stats = {metric: {"rows_with_value": 0, "locations": set(), "first": None, "last": None}
              for metric in analytics.METRICS}
@@ -491,7 +486,6 @@ def _distinct_days(metric: str) -> int:
         return 0
 
 
-# ---------------------------------------------------------------- predictions
 def create_prediction(requested_by: str, body: Dict[str, Any]) -> Dict[str, Any]:
     _, predictor = _ml()
     model_id = str(body.get("model_id") or "").strip()
@@ -538,7 +532,7 @@ def create_prediction(requested_by: str, body: Dict[str, Any]) -> Dict[str, Any]
     payload["target_variable"] = document.get("target_variable")
     payload["created_at"] = utcnow()
     payload["_id"] = predictions.insert_one(payload)
-    return serialize(payload)
+    return _name_requester(serialize(payload))
 
 
 def _scope_observations(scope: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -564,8 +558,7 @@ def list_predictions(*, model_id: Optional[str] = None, target_variable: Optiona
     rows = predictions.find(query, sort=[("generated_at", -1)], limit=min(int(limit), 500))
     items: List[Dict[str, Any]] = []
     for document in rows:
-        # The horizon series itself belongs to the detail endpoint; the list carries its
-        # two ends so a row can state a number instead of an em dash.
+        # The list carries the two ends of the series so a row shows a number, not a dash.
         steps = document.pop("values", None) or []
         dates = sorted((str(row.get("forecast_date") or ""), row) for row in steps if isinstance(row, dict))
         if dates:
@@ -582,13 +575,32 @@ def list_predictions(*, model_id: Optional[str] = None, target_variable: Optiona
             first_val = steps[0] if steps and isinstance(steps[0], (int, float)) else None
             last_val = steps[-1] if steps and isinstance(steps[-1], (int, float)) else None
             unit = document.get("units") or document.get("unit")
-        summary = serialize(document)
+        summary = _name_requester(serialize(document))
         summary["forecast_steps"] = len(steps) or len(document.get("series") or [])
         summary["first_value"] = first_val
         summary["last_value"] = last_val
         summary["unit"] = unit
         items.append(summary)
     return items
+
+
+def _name_requester(document: Dict[str, Any]) -> Dict[str, Any]:
+    """Turn the requester's id into the name a reader recognises."""
+    provenance = document.get("provenance")
+    if not isinstance(provenance, dict):
+        return document
+    requester = str(provenance.get("requested_by") or "")
+    provenance.pop("requested_by", None)
+    if not requester:
+        return document
+    try:
+        account = users.find_one({"_id": _oid(requester)})
+    except ApiError:
+        account = None
+    name = str((account or {}).get("full_name") or "").strip()
+    if name:
+        provenance["requested_by_name"] = name
+    return document
 
 
 def get_prediction(prediction_id: str) -> Dict[str, Any]:
@@ -598,15 +610,13 @@ def get_prediction(prediction_id: str) -> Dict[str, Any]:
         document = None
     if document is None:
         raise ApiError("not_found", f"No prediction with id '{prediction_id}'.", status=404)
-    return serialize(document)
+    return _name_requester(serialize(document))
 
 
 def delete_prediction(prediction_id: str, actor) -> Dict[str, Any]:
-    """Remove a stored forecast. Only the requester or an administrator may do it.
+    """Delete a stored forecast; only its requester or an administrator may do it.
 
-    Ownership is read from the raw document: ``serialize()`` is a presentation view and
-    an absent ``requested_by`` there must not silently become "no owner", which would
-    let any signed-in account delete somebody else's forecast.
+    Ownership is read from the raw document because serialize() is a presentation view.
     """
     try:
         document = predictions.find_one({"_id": _oid(prediction_id)})
@@ -615,7 +625,8 @@ def delete_prediction(prediction_id: str, actor) -> Dict[str, Any]:
     if document is None:
         raise ApiError("not_found", f"No prediction with id '{prediction_id}'.", status=404)
     role = getattr(actor, "role", None)
-    owner = str(document.get("requested_by") or "")
+    owner = str(document.get("requested_by")
+                or (document.get("provenance") or {}).get("requested_by") or "")
     if role != ADMINISTRATOR and owner != str(getattr(actor, "id", "")):
         raise ApiError("permission_denied", "This forecast belongs to another account.", status=403)
     removed = predictions.delete_by_id(prediction_id)

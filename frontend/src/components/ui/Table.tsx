@@ -82,7 +82,6 @@ export interface SortableHeaderProps {
   className?: string;
 }
 
-/** Header cell with an accessible sort button (aria-sort on the th). */
 export function SortableHeader({ label, active, dir, onSort, className }: SortableHeaderProps) {
   return (
     <TH

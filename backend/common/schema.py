@@ -23,13 +23,10 @@ SUPPORTED_ON_LOCAL_STORE = {
 
 
 def _prune_stale_indexes(db, report: List[Dict[str, Any]]) -> None:
-    """Drop indexes on managed collections that ``INDEX_SPECS`` no longer declares.
+    """Drop indexes on managed collections that INDEX_SPECS no longer declares.
 
-    An index left over from an earlier field naming (``model_name`` instead of
-    ``name``, for example) indexes every document as ``null``, so its unique
-    constraint rejects a perfectly legitimate second insert with a duplicate-key
-    error. Removing them keeps the store and the declared contract comparable;
-    ``_create_indexes`` then rebuilds the current definition under its own name.
+    An index left from an earlier field naming holds null for every document, so
+    its unique constraint rejects a legitimate second insert as a duplicate.
     """
     for collection_name, specs in schema.INDEX_SPECS.items():
         declared = {spec["name"] for spec in specs}

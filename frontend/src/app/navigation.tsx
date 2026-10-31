@@ -9,6 +9,7 @@ import {
   Cpu,
   Database,
   FileBarChart,
+  FileSpreadsheet,
   Gauge,
   History,
   LifeBuoy,
@@ -58,6 +59,7 @@ export const APPLICATION_SECTIONS: NavSection[] = [
     items: [
       { to: '/app/datasets', label: 'Dataset library', icon: Database },
       { to: '/app/uploads', label: 'Import data', icon: UploadCloud },
+      { to: '/app/file-analytics', label: 'File analytics', icon: FileSpreadsheet },
       { to: '/app/ingestion', label: 'Ingestion jobs', icon: ListChecks },
       { to: '/app/processing', label: 'Processing monitor', icon: Boxes },
       { to: '/app/big-data', label: 'Big data workspace', icon: Cpu, roles: ['administrator', 'climate_analyst'] },

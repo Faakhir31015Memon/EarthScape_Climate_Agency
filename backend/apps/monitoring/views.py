@@ -1,18 +1,8 @@
-"""Health, readiness and platform-status API for ``/api/v1/`` and ``/api/v1/system/``.
+"""Health, readiness and platform-status endpoints under /api/v1/.
 
-Contract that every view in this module follows:
-
-* Component availability is reported only from an actual probe.
-* Secrets (MongoDB URI, SMTP credentials, JWT signing key) are never returned.
-* ``background.executor`` reports the in-process pool so operators know what is executing.
-* ``processing_mode`` is derived from :func:`apps.processing.engines.engine_health`
-  so the value matches what the next job will use.
-* ``/system/metrics`` reports request totals + latency as ``null`` and lists them
-  under ``unavailable`` because the middleware does not keep an accumulator;
-  jobs and resources are computed from the stored documents.
-* ``backups`` writes files under ``backend/.data/backups`` and computes their
-  sha256/size/count; ``restore_verified`` is set true **only** if the code
-  below performed a verification round-trip.
+Availability only ever comes from a probe that ran, secrets never appear in a response,
+and a metric the process does not actually accumulate is reported as null and listed
+under unavailable instead of being estimated.
 """
 from __future__ import annotations
 
@@ -89,7 +79,6 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 BACKUP_ROOT = MEDIA_ROOT / "backups"
 BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
 
-# ============================================================================= views
 class SystemView(AuthenticatedView):
     authentication_classes = [MongoJWTAuthentication]
     permission_classes = [IsAuthenticatedAccount]
@@ -103,7 +92,6 @@ class AdminSystemView(SystemView):
     permission_classes = [IsAdministrator]
 
 
-# --------------------------------------------------------------------- health trio
 class HealthView(AuthenticatedView):
     """``GET /api/v1/health`` - exact HealthResponse shape from api.ts."""
 
@@ -180,7 +168,6 @@ class ApiIndexView(HealthView):
         })
 
 
-# ================================================================== system endpoints
 class SystemStatusView(SystemView):
     """``GET /api/v1/system/status`` - HealthResponse + operational extras."""
 
@@ -388,17 +375,12 @@ class ServicesView(SystemView):
         return Response({"items": items, "checked_at": utcnow()})
 
 
-# ==================================================================== backup engine
 def perform_backup(*, created_by: Optional[str], note: Optional[str] = None) -> Dict[str, Any]:
-    """Create a timestamped backup under ``backend/.data/backups``.
+    """Write a timestamped backup under ``backend/.data/backups``.
 
-    * In ``atlas`` mode with ``mongodump`` on PATH, run ``mongodump`` (argument
-      list, no shell) into the backup directory and hash the resulting dump.
-    * Otherwise, flush local snapshots and copy the ``localdb/*.json`` files.
-
-    sha256 + size_bytes + document_count come from file reads on the written
-    backup, and ``restore_verified`` is False unless a verification round-trip
-    succeeded inside this call.
+    mongodump when it is on PATH in atlas mode, otherwise the local snapshots are
+    flushed and ``localdb/*.json`` is copied. sha256, size_bytes and
+    document_count are read back from the file just written.
     """
     db = get_database()
     try:
@@ -484,7 +466,6 @@ def perform_backup(*, created_by: Optional[str], note: Optional[str] = None) -> 
     return record
 
 
-# ==================================================================== helpers
 def _serialisable(document: Dict[str, Any]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for key, value in document.items():
@@ -707,9 +688,9 @@ def _ml_summary() -> Dict[str, Any]:
     try:
         models = int(model_registry.count({}))
         preds = int(predictions.count({}))
-        active = model_registry.find_one({"status": "active"}, {"_id": 1, "target_variable": 1})
+        active = model_registry.find_one({"status": "active"}, {"name": 1}) or {}
         return {"models": models, "predictions": preds,
-                "active_model": str(active.get("_id")) if active else None}
+                "active_model": str(active.get("name") or "").strip() or None}
     except Exception:  # noqa: BLE001
         return {"models": None, "predictions": None, "active_model": None}
 
@@ -911,14 +892,11 @@ def _binary_version(binary: str, resolved: Optional[str]) -> Optional[str]:
     return None
 
 
-# --------------------------------------------------------------------- endpoint catalog
 def _endpoint_groups() -> List[Dict[str, Any]]:
     """Static description of what the URL roots expose.
 
-    The roles list is derived from the permission classes on each view (see
-    :mod:`apps.processing.views`, :mod:`apps.monitoring.views`, etc.) - not from
-    client-supplied data. Kept here as data so it can be returned without a
-    second HTTP hop.
+    The roles list comes from the permission classes on each view, not from
+    client-supplied data. Kept here as data so it costs no second HTTP hop.
     """
     staff = ["administrator", "climate_analyst"]
     admin = ["administrator"]

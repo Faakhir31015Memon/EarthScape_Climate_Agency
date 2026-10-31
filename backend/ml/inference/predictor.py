@@ -1,17 +1,10 @@
 """Forecast inference for registered models.
 
-Forecasting mode (documented, as required by the spec): a **single-step model
-used recursively**. One regressor predicts day ``d`` from features dated
-``< d``; for multi-day forecasts the prediction for day ``d`` is fed back into
-the history before predicting ``d + 1``. This matches deployment reality (the
-true intermediate values are not known at forecast time) and the holdout
-evaluation below uses exactly the same recursion, so reported metrics are
-multi-step metrics, not optimistic one-step metrics.
-
-Uncertainty bands are empirical: per-lead-time residual quantiles measured on
-the chronological holdout during training and frozen into the artifact. When a
-holdout was too small to produce them, ``uncertainty.available`` is false and
-the note says why. A band is a historical error envelope, never a guarantee.
+A single-step regressor used recursively: day d comes from features dated before d, and
+the answer is fed back before predicting d + 1. The holdout evaluation runs the same
+recursion, so the published metrics are multi-step rather than optimistic one-step.
+Uncertainty bands are residual quantiles frozen at training time - an error envelope,
+not a guarantee - and are left out when the holdout was too small to support them.
 """
 from __future__ import annotations
 
@@ -55,7 +48,6 @@ def validate_horizon(horizon_days: int, allowed: Optional[int] = None) -> int:
     return horizon_days
 
 
-# ----------------------------------------------------------------- artifacts
 def load_artifact(model_document: Dict[str, Any]) -> Dict[str, Any]:
     path = storage_paths.stored_path(model_document.get("artifact_uri"))
     if path is None:
@@ -70,7 +62,6 @@ def load_artifact(model_document: Dict[str, Any]) -> Dict[str, Any]:
     return artifact
 
 
-# ------------------------------------------------------------------- history
 def _parse_day(raw: Any) -> Optional[date]:
     if isinstance(raw, datetime):
         return raw.date()
@@ -136,10 +127,22 @@ def _value(raw: Any) -> Optional[float]:
     return None if math.isnan(value) or math.isinf(value) else value
 
 
-# ---------------------------------------------------------------- recursion
 def _feature_row(history: LocationHistory, day: date, feature_names: Sequence[str]) -> List[Optional[float]]:
     feats = history.features_at(day)
     return [feats.get(name) for name in feature_names]
+
+
+def _predict_day(model: Any, history: LocationHistory, feature_names: Sequence[str], day: date) -> float:
+    """One recursive step. A missing day in the stored history leaves a lag undefined and
+    tree models refuse NaN, so that day falls back to the seasonal baseline."""
+    row = _feature_row(history, day, feature_names)
+    if all(value is not None for value in row):
+        return float(model.predict(np.array([[float(value) for value in row]], dtype=float))[0])
+    baseline = history.baseline_mean(day.month)
+    if baseline is not None:
+        return float(baseline)
+    known = [value for value in history.values if value is not None]
+    return float(known[-1]) if known else 0.0
 
 
 def recursive_forecast(model: Any, history: LocationHistory, feature_names: Sequence[str],
@@ -147,9 +150,7 @@ def recursive_forecast(model: Any, history: LocationHistory, feature_names: Sequ
     """Feed each prediction back into the history before predicting the next day."""
     predictions: List[float] = []
     for day in dates:
-        row = _feature_row(history, day, feature_names)
-        matrix = np.array([[None if value is None else float(value) for value in row]], dtype=float)
-        value = float(model.predict(matrix)[0])
+        value = _predict_day(model, history, feature_names, day)
         predictions.append(value)
         history.append(day, value, overwrite=False)
     return predictions
@@ -160,11 +161,8 @@ def simulate_from_origin(history_template: LocationHistory, rows: Sequence[Tuple
                          eval_days: Sequence[date]) -> List[Tuple[date, Optional[float], float]]:
     """Recursive multi-step simulation used for holdout evaluation.
 
-    Observations are replayed up to ``origin``; from ``origin + 1`` onward the
-    model only ever sees its own previous predictions (true intermediate values
-    are never fed back), then the simulated value is compared with the actual
-    stored on each evaluation day. Reported metrics are therefore multi-step
-    metrics, matching deployment behaviour.
+    Observations are replayed up to origin; from origin + 1 the model only sees
+    its own previous predictions, so the metrics match deployment behaviour.
     """
     history = LocationHistory(history_template.location_code, history_template.region,
                               history_template.latitude, history_template.longitude,
@@ -180,9 +178,7 @@ def simulate_from_origin(history_template: LocationHistory, rows: Sequence[Tuple
     last_day = max(wanted) if wanted else origin
     while cursor < last_day:
         cursor = cursor + timedelta(days=1)
-        row = _feature_row(history, cursor, feature_names)
-        matrix = np.array([[None if v is None else float(v) for v in row]], dtype=float)
-        predicted = float(model.predict(matrix)[0])
+        predicted = _predict_day(model, history, feature_names, cursor)
         history.append(cursor, predicted)
         if cursor in wanted:
             results.append((cursor, actual_by_day.get(cursor), predicted))
@@ -217,7 +213,6 @@ def seasonal_naive(rows: Dict[date, Optional[float]], origin_ordinal: int,
     return out
 
 
-# ------------------------------------------------------------------ forecast
 def forecast(*, model_document: Dict[str, Any], observations: Sequence[Dict[str, Any]],
              scope: Dict[str, Any], horizon_days: int,
              forecast_origin_date: Optional[str] = None,
@@ -257,9 +252,9 @@ def forecast(*, model_document: Dict[str, Any], observations: Sequence[Dict[str,
 
     feature_names = artifact["preprocess"]["feature_names"]
     forecast_dates = [origin + timedelta(days=step) for step in range(1, horizon_days + 1)]
-    # A recursive forecast fed only its own outputs decays toward a fixed point, so beyond
-    # the lead the holdout proved useful the seasonal climatology is used instead. Artifacts
-    # trained before that crossover was measured keep the previous fully-recursive behaviour.
+    # Recursion on its own outputs decays toward a fixed point, so past the lead the
+    # holdout proved useful the climatology takes over. Artifacts trained before that
+    # crossover was measured stay fully recursive.
     declared_skill = artifact.get("skillful_lead_days")
     skillful_lead = horizon_days if declared_skill is None else max(0, int(declared_skill))
     per_location: Dict[str, List[float]] = {}
@@ -271,7 +266,7 @@ def forecast(*, model_document: Dict[str, Any], observations: Sequence[Dict[str,
             series.append(anchor if anchor is not None else value)
         per_location[loc] = series
 
-    # precipitation is physically bounded below by zero; clamp and disclose it.
+    # Precipitation cannot go below zero; clamp it and say so.
     clamped = target == "precipitation_mm"
     means: List[float] = []
     for i, day in enumerate(forecast_dates):
@@ -359,7 +354,8 @@ def forecast(*, model_document: Dict[str, Any], observations: Sequence[Dict[str,
         "data_freshness_days": freshness,
         "provenance": {
             "requested_by": requested_by,
-            "feature_source": "climate_observations (MongoDB) + frozen training preprocessing",
+            "feature_source": "stored daily observations for the selected area, using the "
+                              "preprocessing frozen at training time",
             "actual_observations_used": int(sum(
                 1 for hist in usable.values() for v in hist.values if v is not None)),
         },
@@ -378,7 +374,6 @@ def forecast(*, model_document: Dict[str, Any], observations: Sequence[Dict[str,
     return document
 
 
-# --------------------------------------------------------------- persistence
 def persist_prediction(document: Dict[str, Any]) -> str:
     from common.repositories import predictions, utcnow
 

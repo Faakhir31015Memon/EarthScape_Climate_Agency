@@ -234,6 +234,7 @@ ROLE_CAPABILITIES = {
         "datasets:upload",
         "analytics:read",
         "alerts:read",
+        "predictions:run",
         "reports:read",
         "feedback:create",
         "support:read",

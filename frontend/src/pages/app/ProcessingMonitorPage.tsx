@@ -207,7 +207,7 @@ export default function ProcessingMonitorPage() {
   )
 }
 
-/* -------------------------------------------------------------- small bits */
+// small bits
 
 function Select({ status, onChange }: { status: string | undefined; onChange: (next?: string) => void }) {
   return (
@@ -268,7 +268,7 @@ function EngineRow({ label, ok, detail, configured }: { label: string; ok: boole
   )
 }
 
-/* ------------------------------------------------------------- columns */
+// columns
 
 function jobColumns({
   canRun,
@@ -328,7 +328,7 @@ function jobColumns({
   ]
 }
 
-/* ---------------------------------------------------------- detail modal */
+// detail modal
 
 function JobDetailModal({
   job,
@@ -439,7 +439,7 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: '
   )
 }
 
-/* ------------------------------------------------------ start workflow dialog */
+// start workflow dialog
 
 function StartWorkflowDialog({
   workflow,

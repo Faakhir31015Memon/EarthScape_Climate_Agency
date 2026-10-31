@@ -41,7 +41,6 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# --------------------------------------------------------------------- helpers
 def ensure_observation_frame(df):
     """Coerce any readable frame into the canonical observation schema."""
     schema = spark_schema()
@@ -279,7 +278,6 @@ def _round(value: Optional[float], digits: int = 4) -> Optional[float]:
     return round(number, digits)
 
 
-# ------------------------------------------------------------------- 1. normalise
 def normalise_and_partition(spark, options: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     frame, resolved_input = load_source(spark, options)
     rows_in = frame.count()
@@ -314,7 +312,6 @@ def normalise_and_partition(spark, options: Dict[str, Any]) -> Tuple[Dict[str, A
     return summary, prefix
 
 
-# ------------------------------------------------------------- 2. missing profiles
 def missing_value_profiling(spark, options: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     frame, resolved_input = load_source(spark, options)
     total = frame.count()
@@ -355,7 +352,6 @@ def missing_value_profiling(spark, options: Dict[str, Any]) -> Tuple[Dict[str, A
     return profile, (result.path if result.ok else "analytics/" + key)
 
 
-# ------------------------------------------------- 3. regional aggregation (+MR check)
 def aggregate_monthly_regional(frame):
     """The exact reducer semantics: mean over usable temps, sum over usable precip."""
     usable = frame.filter(F.col("temperature_c").isNotNull() | F.col("precipitation_mm").isNotNull())
@@ -461,7 +457,6 @@ def regional_climate_aggregation(spark, options: Dict[str, Any]) -> Tuple[Dict[s
     return summary, prefix
 
 
-# ------------------------------------------------------------ 4. trend analysis
 def trend_analysis(spark, options: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     frame, resolved_input = load_source(spark, options)
     annual = frame.filter(F.col("temperature_c").isNotNull()).groupBy("region_code", "year").agg(
@@ -507,7 +502,6 @@ def trend_analysis(spark, options: Dict[str, Any]) -> Tuple[Dict[str, Any], str]
     return summary, prefix
 
 
-# ------------------------------------------------------- 5. anomaly features
 def anomaly_feature_generation(spark, options: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     frame, resolved_input = load_source(spark, options)
     metric = options.get("metric", "temperature_c")
@@ -559,7 +553,6 @@ def anomaly_feature_generation(spark, options: Dict[str, Any]) -> Tuple[Dict[str
     return summary, prefix
 
 
-# ---------------------------------------------------------- 6. correlation
 def correlation_analysis(spark, options: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     frame, resolved_input = load_source(spark, options)
     metrics = options.get("metrics") or ["temperature_c", "precipitation_mm",
@@ -609,7 +602,6 @@ def correlation_analysis(spark, options: Dict[str, Any]) -> Tuple[Dict[str, Any]
     return payload, (result.path if result.ok else f"analytics/{key}")
 
 
-# ------------------------------------------------------------- 7. ML feature prep
 def ml_feature_prep(spark, options: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     frame, resolved_input = load_source(spark, options)
     metric = options.get("metric", "temperature_c")
@@ -652,7 +644,6 @@ def ml_feature_prep(spark, options: Dict[str, Any]) -> Tuple[Dict[str, Any], str
     return summary, prefix
 
 
-# --------------------------------------------------------- 8. export + summaries
 def export_processed_parquet(spark, options: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     frame, resolved_input = load_source(spark, options)
     run = utcnow().strftime("%Y%m%dT%H%M%SZ")

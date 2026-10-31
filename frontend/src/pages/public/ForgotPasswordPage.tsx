@@ -20,7 +20,7 @@ type ForgotValues = z.infer<typeof forgotSchema>
  * ``configuration_required`` and ``delivery_failed`` mean nothing reached an inbox, so the page
  * says so plainly rather than implying an email is on its way.
  */
-type Outcome = { kind: 'neutral' } | { kind: 'not_delivered'; text: string }
+type Outcome = { kind: 'neutral'; email?: string } | { kind: 'not_delivered'; text: string }
 
 export default function ForgotPasswordPage() {
   const { configuration } = useAuth()
@@ -40,27 +40,33 @@ export default function ForgotPasswordPage() {
     setApiError(null)
     setOutcome(null)
     setSubmitting(true)
+    const email = values.email.trim()
     try {
-      const response = await authApi.requestPasswordReset(values.email.trim())
-      if (response.status === 'configuration_required') {
+      const response = await authApi.requestPasswordReset(email)
+      if (response.status === 'admin_restricted') {
         setOutcome({
           kind: 'not_delivered',
-          text: 'This deployment has no email delivery set up, so no link could be sent. An administrator can set your password from user management.',
+          text: response.note || 'Password reset via email is strictly for user accounts. Administrator accounts cannot be reset using this form.',
+        })
+      } else if (response.status === 'configuration_required') {
+        setOutcome({
+          kind: 'not_delivered',
+          text: 'Recovery email is not switched on for this site yet, so no link could be sent. Nothing has changed on your account.',
         })
       } else if (response.status === 'delivery_failed') {
         setOutcome({
           kind: 'not_delivered',
-          text: 'Your request is recorded, but the message did not go out. Try again in a moment, or ask an administrator.',
+          text: 'Your request was recorded, but the email could not be delivered. Please verify your email address and try again in a moment.',
         })
       } else {
-        setOutcome({ kind: 'neutral' })
+        setOutcome({ kind: 'neutral', email })
       }
     } catch (cause) {
       const error = cause instanceof ApiRequestError ? cause : new ApiRequestError(String(cause), 'unexpected_error', 0)
       if (error.code === 'feature_disabled') {
         setOutcome({
           kind: 'not_delivered',
-          text: 'Self-service recovery is switched off here. An administrator sets your password directly.',
+          text: 'Self-service password recovery is switched off on this site.',
         })
       } else {
         setApiError(error)
@@ -72,10 +78,9 @@ export default function ForgotPasswordPage() {
 
   if (resetDisabled) {
     return (
-      <Panel title="An administrator sets passwords here">
+      <Panel title="Password recovery is switched off">
         <p className="text-sm leading-relaxed muted">
-          Self-service reset is switched off on this deployment, so this form cannot send a link. An administrator sets your password from
-          user management, and you can sign in after that.
+          Self-service reset is turned off on this site, so this form cannot send a link.
         </p>
         <Link to="/login" className="link mt-4 inline-flex items-center gap-1.5 text-sm">
           <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to sign in
@@ -100,21 +105,19 @@ export default function ForgotPasswordPage() {
           )}
           <div className="min-w-0">
             <p className="text-sm font-semibold">
-              {outcome.kind === 'neutral' ? 'Check your inbox' : 'No link was delivered'}
+              {outcome.kind === 'neutral' ? 'Reset link sent to your email' : 'No link was delivered'}
             </p>
             <p className="mt-1.5 text-sm leading-relaxed muted">
               {outcome.kind === 'neutral'
-                ? 'If that address has an account, a reset link is on its way. The link works once and expires after a short window. Check your spam folder, then ask an administrator if nothing arrives.'
+                ? `A password reset link has been automatically sent to ${outcome.email ? `"${outcome.email}"` : 'your email address'}. Open your inbox, click the reset link, and you will be able to set a new password immediately. (Remember to check your spam folder if it doesn't appear in a few moments).`
                 : outcome.text}
             </p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {outcome.kind === 'not_delivered' ? (
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOutcome(null)}>
-              Try another address
-            </button>
-          ) : null}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOutcome(null)}>
+            Send another link
+          </button>
           <Link to="/login" className="btn btn-primary btn-sm">
             Back to sign in
           </Link>
@@ -126,16 +129,17 @@ export default function ForgotPasswordPage() {
   return (
     <form onSubmit={onSubmit} className="space-y-5" noValidate>
       <p className="text-sm leading-relaxed muted">
-        Enter the email address on your account. The reply looks the same either way, because the form does not confirm which addresses exist.
+        Enter your registered email address below. We'll automatically send a secure password reset link to your email.
       </p>
 
-      <Field label="Email address" htmlFor="email" error={errors.email?.message} required>
+      <Field label="Email address" htmlFor="email" error={errors.email?.message} required hint="The email associated with your user account.">
         <input
           id="email"
           className="input"
           type="email"
           inputMode="email"
           autoComplete="email"
+          placeholder="your.email@example.com"
           spellCheck={false}
           autoFocus
           aria-invalid={Boolean(errors.email)}
@@ -147,7 +151,7 @@ export default function ForgotPasswordPage() {
 
       <button type="submit" className="btn btn-primary w-full" disabled={submitting}>
         {submitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Mail className="h-4 w-4" aria-hidden="true" />}
-        {submitting ? 'Sending…' : 'Request a reset link'}
+        {submitting ? 'Sending reset link…' : 'Send Password Reset Link'}
       </button>
 
       <p className="text-sm muted">

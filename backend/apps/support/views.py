@@ -96,7 +96,6 @@ def require_object_id(value: str, label: str) -> str:
     return value
 
 
-# ----------------------------------------------------------------------- tickets
 class TicketListView(SupportView):
     """``GET/POST /api/v1/support/tickets``."""
 
@@ -423,7 +422,6 @@ class SupportSummaryView(SupportView):
         })
 
 
-# ---------------------------------------------------------------------- feedback
 def _present_feedback(document: Dict[str, Any], request, names: Dict[str, str]) -> Dict[str, Any]:
     user = getattr(request, "user", None)
     administrator = bool(user and user.role == ADMINISTRATOR)
@@ -447,7 +445,6 @@ def _present_feedback(document: Dict[str, Any], request, names: Dict[str, str]) 
     return payload
 
 
-# ------------------------------------------------------------------- presentation
 def present(document: Dict[str, Any], request, names: Dict[str, str]) -> Dict[str, Any]:
     staff = is_staff(request)
     comments = [comment for comment in (document.get("comments") or [])
@@ -483,7 +480,6 @@ def present(document: Dict[str, Any], request, names: Dict[str, str]) -> Dict[st
     }
 
 
-# ------------------------------------------------------------------------ helpers
 def _read(ticket_id: str) -> Dict[str, Any]:
     require_object_id(ticket_id, "ticket")
     try:
@@ -606,13 +602,11 @@ def _as_datetime(value: Any) -> Optional[datetime]:
     return None
 
 
-# -------------------------------------------------------------------------- feedback
 class FeedbackListView(SupportView):
     """``GET/POST /api/v1/feedback`` - paginated list + create.
 
-    A viewer only sees their own submissions; staff see every record. The
-    feedback text itself is stored as-is and rendered by the React client
-    (which escapes it) - the backend never injects HTML or evaluates it.
+    Viewers see only their own submissions, staff see every record. Feedback text
+    is stored as-is and escaped by the React client.
     """
 
     def get(self, request):

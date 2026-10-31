@@ -308,7 +308,7 @@ export default function AnomaliesPage() {
   )
 }
 
-/* --------------------------------------------------------------- columns */
+// columns
 
 function anomalyColumns({
   onRaiseRule,
@@ -400,7 +400,7 @@ function anomalyColumns({
   ]
 }
 
-/* ------------------------------------------------------------- export btn */
+// export btn
 
 function ExportButton({
   enabled,
@@ -441,7 +441,7 @@ function ExportButton({
   )
 }
 
-/* ---------------------------------------------------------- raise rule modal */
+// raise rule modal
 
 function RaiseRuleModal({
   anomaly,

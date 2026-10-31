@@ -50,7 +50,6 @@ export function ProvenanceNote({ children }: { children?: ReactNode }) {
   )
 }
 
-/** In-page jump navigation for the long documentation-style public pages. */
 export function AnchorNav({ items }: { items: { id: string; label: string }[] }) {
   return (
     <nav aria-label="On this page" className="card-tight mb-6 flex flex-wrap gap-x-4 gap-y-2 text-sm">

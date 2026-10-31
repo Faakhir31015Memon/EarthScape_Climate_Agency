@@ -33,7 +33,7 @@ export const GRID_STROKE = 'var(--border)'
 
 export interface TooltipEntry {
   name?: string | number
-  value?: number | string | null
+  value?: number | string | null | (number | null)[]
   color?: string
   dataKey?: string | number
   unit?: string
@@ -66,11 +66,7 @@ export function ChartTooltipContent({
               <span className="truncate">{entry.name}</span>
             </span>
             <span className="mono font-medium">
-              {entry.value === null || entry.value === undefined
-                ? '—'
-                : typeof entry.value === 'number'
-                  ? entry.value.toFixed(valueDigits)
-                  : String(entry.value)}
+              {renderValue(entry.value, valueDigits)}
               {` ${entry.unit ?? unit ?? ''}`.trimEnd()}
             </span>
           </li>
@@ -78,6 +74,16 @@ export function ChartTooltipContent({
       </ul>
     </div>
   )
+}
+
+function renderValue(value: TooltipEntry['value'], digits: number): string {
+  if (value === null || value === undefined) return '—'
+  if (Array.isArray(value)) {
+    const [low, high] = value
+    if (low === null || low === undefined || high === null || high === undefined) return '—'
+    return `${low.toFixed(digits)} – ${high.toFixed(digits)}`
+  }
+  return typeof value === 'number' ? value.toFixed(digits) : String(value)
 }
 
 export function ChartLegend({ items }: { items: { label: string; color: string }[] }) {
